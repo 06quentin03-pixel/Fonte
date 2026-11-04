@@ -1,5 +1,5 @@
 /* Fonte : fonctionnement hors ligne. Change VERSION à chaque mise à jour de l'appli. */
-const VERSION = "fonte-2026-11-03a";
+const VERSION = "fonte-2026-11-04a";
 const EXT = "fonte-ext";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
