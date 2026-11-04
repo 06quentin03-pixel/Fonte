@@ -2158,13 +2158,15 @@ const INSTALLED = (window.matchMedia && window.matchMedia("(display-mode: standa
 /* ================= État ================= */
 const LS = "fonte:v1", LS_RUN = "fonte:run", LS_UI = "fonte:ui";
 const DEF_PROFILE = { prenom: "", sexe: "", age: null, taille: null, poids: null, niveau: "debutant", objectif: "forme", jours: 3, sansSaut: false, barre: 20 };
-const DEF = { v: 1, upd: 0, agUpd: 0, profile: DEF_PROFILE, mesSeances: [], historique: [], lastPerf: {}, agenda: [], imports: [], partners: {}, hidden: {} };
+const DEF = { v: 1, upd: 0, agUpd: 0, profile: DEF_PROFILE, mesSeances: [], historique: [], lastPerf: {}, histDel: {}, histClear: 0, agenda: [], imports: [], partners: {}, hidden: {} };
 function loadState() {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) { s = null; }
   const st = Object.assign(clone(DEF), s && typeof s === "object" ? s : {});
   st.profile = Object.assign(clone(DEF_PROFILE), st.profile || {});
   ["mesSeances", "historique", "agenda", "imports"].forEach(k => { if (!Array.isArray(st[k])) st[k] = []; });
+  if (!st.histDel || typeof st.histDel !== "object" || Array.isArray(st.histDel)) st.histDel = {};
+  if (typeof st.histClear !== "number") st.histClear = 0;
   return st;
 }
 let S = loadState();
@@ -2370,7 +2372,7 @@ const Sync = {
 function hasPrivData() { return S.mesSeances.length || S.historique.length || S.profile.sexe || S.profile.prenom || S.imports.length; }
 function privPayload() {
   let hist = S.historique.slice(0, 150);
-  let p = { v: 1, upd: S.upd || Date.now(), profile: S.profile, mesSeances: S.mesSeances.slice(0, 100), historique: hist, lastPerf: S.lastPerf, imports: S.imports.slice(0, 6) };
+  let p = { v: 1, upd: S.upd || Date.now(), profile: S.profile, mesSeances: S.mesSeances.slice(0, 100), historique: hist, lastPerf: S.lastPerf, imports: S.imports.slice(0, 6), histDel: S.histDel, histClear: S.histClear || 0 };
   while (JSON.stringify(p).length > 230000 && hist.length > 10) { hist = hist.slice(0, Math.floor(hist.length * 0.7)); p.historique = hist; }
   return p;
 }
@@ -2381,13 +2383,22 @@ function agPayload() {
 function adoptPriv(r) {
   if (r.profile && typeof r.profile === "object") S.profile = Object.assign(clone(DEF_PROFILE), r.profile);
   if (Array.isArray(r.mesSeances)) S.mesSeances = r.mesSeances.filter(m => m && Array.isArray(m.items));
+  // Suppressions : les séances supprimées (histDel) s'additionnent, l'effacement complet (histClear) suit la version la plus récente
+  if (r.histDel && typeof r.histDel === "object" && !Array.isArray(r.histDel)) S.histDel = pruneDel(Object.assign({}, S.histDel, r.histDel));
+  if (typeof r.histClear === "number") S.histClear = r.histClear;
+  const clr = S.histClear || 0;
   if (Array.isArray(r.historique)) {
     const map = {}; S.historique.concat(r.historique).forEach(h => { if (h && h.id) map[h.id] = h; });
-    S.historique = Object.values(map).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 400);
+    S.historique = Object.values(map).filter(h => !S.histDel[h.id] && (h.ts || 0) > clr).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 400);
   }
   if (r.lastPerf && typeof r.lastPerf === "object") S.lastPerf = Object.assign({}, S.lastPerf, r.lastPerf);
+  if (clr) Object.keys(S.lastPerf).forEach(id => { const lp = S.lastPerf[id]; const t = lp && (lp.ts || (typeof lp.d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(lp.d) ? fromISO(lp.d).getTime() : 0)); if (!t || t <= clr) delete S.lastPerf[id]; });
   if (Array.isArray(r.imports)) S.imports = r.imports;
   S.upd = r.upd || S.upd;
+}
+function pruneDel(m) {
+  const ks = Object.keys(m); if (ks.length <= 300) return m;
+  const out = {}; ks.sort((a, b) => m[b] - m[a]).slice(0, 300).forEach(k => { out[k] = m[k]; }); return out;
 }
 async function refreshNames() {
   if (!Sync.user) return;
@@ -2510,7 +2521,7 @@ const Cloud = {
     if (c.indexOf("auth/") === 0 || c === "permission-denied") this.stop();
   },
   async activate(cfg, space) { await this.stop(); this.cfg = cfg; this.space = space; this.save(); this.start(); },
-  async leave() { const col = this.col, uid = this.uid; if (col && uid) { try { col.doc(uid).delete().catch(() => { }); } catch (e) { } } await this.stop(); this.cfg = null; this.space = null; this.save(); S.partners = {}; this.state = "off"; this.err = ""; saveLocal(); render(); },
+  async leave() { const col = this.col, uid = this.uid; if (col && uid) { try { await Promise.race([col.doc(uid).delete(), new Promise(r => setTimeout(r, 5000))]); } catch (e) { } } await this.stop(); this.cfg = null; this.space = null; this.save(); S.partners = {}; this.state = "off"; this.err = ""; saveLocal(); render(); },
   invite() { return "FONTESYNC1." + b64e(JSON.stringify({ c: { apiKey: this.cfg.apiKey, authDomain: this.cfg.authDomain, projectId: this.cfg.projectId, appId: this.cfg.appId }, s: this.space })); }
 };
 function parseInvite(raw) {
@@ -3011,8 +3022,10 @@ async function wakeLock() { try { if (navigator.wakeLock && !WL) { WL = await na
 function releaseWake() { try { if (WL) WL.release(); } catch (e) { } WL = null; }
 
 function startRun(se, opts) {
-  Sheet.closeAll(); closeEditor();
   se = clone(se); se.kind = se.kind || (se.mode === "circuit" ? "hiit" : "muscu");
+  se.items = (se.items || []).filter(it => it && EX_BY_ID[it.id]);
+  if (!se.items.length) { toast("Aucun exercice de cette séance n’existe encore dans l’appli."); return; }
+  Sheet.closeAll(); closeEditor();
   R = Object.assign({ se, steps: buildSteps(se), idx: 0, start: Date.now(), log: se.items.map(() => []), t: null, cur: null, beeped: {} }, opts || {});
   unlockAudio(); wakeLock(); enterStep(); $("#runner").hidden = false;
 }
@@ -3126,7 +3139,7 @@ function saveRunHistory() {
   const today = todayISO();
   S.historique.unshift({ id: rid(), date: today, ts: Date.now(), nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log });
   if (S.historique.length > 400) S.historique.length = 400;
-  se.items.forEach((it, i) => { const reps = R.log[i].filter(x => x.r != null); if (reps.length) S.lastPerf[it.id] = { d: today, sets: reps.map(x => ({ r: x.r, kg: x.kg || 0 })), target: it.reps }; });
+  se.items.forEach((it, i) => { const reps = R.log[i].filter(x => x.r != null); if (reps.length) S.lastPerf[it.id] = { d: today, ts: Date.now(), sets: reps.map(x => ({ r: x.r, kg: x.kg || 0 })), target: it.reps }; });
   let ag = false;
   const ev = R.eventId ? S.agenda.find(e => e.id === R.eventId) : (ref ? S.agenda.find(e => e.date === today && !e.fait && e.ref && e.ref.k === ref.k && e.ref.id === ref.id) : null);
   if (ev) { ev.fait = true; ag = true; }
@@ -3222,6 +3235,7 @@ function restoreData(raw) {
   S.profile = Object.assign(clone(DEF_PROFILE), o.profile);
   S.mesSeances = Array.isArray(o.mesSeances) ? o.mesSeances.filter(m => m && Array.isArray(m.items)) : [];
   S.historique = Array.isArray(o.historique) ? o.historique.filter(h => h && h.id && h.date) : [];
+  S.histClear = 0; S.histDel = {};
   S.lastPerf = o.lastPerf && typeof o.lastPerf === "object" ? o.lastPerf : {};
   S.agenda = cleanEvents(o.agenda);
   S.imports = Array.isArray(o.imports) ? o.imports.filter(i => i && i.id).map(i => Object.assign(i, { events: cleanEvents(i.events) })) : [];
@@ -3278,7 +3292,7 @@ const A = {
     if (!se.items.length) { toast("Ajoute au moins un exercice."); return; }
     se.nom = (se.nom || "").trim() || "Ma séance";
     se.kind = se.kind || (se.mode === "circuit" ? "hiit" : "muscu");
-    const data = { id: E.srcId || rid(), nom: se.nom, mode: se.mode, kind: se.kind, tours: se.tours, roundRest: se.roundRest, items: se.items, upd: Date.now() };
+    const data = { id: E.srcId || rid(), nom: se.nom, mode: se.mode, kind: se.kind, tours: se.tours, roundRest: se.roundRest, items: clone(se.items), upd: Date.now() };
     const i = S.mesSeances.findIndex(x => x.id === data.id);
     if (i >= 0) S.mesSeances[i] = data; else S.mesSeances.unshift(data);
     commit("p");
@@ -3329,7 +3343,7 @@ const A = {
   "run-feel": el => { R.feel = +el.dataset.v; renderRunner(); },
   "run-save": () => { saveRunHistory(); closeRunner(); toast("Séance enregistrée"); },
   "run-discard": () => { Sheet.closeAll(); closeRunner(); },
-  "run-resume": () => { const r = loadRun(); if (!r) { render(); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; renderRunner(); },
+  "run-resume": () => { const r = loadRun(); if (!r) { render(); return; } if (r.se.items.some(it => !EX_BY_ID[it.id])) { clearRun(); render(); toast("Cette séance contenait un exercice qui n’existe plus."); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; renderRunner(); },
   /* accueil */
   "cal-go": el => { UI.calSel = el.dataset.d; UI.calMonth = el.dataset.d.slice(0, 7); goTab("agenda"); },
   "timer-open": () => { unlockAudio(); openTimer(); },
@@ -3356,7 +3370,7 @@ const A = {
     const items = (x.log || []).filter(l => EX_BY_ID[l.id]).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
     openEditor("prep", applySuggestions({ nom: x.nom, mode: "series", kind: x.kind || "muscu", items }), {});
   },
-  "hist-del": el => { if (!arm(el)) return; S.historique = S.historique.filter(h => h.id !== el.dataset.id); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
+  "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
   "hist-all": () => Sheet.open({ key: "hall", title: "Historique", tall: true, body: `<div class="list">${S.historique.map(histRow).join("")}</div>` }),
   "prog-plan": () => {
     const pr = programme(S.profile);
@@ -3464,8 +3478,8 @@ const A = {
   /* profil */
   "pf-set": el => { const f = el.dataset.f; let v = el.dataset.v; if (f === "jours" || f === "barre") v = +v; S.profile[f] = v; commit("p"); render(); },
   "pf-toggle": el => { const f = el.dataset.f; S.profile[f] = !S.profile[f]; commit("p"); render(); },
-  "hist-clear": el => { if (!arm(el)) return; S.historique = []; S.lastPerf = {}; commit("p"); render(); toast("Historique effacé"); },
-  "reset-all": el => { if (!arm(el)) return; const keep = { partners: S.partners }; S = Object.assign(clone(DEF), keep); commit("pa"); render(); toast("Application réinitialisée"); }
+  "hist-clear": el => { if (!arm(el)) return; S.historique = []; S.lastPerf = {}; S.histDel = {}; S.histClear = Date.now(); commit("p"); render(); toast("Historique effacé"); },
+  "reset-all": el => { if (!arm(el)) return; const keep = { partners: S.partners }; S = Object.assign(clone(DEF), keep); S.histClear = Date.now(); commit("pa"); render(); toast("Application réinitialisée"); }
 };
 
 document.addEventListener("click", ev => {
