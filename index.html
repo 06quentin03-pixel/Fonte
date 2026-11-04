@@ -361,6 +361,7 @@ select.inp { appearance: none; -webkit-appearance: none; background-image: linea
 .next small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
 .run-foot { display: flex; flex-direction: column; gap: 10px; padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
 .run-nav { display: flex; justify-content: space-between; gap: 10px; }
+.run-nav3 .btn { flex: 1 1 0; min-width: 0; padding-left: 6px; padding-right: 6px; font-size: 14px; }
 .plates { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
 .plates .bar { display: flex; align-items: center; height: 44px; }
 .plates .bar::before { content: ""; width: 18px; height: 6px; background: var(--ink-3); border-radius: 2px; }
@@ -1037,26 +1038,26 @@ X("skater-jumps","Sauts du patineur","cardio",["cardio","fessiers"],["quadriceps
 ["Saute latéralement d’une jambe sur l’autre.","Réceptionne-toi sur une jambe, l’autre passe derrière.","Enchaîne d’un côté à l’autre."],
 ["Atterrissage souple, genou fléchi.","Plus le saut est grand, plus c’est intense."],{dt:30,imp:1,lo:"fentes-laterales"});
 
-/* ---------- MOBILITÉ & ÉTIREMENTS ---------- */
-X("etirement-ischios","Étirement des ischios (assis)","mobilite",["ischios"],["mollets","lombaires"],["pdc"],1,"t",
+/* ---------- MOBILITÉ & ÉTIREMENTS (groupes « mobilite » : mouvements, « etirements » : postures tenues) ---------- */
+X("etirement-ischios","Étirement des ischios (assis)","etirements",["ischios"],["mollets","lombaires"],["pdc"],1,"t",
 ["Assis, une jambe tendue, l’autre pliée.","Penche le buste vers la jambe tendue en gardant le dos droit.","Tiens en respirant profondément."],
 ["Ne force pas, tu dois sentir un étirement agréable.","Change de côté."],{dt:30,pc:1});
-X("etirement-quadriceps","Étirement des quadriceps (debout)","mobilite",["quadriceps"],[],["pdc"],1,"t",
+X("etirement-quadriceps","Étirement des quadriceps (debout)","etirements",["quadriceps"],[],["pdc"],1,"t",
 ["Debout, attrape ta cheville et ramène le talon vers la fesse.","Genoux serrés, bassin légèrement en avant.","Tiens-toi à un mur si besoin."],
 ["Ne cambre pas le dos.","Change de côté."],{dt:30,pc:1});
-X("etirement-pectoraux","Étirement des pectoraux (au mur)","mobilite",["pecs"],["epaules_ant"],["pdc"],1,"t",
+X("etirement-pectoraux","Étirement des pectoraux (au mur)","etirements",["pecs"],["epaules_ant"],["pdc"],1,"t",
 ["Avant-bras contre un mur ou un montant, coude à hauteur d’épaule.","Tourne doucement le buste à l’opposé.","Tiens en respirant."],
 ["Super après une séance de pecs.","Change de côté."],{dt:30,pc:1});
-X("posture-enfant","Posture de l’enfant","mobilite",["lombaires","dorsaux"],["fessiers"],["pdc"],1,"t",
+X("posture-enfant","Posture de l’enfant","etirements",["lombaires","dorsaux"],["fessiers"],["pdc"],1,"t",
 ["À genoux, assieds-toi sur les talons.","Allonge les bras devant toi, front au sol.","Respire lentement dans le dos."],
 ["Écarte les genoux pour plus de confort.","Idéal en fin de séance."],{dt:45});
 X("chat-vache","Chat-vache","mobilite",["lombaires"],["abdos","trapezes"],["pdc"],1,"t",
 ["À quatre pattes, mains sous les épaules.","Inspire en creusant le dos et en levant la tête.","Expire en arrondissant le dos et en rentrant le menton.","Alterne lentement."],
 ["Synchronise le mouvement avec ta respiration.","Parfait pour réveiller le dos."],{dt:45});
-X("pigeon","Posture du pigeon","mobilite",["fessiers"],["abducteurs","lombaires"],["pdc"],1,"t",
+X("pigeon","Posture du pigeon","etirements",["fessiers"],["abducteurs","lombaires"],["pdc"],1,"t",
 ["À quatre pattes, ramène un genou vers la main du même côté, tibia en travers.","Allonge l’autre jambe vers l’arrière.","Descends le buste vers le sol."],
 ["Étire profondément les fessiers.","Change de côté."],{dt:45,pc:1});
-X("fente-psoas","Étirement du psoas (fente basse)","mobilite",["quadriceps"],["abdos"],["pdc"],1,"t",
+X("fente-psoas","Étirement du psoas (fente basse)","etirements",["quadriceps"],["abdos"],["pdc"],1,"t",
 ["En fente, genou arrière au sol.","Avance le bassin en serrant le fessier arrière.","Garde le buste droit."],
 ["Idéal si tu restes assis longtemps.","Change de côté."],{dt:30,pc:1});
 X("rotation-thoracique","Rotations thoraciques (open book)","mobilite",["obliques"],["pecs","rhomboides"],["pdc"],1,"t",
@@ -1065,10 +1066,10 @@ X("rotation-thoracique","Rotations thoraciques (open book)","mobilite",["oblique
 X("cercles-bras","Cercles de bras","mobilite",["epaules_lat"],["epaules_ant","epaules_post"],["pdc"],1,"t",
 ["Debout, bras tendus sur les côtés.","Fais des cercles de plus en plus grands vers l’avant.","Puis change de sens."],
 ["Échauffement idéal avant le haut du corps.","Mouvement fluide."],{dt:30});
-X("etirement-triceps","Étirement des triceps","mobilite",["triceps"],["dorsaux"],["pdc"],1,"t",
+X("etirement-triceps","Étirement des triceps","etirements",["triceps"],["dorsaux"],["pdc"],1,"t",
 ["Lève un bras, plie le coude pour amener la main derrière la tête.","Avec l’autre main, pousse doucement le coude.","Tiens en respirant."],
 ["Ne force pas sur l’épaule.","Change de côté."],{dt:30,pc:1});
-X("etirement-mollets","Étirement des mollets (au mur)","mobilite",["mollets"],[],["pdc"],1,"t",
+X("etirement-mollets","Étirement des mollets (au mur)","etirements",["mollets"],[],["pdc"],1,"t",
 ["Mains contre un mur, une jambe tendue derrière, talon au sol.","Avance le bassin vers le mur.","Tiens en respirant."],
 ["Plie le genou arrière pour étirer le soléaire.","Change de côté."],{dt:30,pc:1});
 X("world-greatest","World’s greatest stretch","mobilite",["fessiers","quadriceps"],["ischios","obliques","adducteurs"],["pdc"],1,"t",
@@ -1077,10 +1078,10 @@ X("world-greatest","World’s greatest stretch","mobilite",["fessiers","quadrice
 X("squat-profond","Squat profond tenu","mobilite",["adducteurs","fessiers"],["mollets","lombaires"],["pdc"],1,"t",
 ["Pieds un peu plus larges que les épaules, descends le plus bas possible.","Coudes contre l’intérieur des genoux pour les écarter.","Tiens en gardant les talons au sol."],
 ["Tiens-toi à un support si besoin.","Améliore hanches et chevilles."],{dt:45});
-X("papillon","Papillon (adducteurs)","mobilite",["adducteurs"],[],["pdc"],1,"t",
+X("papillon","Papillon (adducteurs)","etirements",["adducteurs"],[],["pdc"],1,"t",
 ["Assis, plantes des pieds collées, genoux écartés.","Tiens tes pieds et penche le buste en avant, dos droit.","Laisse les genoux descendre vers le sol."],
 ["Ne force pas sur les genoux.","Respire profondément."],{dt:45});
-X("cobra","Cobra","mobilite",["abdos"],["lombaires","pecs"],["pdc"],1,"t",
+X("cobra","Cobra","etirements",["abdos"],["lombaires","pecs"],["pdc"],1,"t",
 ["Allongé sur le ventre, mains sous les épaules.","Pousse doucement pour lever le buste, hanches au sol.","Tiens en respirant."],
 ["Ne monte pas trop haut si ça pince dans le dos.","Épaules basses."],{dt:30});
 X("dislocations-epaules","Dislocations d’épaules (bâton ou élastique)","mobilite",["epaules_ant","epaules_post"],["pecs"],["elastique"],1,"r",
@@ -1089,9 +1090,38 @@ X("dislocations-epaules","Dislocations d’épaules (bâton ou élastique)","mob
 X("foam-roller","Rouleau de massage (foam roller)","mobilite",["quadriceps","ischios"],["mollets","dorsaux"],["rouleau"],1,"t",
 ["Place le rouleau sous le muscle à masser.","Roule lentement d’avant en arrière.","Marque une pause sur les zones tendues."],
 ["Évite de rouler directement sur les articulations.","Respire, ne te crispe pas."],{dt:60});
-X("etirement-trapezes","Étirement de la nuque et des trapèzes","mobilite",["trapezes"],[],["pdc"],1,"t",
+X("etirement-trapezes","Étirement de la nuque et des trapèzes","etirements",["trapezes"],[],["pdc"],1,"t",
 ["Assis ou debout, penche la tête sur le côté.","Avec la main, accompagne doucement le mouvement.","Garde l’épaule opposée basse."],
 ["Très doux : pas de mouvement brusque.","Change de côté."],{dt:30,pc:1});
+
+/* ---------- ÉTIREMENTS (ajouts) ---------- */
+X("etirement-biceps","Étirement des biceps (au mur)","etirements",["biceps"],["avantbras","epaules_ant"],["pdc"],1,"t",
+["Pose la paume contre un mur, doigts vers l’arrière, bras tendu à hauteur d’épaule.","Tourne doucement le buste à l’opposé du mur.","Tiens en respirant, sans verrouiller le coude."],
+["Tu dois sentir l’étirement dans le pli du coude et l’avant du bras.","Change de côté."],{dt:30,pc:1});
+X("etirement-avantbras","Étirement des avant-bras et poignets","etirements",["avantbras"],["biceps"],["pdc"],1,"t",
+["Bras tendu devant toi, paume vers le haut.","Avec l’autre main, tire doucement les doigts vers le bas.","Puis retourne la main, paume vers le bas, et tire le dos de la main vers toi."],
+["Parfait après les tractions, le rowing ou le curl.","Change de côté."],{dt:30,pc:1});
+X("etirement-dorsaux","Étirement du grand dorsal (inclinaison latérale)","etirements",["dorsaux"],["obliques","triceps"],["pdc"],1,"t",
+["Debout, pieds serrés, lève un bras au-dessus de la tête.","Attrape le poignet avec l’autre main et incline-toi sur le côté.","Pousse la hanche du côté étiré vers l’extérieur."],
+["Ne bascule ni vers l’avant ni vers l’arrière.","Change de côté."],{dt:30,pc:1});
+X("etirement-epaules","Étirement des épaules (bras croisé)","etirements",["epaules_post"],["epaules_lat","rhomboides"],["pdc"],1,"t",
+["Passe un bras tendu devant la poitrine.","Avec l’autre main, ramène-le contre toi au niveau du coude.","Garde l’épaule basse, loin de l’oreille."],
+["Idéal après les exercices d’épaules et de dos.","Change de côté."],{dt:30,pc:1});
+X("etirement-epaules-ant","Ouverture des épaules (mains dans le dos)","etirements",["epaules_ant","pecs"],["biceps"],["pdc"],1,"t",
+["Debout, croise les doigts dans le bas du dos, bras tendus.","Serre les omoplates et éloigne doucement les mains du dos.","Garde le buste droit et le menton rentré."],
+["Ouvre la poitrine après les développés et les pompes.","Si tes mains ne se rejoignent pas, tiens une serviette."],{dt:30});
+X("etirement-haut-dos","Étirement du haut du dos (dos rond)","etirements",["rhomboides"],["trapezes","dorsaux"],["pdc"],1,"t",
+["Croise les doigts devant toi, bras tendus à hauteur d’épaule.","Pousse les mains vers l’avant en arrondissant le haut du dos.","Rentre le menton et écarte les omoplates."],
+["Respire dans le dos pour l’ouvrir.","Super après le rowing."],{dt:30});
+X("etirement-fessiers","Étirement des fessiers (en 4, allongé)","etirements",["fessiers"],["abducteurs","lombaires"],["pdc"],1,"t",
+["Allongé sur le dos, genoux pliés, pose une cheville sur le genou opposé.","Attrape l’arrière de la cuisse et ramène les jambes vers toi.","Garde la tête et les épaules au sol."],
+["Version plus douce que le pigeon.","Change de côté."],{dt:30,pc:1});
+X("genoux-poitrine","Genoux à la poitrine","etirements",["lombaires"],["fessiers"],["pdc"],1,"t",
+["Allongé sur le dos, ramène les deux genoux contre la poitrine.","Entoure-les avec les bras.","Relâche le bas du dos et respire lentement."],
+["Soulage le bas du dos après les squats et les soulevés de terre.","Tu peux te balancer doucement de gauche à droite."],{dt:30});
+X("torsion-allongee","Torsion allongée","etirements",["obliques"],["lombaires","fessiers","pecs"],["pdc"],1,"t",
+["Allongé sur le dos, bras en croix.","Ramène un genou plié et laisse-le tomber de l’autre côté du corps.","Garde les deux épaules au sol et tourne la tête à l’opposé."],
+["Très doux pour le dos : laisse la gravité faire.","Change de côté."],{dt:30,pc:1});
 
 const EX_BY_ID = Object.fromEntries(EX.map(e => [e.id, e]));
 /* ===== Libellés ===== */
@@ -1105,7 +1135,7 @@ const MUSCLES = {
 const GROUPS = [
   ["pecs", "Pectoraux"], ["dos", "Dos"], ["epaules", "Épaules"], ["biceps", "Biceps"], ["triceps", "Triceps"],
   ["avantbras", "Avant-bras"], ["abdos", "Abdos & gainage"], ["quadriceps", "Quadriceps"], ["ischios", "Ischios"],
-  ["fessiers", "Fessiers"], ["mollets", "Mollets"], ["fullbody", "Full body"], ["cardio", "Cardio"], ["mobilite", "Mobilité"]
+  ["fessiers", "Fessiers"], ["mollets", "Mollets"], ["fullbody", "Full body"], ["cardio", "Cardio"], ["mobilite", "Mobilité"], ["etirements", "Étirements"]
 ];
 const GROUP_LABEL = Object.fromEntries(GROUPS);
 const MATERIEL = {
@@ -1203,7 +1233,10 @@ const TPL = [
     items: [["step-jack", "E", { d: 60 }], ["cercles-bras", "E"], ["squat-pdc", "E", { d: 45 }], ["world-greatest", "E"], ["rotation-thoracique", "E"], ["dislocations-epaules", "E", { reps: 10 }]] },
   { id: "mobilite", n: "Mobilité & étirements", cat: "mob", kind: "mob", mode: "series",
     desc: "Une séance douce pour récupérer, gagner en souplesse et soulager le dos.",
-    items: [["chat-vache", "M"], ["world-greatest", "M"], ["pigeon", "M"], ["fente-psoas", "M"], ["etirement-ischios", "M"], ["posture-enfant", "M"], ["etirement-pectoraux", "M"], ["rotation-thoracique", "M"]] }
+    items: [["chat-vache", "M"], ["world-greatest", "M"], ["pigeon", "M"], ["fente-psoas", "M"], ["etirement-ischios", "M"], ["posture-enfant", "M"], ["etirement-pectoraux", "M"], ["rotation-thoracique", "M"]] },
+  { id: "etirements", n: "Étirements complets", cat: "mob", kind: "mob", mode: "series",
+    desc: "Tout le corps, de la nuque aux mollets, en 12 minutes. Après le sport ou un jour de repos.",
+    items: [["etirement-trapezes", "M"], ["etirement-epaules", "M"], ["etirement-pectoraux", "M"], ["etirement-dorsaux", "M"], ["etirement-avantbras", "M"], ["torsion-allongee", "M"], ["etirement-fessiers", "M"], ["etirement-ischios", "M"], ["etirement-quadriceps", "M"], ["etirement-mollets", "M"], ["posture-enfant", "M"]] }
 ];
 const TPL_BY_ID = Object.fromEntries(TPL.map(t => [t.id, t]));
 
@@ -1332,7 +1365,7 @@ function resolveEx(id, ctx, notes) {
 function prescribe(tpl, profile) {
   const ctx = profileCtx(profile);
   const notes = new Set();
-  const out = { nom: tpl.n, tplId: tpl.id, mode: tpl.mode, kind: tpl.kind, items: [] };
+  const out = { nom: tpl.n, tplId: tpl.id, mode: tpl.mode, kind: tpl.kind, etir: tpl.kind !== "mob", items: [] };
   const L = ctx.lvl;
   if (tpl.mode === "circuit") {
     const c = tpl.circuit || {};
@@ -1382,9 +1415,26 @@ function prescribe(tpl, profile) {
   return out;
 }
 
+/* Étirements de fin de séance : choisis selon les muscles les plus travaillés */
+const STRETCH_FOR = { pecs: "etirement-pectoraux", epaules_ant: "etirement-epaules-ant", epaules_lat: "etirement-epaules", epaules_post: "etirement-epaules",
+  biceps: "etirement-biceps", triceps: "etirement-triceps", avantbras: "etirement-avantbras", trapezes: "etirement-trapezes", dorsaux: "etirement-dorsaux",
+  rhomboides: "etirement-haut-dos", lombaires: "genoux-poitrine", abdos: "cobra", obliques: "torsion-allongee", fessiers: "etirement-fessiers",
+  abducteurs: "etirement-fessiers", adducteurs: "papillon", quadriceps: "etirement-quadriceps", ischios: "etirement-ischios", mollets: "etirement-mollets" };
+const etirOn = s => s && s.etir != null ? !!s.etir : !!(s && s.kind !== "mob");
+function coolDown(items) {
+  const score = {}, have = new Set();
+  (items || []).forEach(it => { const e = EX_BY_ID[it.id]; if (!e || it.cool) return; have.add(e.id); e.p.forEach(m => { score[m] = (score[m] || 0) + 2; }); e.s.forEach(m => { score[m] = (score[m] || 0) + 1; }); });
+  const ids = [];
+  Object.keys(score).filter(m => STRETCH_FOR[m]).sort((a, b) => score[b] - score[a]).forEach(m => { const id = STRETCH_FOR[m]; if (ids.indexOf(id) < 0 && !have.has(id)) ids.push(id); });
+  if (!ids.length && items && items.length) ["etirement-quadriceps", "etirement-ischios", "etirement-mollets"].forEach(id => { if (!have.has(id)) ids.push(id); });
+  return ids.slice(0, 4).map(id => { const e = EX_BY_ID[id]; return { id, series: e.pc ? 2 : 1, reps: 0, duree: 30, repos: 10, charge: 0, cool: 1 }; });
+}
+function coolDuree(items) { return coolDown(items).reduce((a, it) => a + it.series * (it.duree + 10), 20); }
+
 /* Durée estimée (s) et calories */
 function estDuree(s) {
   let t = 0;
+  if (etirOn(s) && s.items.length && !s.items.some(it => it.cool)) t += coolDuree(s.items);
   if (s.mode === "circuit") {
     const per = s.items.reduce((a, it) => a + (it.duree || it.reps * 3.5) + (it.repos || 0), 0);
     t = (s.tours || 1) * per + Math.max(0, (s.tours || 1) - 1) * (s.roundRest || 60);
@@ -2184,7 +2234,7 @@ function saveUI() { try { localStorage.setItem(LS_UI, JSON.stringify({ seg: UI.s
 
 /* ================= Silhouettes ================= */
 const GROUP_COLOR = { pecs: "var(--red)", dos: "var(--accent)", epaules: "var(--green)", biceps: "var(--yellow)", triceps: "var(--yellow)", avantbras: "var(--yellow)",
-  abdos: "var(--violet)", quadriceps: "var(--red)", ischios: "var(--red)", fessiers: "var(--red)", mollets: "var(--red)", fullbody: "var(--ink-2)", cardio: "var(--green)", mobilite: "var(--violet)" };
+  abdos: "var(--violet)", quadriceps: "var(--red)", ischios: "var(--red)", fessiers: "var(--red)", mollets: "var(--red)", fullbody: "var(--ink-2)", cardio: "var(--green)", mobilite: "var(--violet)", etirements: "var(--green)" };
 function figStyle(p, s) { let v = ""; (s || []).forEach(m => { v += "--m-" + m + ":var(--hl2);"; }); (p || []).forEach(m => { v += "--m-" + m + ":var(--hl);"; }); return v; }
 function figHTML(p, s, size) {
   const lab = size === "md" ? ' role="img" aria-label="Vue de face"' : ' aria-hidden="true"';
@@ -2212,7 +2262,7 @@ function defaultItem(ex) {
   const iso = ["biceps", "triceps", "avantbras", "mollets", "abdos"].indexOf(ex.g) >= 0;
   const [s, r, rest] = ctx.obj[iso ? "I" : "C"];
   const it = { id: ex.id, series: Math.max(2, s - (ctx.lvl === 1 ? 1 : 0)), reps: 0, duree: 0, repos: adjRest(ctx, rest), charge: 0 };
-  if (ex.t === "t") { it.duree = ex.dt || 30; if (ex.g === "cardio" && ex.dt >= 300) { it.series = 1; it.repos = 0; } if (ex.g === "mobilite") { it.series = ex.pc ? 2 : 1; it.repos = 10; } }
+  if (ex.t === "t") { it.duree = ex.dt || 30; if (ex.g === "cardio" && ex.dt >= 300) { it.series = 1; it.repos = 0; } if (ex.g === "mobilite" || ex.g === "etirements") { it.series = ex.pc ? 2 : 1; it.repos = 10; } }
   else it.reps = r;
   const sg = suggest(ex.id); if (sg) it.charge = sg.next; else it.charge = estCharge(ex.id, it.reps || 12, S.profile);
   if (ECH.has(ex.id) && iso && it.series > 1) it.echec = 1;
@@ -2782,6 +2832,7 @@ function openTpl(id) {
     <div style="display:flex;gap:14px;align-items:center">${figHTML(p, s, "sm")}<div class="meta" style="flex-direction:column;gap:6px;font-size:14px"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${icon("dumbbell")}${plural(se.items.length, "exercice")}</span><span>${icon("flame")}≈ ${estKcal(se, S.profile, d)} kcal</span></div></div>
     ${se.notes.length ? `<div class="note">${icon("sparkle")}<span>${se.notes.map(esc).join(" · ")}.</span></div>` : ""}${circ}${hrZoneNote(se)}${chargeNote(se)}
     ${itemRows(se)}
+    ${etirOn(se) && coolDown(se.items).length ? `<div class="note">${icon("heart")}<span>Pour finir, ${plural(coolDown(se.items).length, "étirement")} (≈ ${fmtDur(coolDuree(se.items))}) : ${esc(coolDown(se.items).map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", "))}. Tu peux les retirer dans « Lancer ».</span></div>` : ""}
     <div class="btn-row"><button class="btn" data-a="tpl-copy" data-id="${id}">${icon("copy")}Copier dans mes séances</button></div>`;
   Sheet.open({ key: "tpl", title: t.n, body, tall: true, foot: `<button class="btn btn-lg" data-a="tpl-plan" data-id="${id}">${icon("cal")}Planifier</button><button class="btn btn-primary btn-lg" data-a="tpl-start" data-id="${id}">${icon("play")}Lancer</button>` });
 }
@@ -2885,6 +2936,7 @@ function adaptBullets(p) {
   if (ctx.heavy) b.push("Corpulence prise en compte : pompes inclinées, tractions et dips assistés à la place des versions les plus dures au poids du corps.");
   b.push("Dernière série jusqu’à l’échec sur les exercices sans risque (machines, poulies, poids du corps, isolation)" + (["muscle", "tonus", "perte"].indexOf(p.objectif) >= 0 ? "" : ", sur les exercices d’isolation et de gainage") + " : continue jusqu’à ne plus réussir une répétition propre.");
   const fc = fcMax(p);
+  b.push("Étirements de fin de séance choisis selon les muscles que tu viens de travailler (environ 4 minutes, désactivables séance par séance).");
   if (fc) b.push(`Fréquence cardiaque max estimée : ${fc} bpm (${p.sexe === "F" ? "formule de Gulati, établie sur des femmes" : "formule de Tanaka"}). Cardio en zone 2 : ${Math.round(fc * .6)}–${Math.round(fc * .7)} bpm.`);
   const bm = bmr(p);
   if (bm) b.push(`Dépense au repos estimée (taille, poids, âge, sexe) : environ ${bm.toLocaleString("fr-FR")} kcal par jour, sans compter l’activité.`);
@@ -2929,7 +2981,7 @@ function edItem(it, i) {
   const n = E.se.items.length, circ = E.se.mode === "circuit", f = [];
   if (!circ) f.push(edStp(i, "series", it.series, "Séries", 1));
   f.push(it.duree > 0 ? edStp(i, "duree", it.duree, "Durée (s)", 5) : edStp(i, "reps", it.reps, "Reps", 1));
-  if (!(e.g === "cardio" || e.g === "mobilite") && !(it.duree > 0 && !it.charge)) f.push(edStp(i, "charge", it.charge, isAssist(e.id) ? "Assist. kg" : (chargeLabel(e.id, 1) === "Kg / haltère" ? "Kg / haltère" : "Charge kg"), chargeStep(e)));
+  if (!(e.g === "cardio" || e.g === "mobilite" || e.g === "etirements") && !(it.duree > 0 && !it.charge)) f.push(edStp(i, "charge", it.charge, isAssist(e.id) ? "Assist. kg" : (chargeLabel(e.id, 1) === "Kg / haltère" ? "Kg / haltère" : "Charge kg"), chargeStep(e)));
   f.push(edStp(i, "repos", it.repos, circ ? "Récup (s)" : "Repos (s)", circ ? 5 : 15));
   const pl = perfLine(it.id);
   return `<div class="ed-item"><div class="ed-head">${figHTML(e.p, e.s, "xs")}<div class="row-main" data-a="ex-open" data-id="${e.id}" role="button" tabindex="0"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}${it.parCote ? " · par côté" : ""}</div></div><div class="ed-tools"><button data-a="ed-move" data-i="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} aria-label="Monter">${icon("up")}</button><button data-a="ed-move" data-i="${i}" data-d="1" ${i === n - 1 ? "disabled" : ""} aria-label="Descendre">${icon("down")}</button><button data-a="ed-del" data-i="${i}" aria-label="Retirer">${icon("trash")}</button></div></div><div class="ed-grid ${f.length === 3 ? "c3" : ""}">${f.join("")}</div>${ECH.has(e.id) && !circ ? `<div class="ed-flags"><button class="chip chip-sm" data-a="ed-echec" data-i="${i}" aria-pressed="${!!it.echec}">${icon("flame")}Dernière série à l’échec</button></div>` : ""}${pl ? `<div class="small muted">${esc(pl)}</div>` : ""}</div>`;
@@ -2945,6 +2997,7 @@ function renderEditor() {
   if (prep) h += `<p class="small muted">Règle les séries, répétitions, charges et repos pour aujourd’hui. Les charges viennent de ta dernière séance, ou sont calculées d’après ton profil la première fois.</p>`;
   h += se.items.length ? se.items.map(edItem).join("") : `<div class="card empty"><p>Ajoute des exercices pour composer ta séance.</p></div>`;
   h += `<button class="btn btn-block" data-a="ed-add">${icon("plus")}Ajouter des exercices</button>`;
+  if (se.items.length) { const on = etirOn(se), cd = coolDown(se.items); h += `<div class="card"><button class="switch" role="switch" data-a="ed-etir" aria-checked="${on}"><span><b>Étirements à la fin</b><br><span class="small muted">${cd.length ? (on ? "≈ " + fmtDur(coolDuree(se.items)) + " : " : "") + esc(cd.map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", ")) : "Rien à ajouter : ta séance contient déjà ces étirements."}</span></span><span class="sw"></span></button></div>`; }
   if (se.items.length) h += `<div class="meta" style="justify-content:center"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${icon("flame")}≈ ${estKcal(se, S.profile, d)} kcal</span></div>`;
   if (!prep && E.srcId) h += `<button class="btn btn-danger btn-block" data-a="ed-delete">${icon("trash")}Supprimer cette séance</button>`;
   h += `</div><div class="ov-foot">${prep ? `<button class="btn btn-lg" data-a="ed-save" style="flex:0 1 auto">Enregistrer</button><button class="btn btn-primary btn-lg" data-a="ed-go">${icon("play")}C’est parti</button>` : `<button class="btn btn-primary btn-lg" data-a="ed-save">Enregistrer</button>`}</div>`;
@@ -2979,27 +3032,32 @@ function pkFoot() { const b = $("#pk-ok"); if (b) b.textContent = PK.sel.length 
 let R = null;
 const RING_C = 2 * Math.PI * 54;
 function buildSteps(se) {
-  const st = [];
+  const w = [], main = [], cool = [];
+  se.items.forEach((it, i) => (it.cool ? cool : main).push(i));
   if (se.mode === "circuit") {
     const T = Math.max(1, se.tours || 1);
-    for (let t = 1; t <= T; t++) {
-      se.items.forEach((it, i) => {
-        st.push({ k: "work", i, set: t, of: T });
-        if (i < se.items.length - 1 && it.repos > 0) st.push({ k: "rest", d: it.repos });
-      });
-      if (t < T) st.push({ k: "rest", d: se.roundRest || 60, round: true });
+    for (let t = 1; t <= T; t++) main.forEach(i => w.push({ k: "work", i, set: t, of: T }));
+  } else main.forEach(i => { const it = se.items[i], n = Math.max(1, it.series || 1); for (let s = 1; s <= n; s++) w.push({ k: "work", i, set: s, of: n, fail: !!it.echec && s === n }); });
+  cool.forEach(i => { const n = Math.max(1, se.items[i].series || 1); for (let s = 1; s <= n; s++) w.push({ k: "work", i, set: s, of: n, cool: true }); });
+  return withRests(se, w);
+}
+/* Ajoute les repos entre les séries (sert aussi quand on repousse ou retire un exercice en cours de séance) */
+function withRests(se, works) {
+  const out = [];
+  works.forEach((w, j) => {
+    const p = works[j - 1];
+    if (p) {
+      const pit = se.items[p.i];
+      let r = null;
+      if (w.cool && !p.cool) r = { k: "rest", d: 20, toCool: true };
+      else if (p.cool) r = { k: "rest", d: pit.repos || 10 };
+      else if (se.mode === "circuit") r = w.set !== p.set ? { k: "rest", d: se.roundRest || 60, round: true } : { k: "rest", d: pit.repos || 0 };
+      else r = p.i === w.i ? { k: "rest", d: pit.repos || 0 } : { k: "rest", d: Math.max(30, Math.min(pit.repos || 60, 90)), between: true };
+      if (r.d > 0) out.push(r);
     }
-  } else {
-    se.items.forEach((it, i) => {
-      const n = Math.max(1, it.series || 1);
-      for (let s = 1; s <= n; s++) {
-        st.push({ k: "work", i, set: s, of: n, fail: !!it.echec && s === n });
-        const last = i === se.items.length - 1 && s === n;
-        if (!last) { const d = s < n ? it.repos : Math.max(30, Math.min(it.repos || 60, 90)); if (d > 0) st.push({ k: "rest", d, between: s === n }); }
-      }
-    });
-  }
-  return st;
+    out.push(w);
+  });
+  return out;
 }
 function saveRun() { try { if (R) localStorage.setItem(LS_RUN, JSON.stringify(R)); } catch (e) { } }
 function clearRun() { try { localStorage.removeItem(LS_RUN); } catch (e) { } }
@@ -3023,7 +3081,8 @@ function releaseWake() { try { if (WL) WL.release(); } catch (e) { } WL = null; 
 
 function startRun(se, opts) {
   se = clone(se); se.kind = se.kind || (se.mode === "circuit" ? "hiit" : "muscu");
-  se.items = (se.items || []).filter(it => it && EX_BY_ID[it.id]);
+  se.items = (se.items || []).filter(it => it && EX_BY_ID[it.id] && !it.cool);
+  if (etirOn(se) && se.items.length) se.items = se.items.concat(coolDown(se.items));
   if (!se.items.length) { toast("Aucun exercice de cette séance n’existe encore dans l’appli."); return; }
   Sheet.closeAll(); closeEditor();
   R = Object.assign({ se, steps: buildSteps(se), idx: 0, start: Date.now(), log: se.items.map(() => []), t: null, cur: null, beeped: {} }, opts || {});
@@ -3036,7 +3095,8 @@ function enterStep() {
   if (st.k === "rest") R.t = { end: Date.now() + st.d * 1000, total: st.d, running: true, left: st.d };
   else {
     const it = R.se.items[st.i];
-    if (it.duree > 0) { R.t = st.fail ? { up: true, acc: 0, start: null, total: it.duree, running: false } : { left: it.duree, total: it.duree, running: false, end: null }; R.cur = null; }
+    if (it.duree > 0 && st.cool) { R.t = { left: it.duree, total: it.duree, running: true, end: Date.now() + it.duree * 1000 }; R.cur = null; }
+    else if (it.duree > 0) { R.t = st.fail ? { up: true, acc: 0, start: null, total: it.duree, running: false } : { left: it.duree, total: it.duree, running: false, end: null }; R.cur = null; }
     else { R.t = null; const prev = R.log[st.i][R.log[st.i].length - 1]; R.cur = { r: it.reps, kg: prev && prev.kg != null ? prev.kg : (it.charge || 0) }; }
   }
   saveRun(); renderRunner();
@@ -3068,7 +3128,7 @@ function renderRunner() {
   se.items.forEach((it, i) => {
     const tot = R.steps.filter(s => s.k === "work" && s.i === i).length;
     const done = R.steps.slice(0, R.idx).filter(s => s.k === "work" && s.i === i).length;
-    segs += `<i><b style="width:${R.done ? 100 : Math.round(done / tot * 100)}%"></b></i>`;
+    segs += `<i><b style="width:${R.done || !tot ? (R.skipped && R.skipped[i] ? 0 : 100) : Math.round(done / tot * 100)}%"></b></i>`;
   });
   let top = `<div class="run-top"><button class="btn-icon" data-a="run-quit" aria-label="Arrêter la séance">${icon("x")}</button><div class="t"><b>${esc(se.nom)}</b><span id="run-el" class="tnum">${mmss((Date.now() - R.start) / 1000)}</span></div>`;
   let body = "", foot = "";
@@ -3078,14 +3138,18 @@ function renderRunner() {
     body = `<div class="run-kicker">Séance terminée</div><h2 class="disp" style="font-size:44px">Bien joué${S.profile.prenom ? " " + esc(S.profile.prenom) : ""}</h2>
       <div class="sum"><div class="stat"><b>${fmtDur(sum.duree)}</b><span>durée</span></div><div class="stat"><b>${sum.sets}</b><span>séries réalisées</span></div><div class="stat"><b>${fmtNum(Math.round(sum.volume))}<small style="font-size:17px"> kg</small></b><span>volume soulevé</span></div><div class="stat"><b>≈ ${sum.kcal}</b><span>kcal estimées</span></div></div>
       <div class="field"><div class="lbl">Ton ressenti</div><div class="feel">${["Facile", "Correct", "Dur", "Très dur"].map((l, i) => `<button data-a="run-feel" data-v="${i + 1}" aria-pressed="${R.feel === i + 1}">${l}</button>`).join("")}</div></div>
-      <div class="list">${se.items.map((it, i) => { const e = EX_BY_ID[it.id], lg = R.log[i]; if (!lg.length) return ""; return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${lg.map(x => x.d ? fmtSec(x.d) : x.r + (x.kg ? " × " + fmtNum(x.kg) + " kg" : "")).join(" · ")}</div></div></div>`; }).join("")}</div>`;
+      <div class="list">${se.items.map((it, i) => { const e = EX_BY_ID[it.id], lg = R.log[i]; if (!e || (!lg.length && it.cool)) return ""; if (!lg.length) return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">Pas fait</div></div></div>`; return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${lg.map(x => x.d ? fmtSec(x.d) : x.r + (x.kg ? " × " + fmtNum(x.kg) + " kg" : "")).join(" · ")}</div></div></div>`; }).join("")}</div>`;
     foot = `<button class="btn btn-primary btn-lg btn-block" data-a="run-save">${icon("check")}Enregistrer la séance</button><button class="btn btn-ghost btn-block" data-a="run-discard">Ne pas enregistrer</button>`;
   } else if (st.k === "work") {
     const it = se.items[st.i], e = EX_BY_ID[it.id];
     top += `<button class="btn-icon" data-a="ex-open" data-id="${e.id}" aria-label="Fiche de l’exercice">${icon("info")}</button></div>`;
-    const kicker = se.mode === "circuit" ? `Tour ${st.set}/${st.of} · Exercice ${st.i + 1}/${n}` : `Exercice ${st.i + 1}/${n} · Série ${st.set}/${st.of}`;
+    const nMain = se.items.filter(x => !x.cool).length, coolIds = se.items.map((x, k) => x.cool ? k : -1).filter(k => k >= 0);
+    const kicker = st.cool ? `Étirements · ${coolIds.indexOf(st.i) + 1}/${coolIds.length}` : se.mode === "circuit" ? `Tour ${st.set}/${st.of} · Exercice ${st.i + 1}/${nMain}` : `Exercice ${st.i + 1}/${nMain} · Série ${st.set}/${st.of}`;
     autoAnim = st.set === 1;
     body = `<div class="run-ex"><div class="row-main"><div class="run-kicker">${kicker}</div><h2>${esc(e.n)}</h2>${it.parCote ? `<div class="small muted">Répétitions par côté</div>` : (e.pc && it.duree ? `<div class="small muted">${st.of === 2 && st.set === 2 ? "Deuxième côté" : (st.of === 2 ? "Premier côté" : "Par côté")}</div>` : "")}</div>${figHTML(e.p, e.s, "sm")}</div>`;
+    if (st.later) body += `<div class="note">${icon("clock")}<span><b>Exercice mis de côté tout à l’heure.</b> ${laterLeft(st.i) ? "Si la machine est encore prise, tu peux le passer." : "Si la machine est encore prise, repousse-le encore ou passe-le."}</span></div>`;
+    if (st.cool && coolIds.indexOf(st.i) === 0 && st.set === 1) body += `<div class="note">${icon("heart")}<span>Retour au calme : tiens chaque position sans à-coups, en respirant lentement. Le minuteur démarre tout seul.</span></div>`;
+    body += laterNote(st.i);
     if (st.fail) body += `<div class="note note-f">${icon("flame")}<span><b>Dernière série jusqu’à l’échec</b> : continue jusqu’à ne plus réussir une répétition propre${it.duree > 0 ? ", puis touche « J’arrête »" : ", puis note ton total"}.</span></div>`;
     if (it.duree > 0) {
       body += ringHTML(false);
@@ -3093,7 +3157,7 @@ function renderRunner() {
       if (R.t.up) { const el = upElapsed(); foot = R.t.running ? `<div class="run-nav"><button class="btn btn-lg" data-a="run-toggle" style="flex:1">${icon("pause")}Pause</button><button class="btn btn-primary btn-lg" data-a="run-next" style="flex:1.4">${icon("check")}J’arrête</button></div>` : `<div class="run-nav"><button class="btn btn-lg" data-a="run-next" style="flex:1">${icon("check")}${el > 0 ? "Terminé" : "Passer"}</button><button class="btn btn-primary btn-lg" data-a="run-toggle" style="flex:1.4">${icon("play")}${el > 0 ? "Reprendre" : "Démarrer"}</button></div>`; }
       else foot = `<div class="run-nav"><button class="btn btn-lg" data-a="run-next" style="flex:1">${icon("check")}Terminé</button><button class="btn btn-primary btn-lg" data-a="run-toggle" style="flex:1.4">${R.t.running ? icon("pause") + "Pause" : icon("play") + "Démarrer"}</button></div>`;
     } else {
-      const showKg = !(e.g === "cardio" || e.g === "mobilite") && (it.charge > 0 || e.m.some(m => ["barre", "halteres", "machine", "poulie", "kettlebell", "ez", "smith"].indexOf(m) >= 0));
+      const showKg = !(e.g === "cardio" || e.g === "mobilite" || e.g === "etirements") && (it.charge > 0 || e.m.some(m => ["barre", "halteres", "machine", "poulie", "kettlebell", "ez", "smith"].indexOf(m) >= 0));
       const step = chargeStep(e);
       body += `<div class="target"${showKg ? "" : ' style="grid-template-columns:1fr"'}><div class="big-stp"><span>${st.fail ? "Répétitions (max)" : "Répétitions"}</span><div class="v" id="run-r">${R.cur.r}</div><div class="ctl"><button data-a="run-adj" data-f="r" data-d="-1" aria-label="Une répétition de moins">−</button><button data-a="run-adj" data-f="r" data-d="1" aria-label="Une répétition de plus">+</button></div></div>${showKg ? `<div class="big-stp"><span>${chargeLabel(e.id)}</span><div class="v" id="run-kg">${fmtNum(R.cur.kg)}<small> kg</small></div><div class="ctl"><button data-a="run-adj" data-f="kg" data-d="${-step}" aria-label="Moins lourd">−</button><button data-a="run-adj" data-f="kg" data-d="${step}" aria-label="Plus lourd">+</button></div></div>` : ""}</div>`;
       if (e.m.indexOf("barre") >= 0 && showKg) body += `<div id="plates-w">${platesHTML(R.cur.kg)}</div>`;
@@ -3102,18 +3166,32 @@ function renderRunner() {
       foot = `<button class="btn btn-primary btn-lg btn-block" data-a="run-next">${icon("check")}Série terminée</button>`;
     }
     body += animHTML(e.id);
-    foot += `<div class="run-nav"><button class="btn btn-ghost" data-a="run-prev" ${R.idx === 0 ? "disabled" : ""}>${icon("back")}Précédent</button><button class="btn btn-ghost" data-a="run-skipex">Exercice suivant${icon("skip")}</button></div>`;
+    const canLater = !st.cool && !laterLeft(st.i);
+    foot += `<div class="run-nav run-nav3"><button class="btn btn-ghost" data-a="run-prev" ${R.idx === 0 ? "disabled" : ""}>${icon("back")}Précédent</button>${st.cool ? `<button class="btn btn-ghost" data-a="run-end">${icon("check")}Finir</button>` : `<button class="btn btn-ghost" data-a="run-later" ${canLater ? "" : "disabled"} aria-label="Plus tard : la machine est prise, on y revient à la fin">${icon("clock")}Plus tard</button>`}<button class="btn btn-ghost" data-a="run-refuse">Ne pas faire${icon("skip")}</button></div>`;
   } else {
     const nx = R.steps.slice(R.idx + 1).find(s => s.k === "work");
     top += nx ? `<button class="btn-icon" data-a="ex-open" data-id="${se.items[nx.i].id}" aria-label="Fiche de l’exercice suivant">${icon("info")}</button></div>` : `<span style="width:40px"></span></div>`;
-    body = `<div class="run-kicker" style="color:var(--green)">${st.round ? "Fin du tour, souffle" : "Récupère"}</div>` + ringHTML(true);
+    body = `<div class="run-kicker" style="color:var(--green)">${st.toCool ? "Place aux étirements" : (st.round ? "Fin du tour, souffle" : "Récupère")}</div>` + ringHTML(true) + laterNote(nx ? nx.i : -1);
     if (nx) autoAnim = nx.set === 1;
-    if (nx) { const it = se.items[nx.i], e = EX_BY_ID[it.id]; body += `<div class="next">${ANIM.has(e.id) ? animMini(e.id, "next") : figHTML(e.p, e.s, "xs")}<div class="row-main"><small>À suivre${se.mode === "circuit" ? "" : " · série " + nx.set + "/" + nx.of}</small><div class="row-title">${esc(e.n)}</div><div class="row-sub">${it.duree ? fmtSec(it.duree) : it.reps + " reps"}${it.charge ? " · " + kgTxt(it.id, R.log[nx.i].length && R.log[nx.i][R.log[nx.i].length - 1].kg != null ? R.log[nx.i][R.log[nx.i].length - 1].kg : it.charge) : ""}${nx.fail ? " · jusqu’à l’échec" : ""}</div></div></div>`; }
+    if (nx) { const it = se.items[nx.i], e = EX_BY_ID[it.id]; body += `<div class="next">${ANIM.has(e.id) ? animMini(e.id, "next") : figHTML(e.p, e.s, "xs")}<div class="row-main"><small>À suivre${nx.cool ? " · étirement" : (se.mode === "circuit" ? "" : " · série " + nx.set + "/" + nx.of)}${nx.later ? " · mis de côté" : ""}</small><div class="row-title">${esc(e.n)}</div><div class="row-sub">${it.duree ? fmtSec(it.duree) : it.reps + " reps"}${it.charge ? " · " + kgTxt(it.id, R.log[nx.i].length && R.log[nx.i][R.log[nx.i].length - 1].kg != null ? R.log[nx.i][R.log[nx.i].length - 1].kg : it.charge) : ""}${nx.fail ? " · jusqu’à l’échec" : ""}</div></div></div>`; }
     foot = `<div class="run-nav"><button class="btn btn-lg" data-a="run-time" data-d="-15" style="flex:1">−15 s</button><button class="btn btn-lg" data-a="run-time" data-d="15" style="flex:1">+15 s</button><button class="btn btn-primary btn-lg" data-a="run-next" style="flex:1.3">Passer${icon("skip")}</button></div>`;
   }
   $("#runner").innerHTML = top + `<div class="pbar" aria-hidden="true">${segs}</div><div class="run-body">${body}</div><div class="run-foot">${foot}</div>`;
   ANIM.mount($("#runner"), autoAnim && R.idx !== ANIM_IDX);
   ANIM_IDX = R.idx;
+}
+/* Exercices mis de côté encore à venir (hors exercice affiché) */
+function laterNote(cur) {
+  if (!R) return "";
+  const ids = [];
+  R.steps.slice(R.idx + 1).forEach(s => { if (s.k === "work" && s.later && s.i !== cur && ids.indexOf(s.i) < 0) ids.push(s.i); });
+  if (!ids.length) return "";
+  return `<div class="note">${icon("clock")}<span>Mis de côté : <b>${ids.map(i => esc((EX_BY_ID[R.se.items[i].id] || {}).n)).join(", ")}</b>. On y revient ${R.se.mode === "circuit" ? "en fin de tour" : "après les autres exercices"}.</span></div>`;
+}
+/* Vrai s'il ne reste aucun autre exercice vers lequel repousser celui-ci */
+function laterLeft(i) {
+  const st = R.steps[R.idx], rest = R.steps.slice(R.idx).filter(s => s.k === "work" && !s.cool && s.i !== i);
+  return !(R.se.mode === "circuit" ? rest.some(s => s.set === st.set) : rest.length);
 }
 function runSummary() {
   const duree = Math.round(((R.endAt || Date.now()) - R.start) / 1000);
@@ -3134,7 +3212,7 @@ function runNext() {
 function closeRunner() { R = null; $("#runner").hidden = true; $("#runner").innerHTML = ""; releaseWake(); clearRun(); render(); }
 function saveRunHistory() {
   const sum = runSummary(), se = R.se;
-  const log = se.items.map((it, i) => ({ id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : { r: x.r, kg: x.kg }) })).filter(x => x.sets.length);
+  const log = se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : { r: x.r, kg: x.kg }) })).filter(x => x.sets.length);
   const ref = R.tplId ? { k: "t", id: R.tplId } : (R.srcId ? { k: "p", id: R.srcId } : null);
   const today = todayISO();
   S.historique.unshift({ id: rid(), date: today, ts: Date.now(), nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log });
@@ -3284,6 +3362,7 @@ const A = {
   "ed-step": el => { const i = +el.dataset.i, f = el.dataset.f, d = num(el.dataset.d); const cur = i < 0 ? (E.se[f] || 0) : (E.se.items[i][f] || 0); edSet(i, f, cur + d); },
   "ed-move": el => { const i = +el.dataset.i, d = +el.dataset.d, a = E.se.items; if (!a[i + d]) return; const x = a[i]; a[i] = a[i + d]; a[i + d] = x; renderEditor(); },
   "ed-del": el => { E.se.items.splice(+el.dataset.i, 1); renderEditor(); },
+  "ed-etir": () => { E.se.etir = !etirOn(E.se); renderEditor(); },
   "ed-echec": el => { const it = E.se.items[+el.dataset.i]; if (!it) return; it.echec = it.echec ? 0 : 1; renderEditor(); },
   "anim-replay": el => ANIM.replay(el),
   "ed-add": () => openPicker(),
@@ -3292,7 +3371,7 @@ const A = {
     if (!se.items.length) { toast("Ajoute au moins un exercice."); return; }
     se.nom = (se.nom || "").trim() || "Ma séance";
     se.kind = se.kind || (se.mode === "circuit" ? "hiit" : "muscu");
-    const data = { id: E.srcId || rid(), nom: se.nom, mode: se.mode, kind: se.kind, tours: se.tours, roundRest: se.roundRest, items: clone(se.items), upd: Date.now() };
+    const data = { id: E.srcId || rid(), nom: se.nom, mode: se.mode, kind: se.kind, etir: etirOn(se), tours: se.tours, roundRest: se.roundRest, items: clone(se.items), upd: Date.now() };
     const i = S.mesSeances.findIndex(x => x.id === data.id);
     if (i >= 0) S.mesSeances[i] = data; else S.mesSeances.unshift(data);
     commit("p");
@@ -3327,13 +3406,29 @@ const A = {
     if (j < 0) return;
     R.log = R.log.map(l => l.filter(x => x.s < j)); R.idx = j; enterStep();
   },
-  "run-skipex": () => {
-    const st = R.steps[R.idx]; if (!st) return;
-    const i = st.i, circ = R.se.mode === "circuit";
-    let j = R.idx + 1;
-    if (circ) { while (j < R.steps.length && R.steps[j].k !== "work") j++; }
-    else { while (j < R.steps.length && !(R.steps[j].k === "work" && R.steps[j].i !== i)) j++; }
-    R.idx = j; enterStep();
+  /* Machine prise : l'exercice passe après les autres (en fin de tour pour un circuit) et reste dans la séance */
+  "run-later": () => {
+    const st = R.steps[R.idx]; if (!st || st.k !== "work" || st.cool || laterLeft(st.i)) return;
+    const rest = R.steps.slice(R.idx).filter(s => s.k === "work"), e = EX_BY_ID[R.se.items[st.i].id];
+    let order;
+    if (R.se.mode === "circuit") {
+      const round = rest.filter(s => !s.cool && s.set === st.set);
+      order = round.filter(s => s !== st).concat([Object.assign({}, st, { later: true })], rest.filter(s => round.indexOf(s) < 0));
+    } else {
+      const mine = rest.filter(s => s.i === st.i).map(s => Object.assign({}, s, { later: true }));
+      order = rest.filter(s => s.i !== st.i && !s.cool).concat(mine, rest.filter(s => s.cool));
+    }
+    R.steps = R.steps.slice(0, R.idx).concat(withRests(R.se, order));
+    enterStep(); toast(e.n + " : on y revient " + (R.se.mode === "circuit" ? "en fin de tour" : "à la fin"));
+  },
+  /* Ne pas faire l'exercice : retiré du reste de la séance */
+  "run-refuse": el => {
+    const st = R.steps[R.idx]; if (!st || st.k !== "work") return;
+    if (!arm(el, "Confirmer ?")) return;
+    const order = R.steps.slice(R.idx).filter(s => s.k === "work" && s.i !== st.i);
+    R.skipped = R.skipped || {}; R.skipped[st.i] = 1;
+    R.steps = R.steps.slice(0, R.idx).concat(withRests(R.se, order));
+    enterStep();
   },
   "run-quit": () => {
     const any = R.log.some(l => l.length);
@@ -3367,7 +3462,7 @@ const A = {
   },
   "hist-redo": el => {
     const x = S.historique.find(h => h.id === el.dataset.id); if (!x) return;
-    const items = (x.log || []).filter(l => EX_BY_ID[l.id]).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
+    const items = (x.log || []).filter(l => EX_BY_ID[l.id] && !l.cool).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
     openEditor("prep", applySuggestions({ nom: x.nom, mode: "series", kind: x.kind || "muscu", items }), {});
   },
   "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
