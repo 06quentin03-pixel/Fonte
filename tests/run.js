@@ -12,7 +12,7 @@ const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
 if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
 const ctx = vm.createContext({ console });
 /* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX"];
+const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES"];
 vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
 const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
 
@@ -293,6 +293,49 @@ test("deloadSe : moins de séries, charges à 85 % arrondies, assistance augment
   assert.strictEqual(se.items[0].series, 2); assert.strictEqual(se.items[0].charge, 85); assert.strictEqual(se.items[0].echec, 0);
   assert.strictEqual(se.items[1].series, 2); assert.strictEqual(se.items[1].charge, 10, "haltère du commerce ≤ 11,9 kg");
   assert.strictEqual(se.items[2].charge, 25);
+});
+
+console.log("Échauffement");
+test("warmUp : cardio doux puis 2 à 3 mouvements de mobilité ciblés, tous chronométrés", () => {
+  const push = G.prescribe(G.TPL_BY_ID["push"], P_H).items, legs = G.prescribe(G.TPL_BY_ID["legs"], P_H).items;
+  const wp = G.warmUp(push, false), wl = G.warmUp(legs, false);
+  [wp, wl].forEach(w => {
+    assert.ok(w.length >= 3 && w.length <= 4, "taille " + w.length);
+    assert.strictEqual(G.EX_BY_ID[w[0].id].g, "cardio", "commence par du cardio");
+    w.forEach(it => { assert.ok(it.warm && it.duree > 0 && G.EX_BY_ID[it.id], it.id); });
+  });
+  assert.ok(wp.some(it => ["cercles-bras", "dislocations-epaules"].indexOf(it.id) >= 0), "push : épaules");
+  assert.ok(wl.some(it => ["squat-pdc", "world-greatest"].indexOf(it.id) >= 0), "legs : hanches et jambes");
+  assert.strictEqual(wl[0].id, "velo"); assert.strictEqual(wp[0].id, "rameur");
+});
+test("warmUp : à la maison, jumping jacks (sans saut si le profil l'exige)", () => {
+  const maison = G.prescribe(G.TPL_BY_ID["fb-maison"], P_H).items;
+  assert.strictEqual(G.warmUp(maison, false)[0].id, "jumping-jacks");
+  assert.strictEqual(G.warmUp(maison, true)[0].id, "step-jack");
+});
+test("echOn : échauffement pour la muscu et le HIIT, pas pour le cardio ni la mobilité, désactivable", () => {
+  assert.ok(G.echOn({ kind: "muscu" })); assert.ok(G.echOn({ kind: "hiit" }));
+  assert.ok(!G.echOn({ kind: "cardio" })); assert.ok(!G.echOn({ kind: "mob" }));
+  assert.ok(!G.echOn({ kind: "muscu", echauf: false }));
+});
+test("buildSteps : l'échauffement passe en premier, puis 20 s de transition", () => {
+  const items = [{ id: "dc-barre", series: 2, reps: 8, repos: 90 }];
+  const se = { mode: "series", items: G.warmUp(items, false).concat(items) };
+  const st = G.buildSteps(se), firstMain = st.findIndex(s => s.k === "work" && !s.warm);
+  assert.ok(st.slice(0, firstMain).filter(s => s.k === "work").every(s => s.warm));
+  assert.ok(st[firstMain - 1].k === "rest" && st[firstMain - 1].fromWarm && st[firstMain - 1].d === 20);
+});
+test("estDuree compte l'échauffement, et les étirements aussi pour un circuit", () => {
+  const se = G.prescribe(G.TPL_BY_ID["push"], P_H), off = Object.assign({}, se, { echauf: false });
+  assert.ok(G.estDuree(se) > G.estDuree(off));
+  const c = G.prescribe(G.TPL_BY_ID["fb-maison"], P_H), c0 = Object.assign({}, c, { etir: false });
+  assert.ok(G.estDuree(c) > G.estDuree(c0), "circuit : étirements comptés");
+});
+test("l'échauffement n'entre ni dans les courbes, ni dans les records, ni dans les muscles travaillés", () => {
+  const prev = [{ id: "a", date: "2026-01-01", ts: 1, log: [{ id: "squat-pdc", sets: [{ r: 10, kg: 0 }] }] }];
+  assert.strictEqual(G.findRecords(prev, [{ id: "squat-pdc", warm: 1, sets: [{ r: 30, kg: 0 }] }]).length, 0);
+  assert.strictEqual(G.exSeries([{ id: "b", date: "2026-01-02", ts: 2, log: [{ id: "squat-pdc", warm: 1, sets: [{ d: 30 }] }] }], "squat-pdc").length, 0);
+  assert.strictEqual(Object.keys(G.muscleSets([{ date: "2026-01-02", log: [{ id: "squat-pdc", warm: 1, sets: [{ d: 30 }] }] }], "2026-01-01", "2026-01-07")).length, 0);
 });
 
 console.log("Exports");

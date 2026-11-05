@@ -1489,18 +1489,50 @@ function coolDown(items) {
 }
 function coolDuree(items) { return coolDown(items).reduce((a, it) => a + it.series * (it.duree + 10), 20); }
 
+/* Échauffement de début de séance : quelques minutes de cardio doux, puis des mouvements de mobilité
+   choisis selon les muscles de la séance (mouvements dynamiques, pas d’étirements tenus) */
+const WARM_FOR = { pecs: ["cercles-bras", "dislocations-epaules"], epaules_ant: ["dislocations-epaules", "cercles-bras"], epaules_lat: ["cercles-bras"], epaules_post: ["dislocations-epaules"],
+  triceps: ["cercles-bras"], biceps: ["dislocations-epaules"], avantbras: ["cercles-bras"], trapezes: ["cercles-bras"], dorsaux: ["dislocations-epaules", "rotation-thoracique"], rhomboides: ["rotation-thoracique"],
+  lombaires: ["chat-vache"], abdos: ["chat-vache"], obliques: ["rotation-thoracique"], quadriceps: ["squat-pdc", "world-greatest"], fessiers: ["world-greatest", "squat-pdc"],
+  ischios: ["world-greatest"], adducteurs: ["squat-profond"], abducteurs: ["world-greatest"], mollets: ["squat-pdc"] };
+const LEGS = ["quadriceps", "fessiers", "ischios", "adducteurs", "abducteurs", "mollets"];
+const echOn = s => s && s.echauf != null ? !!s.echauf : !!(s && (s.kind === "muscu" || s.kind === "hiit" || !s.kind));
+function warmUp(items, low) {
+  const score = {}, have = new Set(); let gym = false;
+  (items || []).forEach(it => {
+    const e = EX_BY_ID[it.id]; if (!e || it.cool || it.warm) return;
+    have.add(e.id);
+    if (e.m.some(m => ["machine", "poulie", "smith", "barre", "ez"].indexOf(m) >= 0)) gym = true;
+    e.p.forEach(m => { score[m] = (score[m] || 0) + 2; }); e.s.forEach(m => { score[m] = (score[m] || 0) + 1; });
+  });
+  if (!have.size) return [];
+  const legs = LEGS.reduce((a, m) => a + (score[m] || 0), 0), all = Object.keys(score).reduce((a, m) => a + (m === "cardio" ? 0 : score[m]), 0);
+  const pulse = gym ? (legs * 2 >= all ? "velo" : "rameur") : (low ? "step-jack" : "jumping-jacks");
+  const mob = [];
+  Object.keys(score).filter(m => WARM_FOR[m]).sort((a, b) => score[b] - score[a]).forEach(m => WARM_FOR[m].forEach(id => { if (mob.indexOf(id) < 0 && !have.has(id) && EX_BY_ID[id]) mob.push(id); }));
+  if (!mob.length) ["world-greatest", "cercles-bras"].forEach(id => { if (!have.has(id)) mob.push(id); });
+  return [pulse].concat(mob.slice(0, 3)).filter(id => EX_BY_ID[id]).map(id => {
+    const e = EX_BY_ID[id], p = id === pulse;
+    return { id, series: !p && e.pc ? 2 : 1, reps: 0, duree: p ? (gym ? 180 : 60) : 30, repos: 10, charge: 0, warm: 1 };
+  });
+}
+function warmDuree(items, low) { const w = warmUp(items, low); return w.length ? w.reduce((a, it) => a + it.series * (it.duree + 10), 20) : 0; }
+
 /* Durée estimée (s) et calories */
 function estDuree(s) {
   let t = 0;
-  if (etirOn(s) && s.items.length && !s.items.some(it => it.cool)) t += coolDuree(s.items);
+  const main = s.items.filter(it => !it.warm && !it.cool), phase = l => l.reduce((a, it) => a + it.series * (it.duree + 10), 20);
+  /* échauffement et étirements : ceux de la séance s’ils y sont déjà, sinon ceux qui seront ajoutés au lancement */
+  if (s.items.some(it => it.cool)) t += phase(s.items.filter(it => it.cool)); else if (etirOn(s) && main.length) t += coolDuree(main);
+  if (s.items.some(it => it.warm)) t += phase(s.items.filter(it => it.warm)); else if (echOn(s) && main.length) t += warmDuree(main);
   if (s.mode === "circuit") {
-    const per = s.items.reduce((a, it) => a + (it.duree || it.reps * 3.5) + (it.repos || 0), 0);
-    t = (s.tours || 1) * per + Math.max(0, (s.tours || 1) - 1) * (s.roundRest || 60);
+    const per = main.reduce((a, it) => a + (it.duree || it.reps * 3.5) + (it.repos || 0), 0);
+    t += (s.tours || 1) * per + Math.max(0, (s.tours || 1) - 1) * (s.roundRest || 60);
   } else {
-    s.items.forEach((it, i) => {
+    main.forEach((it, i) => {
       const w = it.duree || (it.reps || 10) * 3.5 * (it.parCote ? 2 : 1);
       /* superset : pas de repos avant l’exercice suivant du groupe */
-      if (s.items[i + 1] && it.ss && !it.cool && !s.items[i + 1].cool) t += it.series * (w + 15);
+      if (main[i + 1] && it.ss) t += it.series * (w + 15);
       else t += it.series * w + Math.max(0, it.series - 1) * (it.repos || 0) + 60;
     });
   }
@@ -1663,7 +1695,7 @@ function exSeries(hist, id) {
   (hist || []).forEach(h => {
     if (!h || !Array.isArray(h.log)) return;
     h.log.forEach(l => {
-      if (!l || l.id !== id || l.cool || !Array.isArray(l.sets)) return;
+      if (!l || l.id !== id || l.cool || l.warm || !Array.isArray(l.sets)) return;
       const rs = l.sets.filter(s => s && s.r != null && s.r > 0), ds = l.sets.filter(s => s && s.d > 0);
       if (!rs.length && !ds.length) return;
       const k = h.id || h.date + h.ts;
@@ -1701,10 +1733,10 @@ function bestOf(pts, kind) {
 function findRecords(prevHist, log) {
   const out = [];
   (log || []).forEach(l => {
-    if (!l || l.cool || out.some(o => o.id === l.id)) return;
+    if (!l || l.cool || l.warm || out.some(o => o.id === l.id)) return;
     const e = EX_BY_ID[l.id]; if (!e || NO_RECORD_GROUPS.indexOf(e.g) >= 0) return;
     const prev = exSeries(prevHist, l.id); if (!prev.length) return;
-    const cur = exSeries([{ id: "_cur", date: "9999-12-31", ts: Infinity, log: (log || []).filter(x => x.id === l.id) }], l.id)[0]; if (!cur) return;
+    const cur = exSeries([{ id: "_cur", date: "9999-12-31", ts: Infinity, log: (log || []).filter(x => x.id === l.id && !x.warm && !x.cool) }], l.id)[0]; if (!cur) return;
     const kind = trackKind(l.id, prev.concat([cur])), b = bestOf(prev, kind);
     if (kind === "kg") {
       if (!b) return;
@@ -1724,7 +1756,7 @@ function findRecords(prevHist, log) {
 const HIST_FULL = 300, HIST_MAX = 3000;
 function compactEntry(h) {
   if (!h || h.c || !Array.isArray(h.log)) return h;
-  const log = h.log.filter(l => l && !l.cool && Array.isArray(l.sets) && l.sets.length).map(l => {
+  const log = h.log.filter(l => l && !l.cool && !l.warm && Array.isArray(l.sets) && l.sets.length).map(l => {
     const rs = l.sets.filter(s => s.r != null), ds = l.sets.filter(s => s.d), keep = [];
     const add = s => { if (s && keep.indexOf(s) < 0) keep.push(s); };
     if (rs.length) {
@@ -1743,18 +1775,20 @@ function trimHist(list, full) {
 }
 
 /* Superséries : it.ss = enchaîné avec l’exercice suivant, sans repos entre les deux (séries classiques seulement) */
-function linked(se, i) { const a = se.items[i], b = se.items[i + 1]; return se.mode !== "circuit" && !!(a && b && a.ss && !a.cool && !b.cool); }
+function linked(se, i) { const a = se.items[i], b = se.items[i + 1]; return se.mode !== "circuit" && !!(a && b && a.ss && !a.cool && !b.cool && !a.warm && !b.warm); }
 /* Groupes d’exercices consécutifs (un exercice seul forme un groupe d’un élément) */
 function ssGroups(se) {
   const out = []; let cur = null;
-  se.items.forEach((it, i) => { if (it.cool) return; if (!cur) { cur = [i]; out.push(cur); } else cur.push(i); if (!linked(se, i)) cur = null; });
+  se.items.forEach((it, i) => { if (it.cool || it.warm) return; if (!cur) { cur = [i]; out.push(cur); } else cur.push(i); if (!linked(se, i)) cur = null; });
   return out;
 }
 /* Étapes d’une séance : séries et repos */
 function buildSteps(se) {
   const w = [], cool = [];
-  const main = se.items.map((it, i) => i).filter(i => !se.items[i].cool);
+  const main = se.items.map((it, i) => i).filter(i => !se.items[i].cool && !se.items[i].warm);
   se.items.forEach((it, i) => { if (it.cool) cool.push(i); });
+  /* échauffement d’abord */
+  se.items.forEach((it, i) => { if (!it.warm) return; const n = Math.max(1, it.series || 1); for (let s = 1; s <= n; s++) w.push({ k: "work", i, set: s, of: n, warm: true }); });
   if (se.mode === "circuit") {
     const T = Math.max(1, se.tours || 1);
     for (let t = 1; t <= T; t++) main.forEach(i => w.push({ k: "work", i, set: t, of: T }));
@@ -1779,7 +1813,9 @@ function withRests(se, works) {
     if (p) {
       const pit = se.items[p.i];
       let r = null;
-      if (w.cool && !p.cool) r = { k: "rest", d: 20, toCool: true };
+      if (p.warm && !w.warm) r = { k: "rest", d: 20, fromWarm: true };
+      else if (p.warm) r = { k: "rest", d: pit.repos || 10 };
+      else if (w.cool && !p.cool) r = { k: "rest", d: 20, toCool: true };
       else if (p.cool) r = { k: "rest", d: pit.repos || 10 };
       else if (se.mode === "circuit") r = w.set !== p.set ? { k: "rest", d: se.roundRest || 60, round: true } : { k: "rest", d: pit.repos || 0 };
       else if (p.g != null && p.g === w.g && p.i !== w.i) r = w.set === p.set ? null : { k: "rest", d: pit.repos || 0, round: true };
@@ -1796,14 +1832,14 @@ function csvCell(v) { const s = v == null ? "" : String(v); return /[;"\r\n]/.te
 function csvNum(n) { return n == null || n === "" ? "" : String(Math.round(n * 100) / 100).replace(".", ","); }
 function csvExport(hist) {
   const FEEL = ["", "Facile", "Correct", "Dur", "Très dur"];
-  const rows = [["Date", "Séance", "Exercice", "Série", "Répétitions", "Charge (kg)", "Réserve (reps)", "Durée (s)", "Étirement", "Ressenti", "Durée séance (min)", "Volume séance (kg)", "Détail"]];
+  const rows = [["Date", "Séance", "Exercice", "Série", "Répétitions", "Charge (kg)", "Réserve (reps)", "Durée (s)", "Phase", "Ressenti", "Durée séance (min)", "Volume séance (kg)", "Détail"]];
   (hist || []).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.date).localeCompare(String(b.date))).forEach(h => {
     const head = [h.date, h.nom || "Séance"], tail = [FEEL[h.ressenti || 0] || "", csvNum(Math.round((h.duree || 0) / 60)), csvNum(h.volume || 0), h.c ? "meilleures séries seulement" : ""];
     const log = Array.isArray(h.log) ? h.log : [];
     if (!log.length) { rows.push(head.concat(["", "", "", "", "", "", ""], tail)); return; }
     log.forEach(l => {
       const e = EX_BY_ID[l.id], nom = e ? e.n : l.id;
-      (l.sets || []).forEach((s, k) => rows.push(head.concat([nom, k + 1, s.d ? "" : s.r, s.d ? "" : csvNum(s.kg || 0), s.rir == null ? "" : (s.rir >= 3 ? "3+" : s.rir), s.d || "", l.cool ? "oui" : ""], tail)));
+      (l.sets || []).forEach((s, k) => rows.push(head.concat([nom, k + 1, s.d ? "" : s.r, s.d ? "" : csvNum(s.kg || 0), s.rir == null ? "" : (s.rir >= 3 ? "3+" : s.rir), s.d || "", l.warm ? "échauffement" : l.cool ? "étirement" : ""], tail)));
     });
   });
   return rows.map(r => r.map(csvCell).join(";")).join("\r\n") + "\r\n";
@@ -1868,7 +1904,7 @@ function muscleSets(hist, from, to) {
   (hist || []).forEach(h => {
     if (!h || h.date < from || h.date > to || !Array.isArray(h.log)) return;
     h.log.forEach(l => {
-      const e = EX_BY_ID[l.id]; if (!e || l.cool || e.g === "etirements" || e.g === "mobilite" || e.g === "cardio") return;
+      const e = EX_BY_ID[l.id]; if (!e || l.cool || l.warm || e.g === "etirements" || e.g === "mobilite" || e.g === "cardio") return;
       const n = l.n || (l.sets || []).length;
       e.p.forEach(m => { out[m] = (out[m] || 0) + n; });
       e.s.forEach(m => { if (e.p.indexOf(m) < 0) out[m] = (out[m] || 0) + n / 2; });
@@ -2988,7 +3024,7 @@ function recentRecords(days) {
 const recRow = r => `<button class="row" data-a="ex-open" data-id="${esc(r.id)}">${icon("trophy", "ic rec-ic")}<div class="row-main"><div class="row-title">${esc(EX_BY_ID[r.id].n)}</div><div class="row-sub">${esc(recText(r.k, r.v))} · ${cap(fmtDayShort(r.date))}</div></div>${icon("chev", "ic chev")}</button>`;
 function openProgress() {
   const ids = [];
-  S.historique.forEach(h => (h.log || []).forEach(l => { if (!l.cool && EX_BY_ID[l.id] && ids.indexOf(l.id) < 0) ids.push(l.id); }));
+  S.historique.forEach(h => (h.log || []).forEach(l => { if (!l.cool && !l.warm && EX_BY_ID[l.id] && ids.indexOf(l.id) < 0) ids.push(l.id); }));
   const rows = ids.map(id => {
     const pts = exSeries(S.historique, id); if (!pts.length) return null;
     const kind = trackKind(id, pts), m = TRACK[kind], b = bestOf(pts, kind), e = EX_BY_ID[id], P = pts.slice(-30), tr = trendTxt(P, m);
@@ -3003,7 +3039,7 @@ function openProgress() {
   Sheet.open({ key: "prog", title: "Progression", tall: true, body });
 }
 /* Log d’une séance en cours, au format de l’historique */
-function runLog() { return R.se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {})) })).filter(x => x.sets.length); }
+function runLog() { return R.se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : it.warm ? { warm: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {})) })).filter(x => x.sets.length); }
 
 /* ================= Fichiers : partager, télécharger, copier ================= */
 let FX = null;
@@ -3481,7 +3517,7 @@ function viewAccueil() {
     <button class="tool" data-a="my-new">${icon("plus")}<b>Créer une séance</b><span class="muted small">Tes exercices, tes séries</span></button>
     <button class="tool" data-a="tpl-open" data-id="tabata">${icon("bolt")}<b>Tabata express</b><span class="muted small">20 s à fond, 10 s de repos</span></button>
     <button class="tool" data-a="tpl-open" data-id="echauffement">${icon("heart")}<b>Échauffement</b><span class="muted small">8 minutes avant la séance</span></button></div></section>`;
-  if (S.historique.some(x => (x.log || []).some(l => !l.cool))) {
+  if (S.historique.some(x => (x.log || []).some(l => !l.cool && !l.warm))) {
     const recs = recentRecords(30).slice(0, 3);
     h += `<section><div class="sec-h"><h2>Progression</h2><button class="link" data-a="prog-open">Tout voir</button></div>${recs.length ? `<div class="list">${recs.map(recRow).join("")}</div>` : `<button class="card row" data-a="prog-open" style="padding:14px">${icon("chart", "ic rec-ic ch-ic")}<div class="row-main"><div class="row-title">Tes courbes par exercice</div><div class="row-sub">Charges, 1RM estimé, répétitions et records</div></div>${icon("chev", "ic chev")}</button>`}</section>`;
   }
@@ -3565,6 +3601,13 @@ function tplCard(t) {
   const se = prescribe(t, S.profile), d = estDuree(se), [p, s] = seanceMuscles(se.items);
   return `<button class="tpl" data-a="tpl-open" data-id="${t.id}">${figHTML(p, s, "sm")}<div class="tpl-main"><div class="tpl-name">${esc(t.n)}</div><div class="tpl-desc">${esc(t.desc)}</div><div class="meta"><span>${icon("clock")}${fmtDur(d)}</span><span>${se.items.length} exos${se.mode === "circuit" ? " · " + se.tours + " tours" : ""}</span><span>${icon("flame")}${estKcal(se, S.profile, d)} kcal</span></div></div></button>`;
 }
+/* « 3 min de rameur, cercles de bras, dislocations d’épaules » */
+function warmTxt(wu) { return wu.map((it, k) => { const n = EX_BY_ID[it.id].n.replace(/ \(.*\)$/, ""); return k === 0 && it.duree >= 60 ? Math.round(it.duree / 60) + " min de " + n.toLowerCase().replace(/^vélo d’appartement$/, "vélo") : (k ? n.charAt(0).toLowerCase() + n.slice(1) : n); }).join(", "); }
+function warmNote(se) {
+  if (!echOn(se) || !se.items.length) return "";
+  const wu = warmUp(se.items, lowImpact(S.profile)); if (!wu.length) return "";
+  return `<div class="note">${icon("flame")}<span>Pour commencer, échauffement ciblé (≈ ${fmtDur(warmDuree(se.items, lowImpact(S.profile)))}) : ${esc(warmTxt(wu))}. Tu peux le retirer dans « Lancer ».</span></div>`;
+}
 /* Aperçu d’une de mes séances : tout le contenu, avant de la lancer ou de la modifier */
 function openMes(id) {
   const m = S.mesSeances.find(x => x.id === id); if (!m) return;
@@ -3573,6 +3616,7 @@ function openMes(id) {
   const cd = etirOn(se) ? coolDown(se.items) : [];
   const body = `<div style="display:flex;gap:14px;align-items:center">${figHTML(p, s, "sm")}<div class="meta" style="flex-direction:column;gap:6px;font-size:14px"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${icon("dumbbell")}${plural(se.items.length, "exercice")}</span><span>${icon("flame")}≈ ${estKcal(se, S.profile, d)} kcal</span></div></div>
     ${(se.notes || []).length ? `<div class="note">${icon("sparkle")}<span>${se.notes.map(esc).join(" · ")}.</span></div>` : ""}${circ}${chargeNote(se)}
+    ${warmNote(se)}
     ${itemRows(se)}
     ${cd.length ? `<div class="note">${icon("heart")}<span>Pour finir, ${plural(cd.length, "étirement")} (≈ ${fmtDur(coolDuree(se.items))}) : ${esc(cd.map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", "))}.</span></div>` : ""}
     <div class="btn-row"><button class="btn" data-a="my-edit" data-id="${esc(m.id)}">${icon("edit")}Modifier</button><button class="btn" data-a="my-plan" data-id="${esc(m.id)}">${icon("cal")}Planifier</button></div>`;
@@ -3618,8 +3662,9 @@ function openTpl(id, o, j) {
   const body = `${j != null ? `<div class="note">${icon("cal")}<span>Jour ${j + 1} de ton programme${o && objList(S.profile).length > 1 ? ", réglé pour l’objectif « " + esc(OBJECTIFS[o].n) + " »" : ""}.</span></div>` : ""}<p class="muted">${esc(t.desc)}</p>
     <div style="display:flex;gap:14px;align-items:center">${figHTML(p, s, "sm")}<div class="meta" style="flex-direction:column;gap:6px;font-size:14px"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${icon("dumbbell")}${plural(se.items.length, "exercice")}</span><span>${icon("flame")}≈ ${estKcal(se, S.profile, d)} kcal</span></div></div>
     ${se.notes.length ? `<div class="note">${icon("sparkle")}<span>${se.notes.map(esc).join(" · ")}.</span></div>` : ""}${circ}${hrZoneNote(se)}${chargeNote(se)}
+    ${warmNote(se)}
     ${itemRows(se)}
-    ${etirOn(se) && coolDown(se.items).length ? `<div class="note">${icon("heart")}<span>Pour finir, ${plural(coolDown(se.items).length, "étirement")} (≈ ${fmtDur(coolDuree(se.items))}) : ${esc(coolDown(se.items).map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", "))}. Tu peux les retirer dans « Lancer ».</span></div>` : ""}
+    ${etirOn(se) && coolDown(se.items).length ? `<div class="note">${icon("heart")}<span>Pour finir, ${(n => n + (n > 1 ? " étirements ciblés" : " étirement ciblé"))(coolDown(se.items).length)} (≈ ${fmtDur(coolDuree(se.items))}) : ${esc(coolDown(se.items).map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", "))}. Tu peux les retirer dans « Lancer ».</span></div>` : ""}
     <div class="btn-row"><button class="btn" data-a="tpl-copy" data-id="${id}">${icon("copy")}Copier dans mes séances</button></div>`;
   Sheet.open({ key: "tpl", title: t.n, body, tall: true, foot: `<button class="btn btn-lg" data-a="tpl-plan" data-id="${id}"${pa}>${icon("cal")}Planifier</button><button class="btn btn-primary btn-lg" data-a="tpl-start" data-id="${id}"${pa}>${icon("play")}Lancer</button>` });
 }
@@ -3793,6 +3838,7 @@ function renderEditor() {
   if (prep) h += `<p class="small muted">Règle les séries, répétitions, charges et repos pour aujourd’hui. Les charges viennent de ta dernière séance, ou sont calculées d’après ton profil la première fois.</p>`;
   h += se.items.length ? se.items.map(edItem).join("") : `<div class="card empty"><p>Ajoute des exercices pour composer ta séance.</p></div>`;
   h += `<button class="btn btn-block" data-a="ed-add">${icon("plus")}Ajouter des exercices</button>`;
+  if (se.items.length) { const on = echOn(se), wu = warmUp(se.items, lowImpact(S.profile)); h += `<div class="card"><button class="switch" role="switch" data-a="ed-echauf" aria-checked="${on}"><span><b>Échauffement au début</b><br><span class="small muted">${on ? "≈ " + fmtDur(warmDuree(se.items, lowImpact(S.profile))) + " : " : ""}${esc(warmTxt(wu))}</span></span><span class="sw"></span></button></div>`; }
   if (se.items.length) { const on = etirOn(se), cd = coolDown(se.items); h += `<div class="card"><button class="switch" role="switch" data-a="ed-etir" aria-checked="${on}"><span><b>Étirements à la fin</b><br><span class="small muted">${cd.length ? (on ? "≈ " + fmtDur(coolDuree(se.items)) + " : " : "") + esc(cd.map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", ")) : "Rien à ajouter : ta séance contient déjà ces étirements."}</span></span><span class="sw"></span></button></div>`; }
   if (se.items.length) h += `<div class="meta" style="justify-content:center"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${icon("flame")}≈ ${estKcal(se, S.profile, d)} kcal</span></div>`;
   if (!prep && E.srcId) h += `<button class="btn btn-danger btn-block" data-a="ed-delete">${icon("trash")}Supprimer cette séance</button>`;
@@ -3849,8 +3895,10 @@ function releaseWake() { try { if (WL) WL.release(); } catch (e) { } WL = null; 
 
 function startRun(se, opts) {
   se = clone(se); se.kind = se.kind || (se.mode === "circuit" ? "hiit" : "muscu");
-  se.items = (se.items || []).filter(it => it && EX_BY_ID[it.id] && !it.cool);
-  if (etirOn(se) && se.items.length) se.items = se.items.concat(coolDown(se.items));
+  se.items = (se.items || []).filter(it => it && EX_BY_ID[it.id] && !it.cool && !it.warm);
+  const main = se.items;
+  if (echOn(se) && main.length) se.items = warmUp(main, lowImpact(S.profile)).concat(se.items);
+  if (etirOn(se) && main.length) se.items = se.items.concat(coolDown(main));
   if (!se.items.length) { toast("Aucun exercice de cette séance n’existe encore dans l’appli."); return; }
   Sheet.closeAll(); closeEditor();
   R = Object.assign({ se, steps: buildSteps(se), idx: 0, start: Date.now(), log: se.items.map(() => []), t: null, cur: null, beeped: {} }, opts || {});
@@ -3863,7 +3911,7 @@ function enterStep() {
   if (st.k === "rest") R.t = { end: Date.now() + st.d * 1000, total: st.d, running: true, left: st.d };
   else {
     const it = R.se.items[st.i];
-    if (it.duree > 0 && st.cool) { R.t = { left: it.duree, total: it.duree, running: true, end: Date.now() + it.duree * 1000 }; R.cur = null; }
+    if (it.duree > 0 && (st.cool || st.warm)) { R.t = { left: it.duree, total: it.duree, running: true, end: Date.now() + it.duree * 1000 }; R.cur = null; }
     else if (it.duree > 0) { R.t = st.fail ? { up: true, acc: 0, start: null, total: it.duree, running: false } : { left: it.duree, total: it.duree, running: false, end: null }; R.cur = null; }
     else { R.t = null; const prev = R.log[st.i][R.log[st.i].length - 1]; R.cur = { r: it.reps, kg: prev && prev.kg != null ? prev.kg : (it.charge || 0) }; }
   }
@@ -3907,19 +3955,21 @@ function renderRunner() {
       <div class="sum"><div class="stat"><b>${fmtDur(sum.duree)}</b><span>durée</span></div><div class="stat"><b>${sum.sets}</b><span>séries réalisées</span></div><div class="stat"><b>${fmtNum(Math.round(sum.volume))}<small style="font-size:17px"> kg</small></b><span>volume soulevé</span></div><div class="stat"><b>≈ ${sum.kcal}</b><span>kcal estimées</span></div></div>
       ${recordsCard()}
       <div class="field"><div class="lbl">Ton ressenti</div><div class="feel">${["Facile", "Correct", "Dur", "Très dur"].map((l, i) => `<button data-a="run-feel" data-v="${i + 1}" aria-pressed="${R.feel === i + 1}">${l}</button>`).join("")}</div></div>
-      <div class="list">${se.items.map((it, i) => { const e = EX_BY_ID[it.id], lg = R.log[i]; if (!e || (!lg.length && it.cool)) return ""; if (!lg.length) return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">Pas fait</div></div></div>`; return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${lg.map(x => x.d ? fmtSec(x.d) : x.r + (x.kg ? " × " + fmtNum(x.kg) + " kg" : "")).join(" · ")}</div></div></div>`; }).join("")}</div>`;
+      <div class="list">${se.items.map((it, i) => { const e = EX_BY_ID[it.id], lg = R.log[i]; if (!e || (!lg.length && (it.cool || it.warm))) return ""; if (!lg.length) return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">Pas fait</div></div></div>`; return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${lg.map(x => x.d ? fmtSec(x.d) : x.r + (x.kg ? " × " + fmtNum(x.kg) + " kg" : "")).join(" · ")}</div></div></div>`; }).join("")}</div>`;
     foot = `<button class="btn btn-primary btn-lg btn-block" data-a="run-save">${icon("check")}Enregistrer la séance</button><button class="btn btn-ghost btn-block" data-a="run-discard">Ne pas enregistrer</button>`;
   } else if (st.k === "work") {
     const it = se.items[st.i], e = EX_BY_ID[it.id];
     top += `<button class="btn-icon" data-a="ex-open" data-id="${e.id}" aria-label="Fiche de l’exercice">${icon("info")}</button></div>`;
-    const nMain = se.items.filter(x => !x.cool && x.rep == null).length, num = (it.rep != null ? it.rep : st.i) + 1, coolIds = se.items.map((x, k) => x.cool ? k : -1).filter(k => k >= 0);
-    const kicker = st.cool ? `Étirements · ${coolIds.indexOf(st.i) + 1}/${coolIds.length}` : se.mode === "circuit" ? `Tour ${st.set}/${st.of} · Exercice ${num}/${nMain}` : `${st.g != null ? "Superset " + (st.gi + 1) + "/" + st.gn + " · " : ""}Exercice ${num}/${nMain} · Série ${st.set}/${st.of}`;
+    const nWarm = se.items.filter(x => x.warm).length, warmIds = se.items.map((x, k) => x.warm ? k : -1).filter(k => k >= 0);
+    const nMain = se.items.filter(x => !x.cool && !x.warm && x.rep == null).length, num = (it.rep != null ? it.rep : st.i) + 1 - nWarm, coolIds = se.items.map((x, k) => x.cool ? k : -1).filter(k => k >= 0);
+    const kicker = st.warm ? `Échauffement · ${warmIds.indexOf(st.i) + 1}/${warmIds.length}` : st.cool ? `Étirements · ${coolIds.indexOf(st.i) + 1}/${coolIds.length}` : se.mode === "circuit" ? `Tour ${st.set}/${st.of} · Exercice ${num}/${nMain}` : `${st.g != null ? "Superset " + (st.gi + 1) + "/" + st.gn + " · " : ""}Exercice ${num}/${nMain} · Série ${st.set}/${st.of}`;
     const nst = R.steps[R.idx + 1], chain = st.g != null && nst && nst.k === "work" && nst.g === st.g && nst.i !== st.i ? EX_BY_ID[se.items[nst.i].id] : null;
     autoAnim = st.set === 1;
     body = `<div class="run-ex"><div class="row-main"><div class="run-kicker">${kicker}</div><h2>${esc(e.n)}</h2>${it.parCote ? `<div class="small muted">Répétitions par côté</div>` : (e.pc && it.duree ? `<div class="small muted">${st.of === 2 && st.set === 2 ? "Deuxième côté" : (st.of === 2 ? "Premier côté" : "Par côté")}</div>` : "")}</div>${figHTML(e.p, e.s, "sm")}</div>`;
-    if (!st.cool) body += `<div class="run-tools"><button class="chip chip-sm" data-a="run-swap">${icon("refresh")}Remplacer l’exercice</button>${R.se.dl ? `<span class="tag">Semaine allégée</span>` : ""}</div>`;
+    if (!st.cool && !st.warm) body += `<div class="run-tools"><button class="chip chip-sm" data-a="run-swap">${icon("refresh")}Remplacer l’exercice</button>${R.se.dl ? `<span class="tag">Semaine allégée</span>` : ""}</div>`;
     if (S.notes[e.id]) body += `<div class="note">${icon("edit")}<span>${esc(S.notes[e.id])}</span></div>`;
     if (st.later) body += `<div class="note">${icon("clock")}<span><b>Exercice mis de côté tout à l’heure.</b> ${laterLeft(st.i) ? "Si la machine est encore prise, tu peux le passer." : "Si la machine est encore prise, repousse-le encore ou passe-le."}</span></div>`;
+    if (st.warm && warmIds.indexOf(st.i) === 0 && st.set === 1) body += `<div class="note">${icon("flame")}<span>Échauffement ciblé sur les muscles de ta séance : ${e.g === "cardio" ? "d’abord quelques minutes de cardio doux pour monter en température, puis quelques mouvements de mobilité" : "des mouvements amples et contrôlés, sans forcer"}. Le minuteur démarre tout seul.</span></div>`;
     if (st.cool && coolIds.indexOf(st.i) === 0 && st.set === 1) body += `<div class="note">${icon("heart")}<span>Retour au calme : tiens chaque position sans à-coups, en respirant lentement. Le minuteur démarre tout seul.</span></div>`;
     body += laterNote(st.i);
     if (st.fail) body += `<div class="note note-f">${icon("flame")}<span><b>Dernière série jusqu’à l’échec</b> : continue jusqu’à ne plus réussir une répétition propre${it.duree > 0 ? ", puis touche « J’arrête »" : ", puis note ton total"}.</span></div>`;
@@ -3939,12 +3989,13 @@ function renderRunner() {
       foot = `<button class="btn btn-primary btn-lg btn-block" data-a="run-next">${icon("check")}${chain ? "Enchaîne : " + esc(chain.n) : "Série terminée"}</button>`;
     }
     body += animHTML(e.id);
-    const canLater = !st.cool && !laterLeft(st.i);
-    foot += `<div class="run-nav run-nav3"><button class="btn btn-ghost" data-a="run-prev" ${R.idx === 0 ? "disabled" : ""}>${icon("back")}Précédent</button>${st.cool ? `<button class="btn btn-ghost" data-a="run-end">${icon("check")}Finir</button>` : `<button class="btn btn-ghost" data-a="run-later" ${canLater ? "" : "disabled"} aria-label="Plus tard : la machine est prise, on y revient à la fin">${icon("clock")}Plus tard</button>`}<button class="btn btn-ghost" data-a="run-refuse">Ne pas faire${icon("skip")}</button></div>`;
+    const canLater = !st.cool && !st.warm && !laterLeft(st.i);
+    if (st.warm) foot += `<div class="run-nav run-nav3"><button class="btn btn-ghost" data-a="run-prev" ${R.idx === 0 ? "disabled" : ""}>${icon("back")}Précédent</button><button class="btn btn-ghost" data-a="run-skipwarm">Passer l’échauffement${icon("skip")}</button></div>`;
+    else foot += `<div class="run-nav run-nav3"><button class="btn btn-ghost" data-a="run-prev" ${R.idx === 0 ? "disabled" : ""}>${icon("back")}Précédent</button>${st.cool ? `<button class="btn btn-ghost" data-a="run-end">${icon("check")}Finir</button>` : `<button class="btn btn-ghost" data-a="run-later" ${canLater ? "" : "disabled"} aria-label="Plus tard : la machine est prise, on y revient à la fin">${icon("clock")}Plus tard</button>`}<button class="btn btn-ghost" data-a="run-refuse">Ne pas faire${icon("skip")}</button></div>`;
   } else {
     const nx = R.steps.slice(R.idx + 1).find(s => s.k === "work");
     top += nx ? `<button class="btn-icon" data-a="ex-open" data-id="${se.items[nx.i].id}" aria-label="Fiche de l’exercice suivant">${icon("info")}</button></div>` : `<span style="width:40px"></span></div>`;
-    body = `<div class="run-kicker" style="color:var(--green)">${st.toCool ? "Place aux étirements" : (st.round ? "Fin du tour, souffle" : "Récupère")}</div>` + ringHTML(true) + laterNote(nx ? nx.i : -1);
+    body = `<div class="run-kicker" style="color:var(--green)">${st.fromWarm ? "Échauffé, place à la séance" : st.toCool ? "Place aux étirements" : (st.round ? "Fin du tour, souffle" : "Récupère")}</div>` + ringHTML(true) + laterNote(nx ? nx.i : -1);
     if (nx) autoAnim = nx.set === 1;
     if (nx) { const it = se.items[nx.i], e = EX_BY_ID[it.id]; body += `<div class="next">${ANIM.has(e.id) ? animMini(e.id, "next") : figHTML(e.p, e.s, "xs")}<div class="row-main"><small>À suivre${nx.cool ? " · étirement" : (se.mode === "circuit" ? "" : " · série " + nx.set + "/" + nx.of)}${nx.later ? " · mis de côté" : ""}</small><div class="row-title">${esc(e.n)}</div><div class="row-sub">${it.duree ? fmtSec(it.duree) : it.reps + " reps"}${it.charge ? " · " + kgTxt(it.id, R.log[nx.i].length && R.log[nx.i][R.log[nx.i].length - 1].kg != null ? R.log[nx.i][R.log[nx.i].length - 1].kg : it.charge) : ""}${nx.fail ? " · jusqu’à l’échec" : ""}</div></div></div>`; }
     foot = `<div class="run-nav"><button class="btn btn-lg" data-a="run-time" data-d="-15" style="flex:1">−15 s</button><button class="btn btn-lg" data-a="run-time" data-d="15" style="flex:1">+15 s</button><button class="btn btn-primary btn-lg" data-a="run-next" style="flex:1.3">Passer${icon("skip")}</button></div>`;
@@ -3998,7 +4049,7 @@ function saveRunHistory() {
   UI.progSkip = 0;
   S.historique = trimHist(S.historique);
   se.items.forEach((it, i) => {
-    const reps = R.log[i].filter(x => x.r != null); if (!reps.length || se.dl) return; /* semaine allégée : les charges de référence ne baissent pas */
+    const reps = R.log[i].filter(x => x.r != null); if (!reps.length || se.dl || it.warm || it.cool) return; /* semaine allégée : les charges de référence ne baissent pas */
     const sets = reps.map(x => Object.assign({ r: x.r, kg: x.kg || 0 }, x.rir != null ? { rir: x.rir } : {}));
     S.lastPerf[it.id] = { d: today, ts: Date.now(), sets, target: it.reps, base: it.base || it.reps, feel: R.feel || 0, fails: failCount(S.lastPerf[it.id], sets, it.reps) };
   });
@@ -4153,6 +4204,7 @@ const A = {
   "ed-move": el => { const i = +el.dataset.i, d = +el.dataset.d, a = E.se.items; if (!a[i + d]) return; const x = a[i]; a[i] = a[i + d]; a[i + d] = x; renderEditor(); },
   "ed-del": el => { E.se.items.splice(+el.dataset.i, 1); renderEditor(); },
   "ed-etir": () => { E.se.etir = !etirOn(E.se); renderEditor(); },
+  "ed-echauf": () => { E.se.echauf = !echOn(E.se); renderEditor(); },
   "ed-ss": el => { const it = E.se.items[+el.dataset.i]; if (!it) return; it.ss = it.ss ? 0 : 1; renderEditor(); },
   "ed-echec": el => { const it = E.se.items[+el.dataset.i]; if (!it) return; it.echec = it.echec ? 0 : 1; renderEditor(); },
   "anim-replay": el => ANIM.replay(el),
@@ -4162,7 +4214,7 @@ const A = {
     if (!se.items.length) { toast("Ajoute au moins un exercice."); return; }
     se.nom = (se.nom || "").trim() || "Ma séance";
     se.kind = se.kind || (se.mode === "circuit" ? "hiit" : "muscu");
-    const data = { id: E.srcId || rid(), nom: se.nom, mode: se.mode, kind: se.kind, etir: etirOn(se), tours: se.tours, roundRest: se.roundRest, items: clone(se.items), upd: Date.now() };
+    const data = { id: E.srcId || rid(), nom: se.nom, mode: se.mode, kind: se.kind, etir: etirOn(se), echauf: echOn(se), tours: se.tours, roundRest: se.roundRest, items: clone(se.items), upd: Date.now() };
     const i = S.mesSeances.findIndex(x => x.id === data.id);
     if (i >= 0) S.mesSeances[i] = data; else S.mesSeances.unshift(data);
     commit("p");
@@ -4225,6 +4277,11 @@ const A = {
     const any = R.log.some(l => l.length);
     Sheet.open({ key: "quit", title: "Arrêter la séance ?", body: `<p class="muted">${any ? "Tu peux terminer maintenant et enregistrer ce que tu as déjà fait." : "Rien n’a encore été enregistré pour cette séance."}</p>`, foot: `${any ? `<button class="btn btn-primary" data-a="run-end">Terminer</button>` : ""}<button class="btn btn-danger" data-a="run-discard">Abandonner</button><button class="btn" data-a="sheet-close">Continuer</button>` });
   },
+  "run-skipwarm": () => {
+    const rest = R.steps.slice(R.idx).filter(s => s.k === "work" && !s.warm);
+    if (!rest.length) return;
+    R.steps = R.steps.slice(0, R.idx).concat(withRests(R.se, rest)); ANIM_IDX = -1; enterStep();
+  },
   "run-end": () => { Sheet.closeAll(); finishRun(); },
   "run-feel": el => { R.feel = +el.dataset.v; renderRunner(); },
   "run-save": () => { const n = saveRunHistory(); closeRunner(); toast(n ? "Séance enregistrée · " + (n > 1 ? n + " nouveaux records" : "nouveau record") : "Séance enregistrée"); },
@@ -4254,7 +4311,7 @@ const A = {
   },
   "hist-redo": el => {
     const x = S.historique.find(h => h.id === el.dataset.id); if (!x) return;
-    const items = (x.log || []).filter(l => EX_BY_ID[l.id] && !l.cool).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.n || l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
+    const items = (x.log || []).filter(l => EX_BY_ID[l.id] && !l.cool && !l.warm).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.n || l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
     openEditor("prep", applySuggestions({ nom: x.nom, mode: "series", kind: x.kind || "muscu", items }), {});
   },
   "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
