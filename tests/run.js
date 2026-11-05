@@ -125,6 +125,22 @@ test("planDates : séances sur les jours choisis, jours passés de la semaine ig
   assert.strictEqual(G.planDates(p, "2026-03-02", 4).length, 12);
   same(G.planDates(Object.assign({}, P_H, { jours: 1, planJours: [6] }), "2026-03-01", 1), [{ date: "2026-03-01", j: 0 }], "dimanche");
 });
+test("fillPlan : agenda rempli sur 4 semaines, sans recréer ce qui est déjà prévu", () => {
+  const p = Object.assign({}, P_H, { jours: 3, planJours: [0, 2, 4] });
+  const a = G.fillPlan(p, [], "2026-03-02", 28);
+  assert.strictEqual(a.length, 12); assert.strictEqual(a[0].date, "2026-03-02"); assert.ok(a[a.length - 1].date <= "2026-03-29");
+  const ev = a.slice(0, 6).map(x => ({ date: x.date, fait: false, ref: { k: "t", id: "x", j: x.j } }));
+  const b = G.fillPlan(p, ev, "2026-03-02", 28);
+  assert.strictEqual(b.length, 6); assert.ok(b[0].date > ev[5].date, "repart après la dernière séance prévue");
+  same(G.fillPlan(p, a.map(x => ({ date: x.date, ref: { k: "t", j: x.j } })), "2026-03-02", 28), [], "déjà complet");
+  assert.strictEqual(G.fillPlan(p, [{ date: "2026-01-05", ref: { k: "t", j: 0 } }], "2026-03-02", 28).length, 12, "planning ancien : repart d'aujourd'hui");
+});
+test("nextFreeDay : premier jour sans séance prévue", () => {
+  const ev = [{ id: "a", date: "2026-03-03" }, { id: "b", date: "2026-03-04", fait: true }, { id: "c", date: "2026-03-05" }];
+  assert.strictEqual(G.nextFreeDay(ev, "2026-03-03"), "2026-03-04", "une séance faite ne bloque pas");
+  assert.strictEqual(G.nextFreeDay(ev, "2026-03-05"), "2026-03-06");
+  assert.strictEqual(G.nextFreeDay(ev, "2026-03-03", "a"), "2026-03-03", "la séance déplacée elle-même ne compte pas");
+});
 test("profFor : la séance est réglée sur l'objectif du jour", () => {
   const t = G.TPL_BY_ID["fb-halteres"];
   const a = G.prescribe(t, G.profFor(P_H, "force")), b = G.prescribe(t, G.profFor(P_H, "perte"));
