@@ -12,7 +12,7 @@ const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
 if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
 const ctx = vm.createContext({ console });
 /* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList"];
+const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf"];
 vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
 const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
 
@@ -350,6 +350,32 @@ test("trimHist : les séances anciennes sont résumées mais gardent leurs meill
   assert.ok(old.sets.some(s => s.kg === 70), "charge max conservée");
   assert.strictEqual(G.exSeries([t[319]], "squat-barre")[0].rm, G.exSeries([list[319]], "squat-barre")[0].rm, "1RM identique");
   assert.ok(JSON.stringify(t).length < JSON.stringify(list).length);
+});
+
+console.log("Postes (banc, poulie)");
+const mk = ids => ids.map(id => ({ id }));
+test("groupStations : les exercices à la poulie s’enchaînent", () => {
+  const it = mk(["tirage-vertical", "curl-halteres", "extension-corde"]), r = ["C", "I", "I"];
+  assert.ok(G.groupStations(it, r));
+  same(it.map(x => x.id), ["tirage-vertical", "extension-corde", "curl-halteres"]);
+});
+test("groupStations : une isolation ne passe pas devant un gros mouvement qu’elle fatigue", () => {
+  const it = mk(["tirage-vertical", "rowing-barre", "curl-poulie"]);
+  assert.ok(!G.groupStations(it, ["C", "C", "I"]));
+});
+test("groupStations : une isolation passe devant un gros mouvement d’autres muscles", () => {
+  const it = mk(["dc-barre", "rowing-barre", "di-halteres"]);
+  G.groupStations(it, ["C", "C", "I"]);
+  same(it.map(x => x.id), ["dc-barre", "di-halteres", "rowing-barre"]);
+});
+test("groupStations : rien ne traverse le cardio ni les étirements", () => {
+  const it = mk(["dc-halteres", "velo", "rowing-haltere"]);
+  assert.ok(!G.groupStations(it, ["C", "K", "C"]));
+});
+test("prescribe : Haut du corps n’a plus de banc ni de poulie séparés", () => {
+  const se = G.prescribe(G.TPL_BY_ID["haut"], P_H);
+  const st = se.items.map(x => G.stationOf(x.id));
+  st.forEach((s, i) => { if (s && st.indexOf(s) < i) assert.strictEqual(st[i - 1], s, "poste " + s + " séparé : " + se.items.map(x => x.id)); });
 });
 
 console.log("Superséries");

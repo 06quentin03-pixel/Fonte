@@ -1589,6 +1589,39 @@ function resolveEx(id, ctx, notes) {
   return ex;
 }
 
+/* Même poste (banc, poulie) : les exercices qui l’utilisent s’enchaînent, pour éviter les allers-retours dans la salle.
+   Un exercice ne passe pas devant un exercice plus important (gros mouvement > isolation > gainage), sauf une isolation
+   devant un gros mouvement dont elle ne fatigue aucun muscle (principal ou secondaire) ; rien ne traverse le cardio,
+   la mobilité ou les étirements. Réordonne items (et roles) sur place ; renvoie true si l’ordre change. */
+function stationOf(id) {
+  const e = EX_BY_ID[id]; if (!e) return null;
+  if (e.m.indexOf("poulie") >= 0) return "poulie";
+  if (e.m.indexOf("banc") >= 0 && e.m.indexOf("smith") < 0) return "banc";
+  return null;
+}
+const STATION_RANK = { C: 0, I: 1, G: 2 };
+const preTires = (x, y) => { const a = EX_BY_ID[x], b = EX_BY_ID[y]; return !!(a && b && b.p.some(m => a.p.indexOf(m) >= 0 || a.s.indexOf(m) >= 0)); };
+function groupStations(items, roles) {
+  const n = items.length, rank = k => roles ? STATION_RANK[roles[k]] : 1, done = new Array(n).fill(false), order = [];
+  for (let a = 0; a < n; a++) {
+    if (done[a]) continue;
+    order.push(a); done[a] = true;
+    const st = rank(a) != null && stationOf(items[a].id); if (!st) continue;
+    for (let b = a + 1; b < n; b++) {
+      if (done[b]) continue;
+      if (rank(b) == null) break;
+      if (stationOf(items[b].id) !== st) continue;
+      let ok = true;
+      for (let k = a + 1; k < b; k++) if (!done[k] && !(rank(k) >= rank(b) || (rank(b) === 1 && !preTires(items[k].id, items[b].id)))) { ok = false; break; }
+      if (ok) { order.push(b); done[b] = true; }
+    }
+  }
+  if (order.every((k, i) => k === i)) return false;
+  const it0 = items.slice(), r0 = roles ? roles.slice() : null;
+  order.forEach((k, i) => { items[i] = it0[k]; if (r0) roles[i] = r0[k]; });
+  return true;
+}
+
 function prescribe(tpl, profile) {
   const ctx = profileCtx(profile);
   const notes = new Set();
@@ -1646,6 +1679,7 @@ function prescribe(tpl, profile) {
     if (plus && lastK >= 0 && ["perte", "tonus"].indexOf(profile.objectif) >= 0) { out.items[lastK].duree += plus * 60; notes.add(plus + " min de cardio en plus"); }
     addZones(out, tpl, ctx, notes, roles, profile);
     phaseAdjust(out, profile && profile.phase, ctx, notes, roles);
+    if (groupStations(out.items, roles)) notes.add("Exercices au banc ou à la poulie à la suite pour éviter les allers-retours");
   }
   out.notes = [...notes];
   return out;
@@ -3540,6 +3574,7 @@ function musSession(ms) {
   const ids = [], per = Math.max(1, Math.round(5 / ms.length));
   ms.forEach(m => musExercises(m, per, ids).forEach(x => ids.push(x.id)));
   const se = { nom: "Séance express : " + (ms.length === 1 ? MUSCLES[ms[0]].toLowerCase() : "muscles oubliés"), mode: "series", kind: "muscu", items: ids.slice(0, 6).map(id => defaultItem(EX_BY_ID[id])) };
+  groupStations(se.items);
   return applySuggestions(se);
 }
 
