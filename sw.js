@@ -3,7 +3,7 @@
    en arrière-plan : si elle a changé, la page affiche « Nouvelle version prête, Recharger ».
    Il n'est donc plus nécessaire de changer VERSION à chaque mise à jour de index.html :
    change-la seulement quand tu modifies ce fichier sw.js ou la liste SHELL. */
-const VERSION = "fonte-2026-11-05";
+const VERSION = "fonte-2026-11-05-rouge";
 const EXT = "fonte-ext";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 let pending = false;

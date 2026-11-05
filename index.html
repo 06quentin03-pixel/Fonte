@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="Fonte">
 <meta name="application-name" content="Fonte">
 <meta name="format-detection" content="telephone=no">
-<meta name="theme-color" content="#EDF0F4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0D1016" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F2F2F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E0E10" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -22,29 +22,30 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Big+Shoulders+Display:wght@700;800;900&display=swap">
 <style>/* Layout : application iPhone — en-tête collant, contenu défilant, barre d'onglets fixe ; plaques de fonte comme code couleur */
 :root {
-  --bg: #EDF0F4;
+  --bg: #F2F2F4;
   --surface: #FFFFFF;
-  --surface-2: #E2E7EE;
-  --ink: #121720;
-  --ink-2: #545F71;
-  --ink-3: #8993A4;
-  --line: #D4DBE5;
-  --accent: #1E52DE;
+  --surface-2: #E8E8EB;
+  --ink: #141417;
+  --ink-2: #5B5B63;
+  --ink-3: #8E8E96;
+  --line: #DCDCE0;
+  --accent: #DA0E18;
   --accent-ink: #FFFFFF;
-  --accent-soft: #DCE5FD;
-  --red: #D23A2C;
+  --accent-soft: #FDE4E5;
+  --red: #D7261E;
   --yellow: #D99E00;
   --green: #1C8C50;
   --violet: #7A4BD6;
-  --fig: #D9DFE8;
-  --mu: #BCC6D4;
+  --blue: #2F6FEB;
+  --fig: #DDDDE1;
+  --mu: #C3C3C9;
   --figgap: #FFFFFF;
-  --hl: #1E52DE;
-  --hl2: #8DA8F2;
-  --shadow: 0 10px 30px rgba(18, 23, 32, .14);
-  --an-b: #A3ADBD; --an-f: #D3D9E2; --an-eq: #2A313C; --an-eqf: #7C8594; --an-fr: #BEC7D3; --an-pad: #8994A5; --an-cab: #6B7482; --an-gr: #F3F5F8; --an-pl: #5B626D;
-  --plate5: #F1F2F4;
-  --plate125: #A7AFBB;
+  --hl: #DA0E18;
+  --hl2: #F4A3A7;
+  --shadow: 0 10px 30px rgba(20, 20, 23, .14);
+  --an-b: #A8A8B0; --an-f: #D6D6DB; --an-eq: #2B2B30; --an-eqf: #7F7F88; --an-fr: #C3C3CA; --an-pad: #8E8E97; --an-cab: #6E6E77; --an-gr: #F5F5F7; --an-pl: #5E5E66;
+  --plate5: #F1F1F3;
+  --plate125: #ABABB3;
   --font-display: "Big Shoulders Display", "Arial Narrow", "Helvetica Neue", Impact, sans-serif;
   --font-body: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --r: 14px;
@@ -52,17 +53,17 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0D1016; --surface: #161B23; --surface-2: #202733; --ink: #E9EDF3; --ink-2: #9CA6B7; --ink-3: #697385;
-    --line: #2A3240; --accent: #5E88FF; --accent-ink: #0A0F1D; --accent-soft: #1B2950; --red: #FF6B5D; --yellow: #F2C23A;
-    --green: #3CCB7D; --violet: #A98BFF; --fig: #212833; --mu: #354153; --figgap: #161B23; --hl: #6B92FF; --hl2: #34508F;
-    --shadow: 0 10px 30px rgba(0, 0, 0, .5); color-scheme: dark; --an-b: #5E6B82; --an-f: #343D4D; --an-eq: #D6DDE7; --an-eqf: #7E889A; --an-fr: #3B4556; --an-pad: #54607A; --an-cab: #8C96A8; --an-gr: #12171F; --an-pl: #9AA4B4;
+    --bg: #0E0E10; --surface: #18181B; --surface-2: #232327; --ink: #EDEDF0; --ink-2: #A3A3AD; --ink-3: #6E6E78;
+    --line: #2E2E34; --accent: #F0303A; --accent-ink: #FFFFFF; --accent-soft: #3A1517; --red: #FF5A52; --yellow: #F2C23A;
+    --green: #3CCB7D; --violet: #A98BFF; --blue: #5B8CFF; --fig: #232327; --mu: #3A3A42; --figgap: #18181B; --hl: #FF4D52; --hl2: #6E2226;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .5); color-scheme: dark; --an-b: #6A6A74; --an-f: #38383F; --an-eq: #DADADF; --an-eqf: #85858F; --an-fr: #404048; --an-pad: #5C5C66; --an-cab: #92929C; --an-gr: #131316; --an-pl: #A0A0AA;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0D1016; --surface: #161B23; --surface-2: #202733; --ink: #E9EDF3; --ink-2: #9CA6B7; --ink-3: #697385;
-  --line: #2A3240; --accent: #5E88FF; --accent-ink: #0A0F1D; --accent-soft: #1B2950; --red: #FF6B5D; --yellow: #F2C23A;
-  --green: #3CCB7D; --violet: #A98BFF; --fig: #212833; --mu: #354153; --figgap: #161B23; --hl: #6B92FF; --hl2: #34508F;
-  --shadow: 0 10px 30px rgba(0, 0, 0, .5); color-scheme: dark; --an-b: #5E6B82; --an-f: #343D4D; --an-eq: #D6DDE7; --an-eqf: #7E889A; --an-fr: #3B4556; --an-pad: #54607A; --an-cab: #8C96A8; --an-gr: #12171F; --an-pl: #9AA4B4;
+  --bg: #0E0E10; --surface: #18181B; --surface-2: #232327; --ink: #EDEDF0; --ink-2: #A3A3AD; --ink-3: #6E6E78;
+    --line: #2E2E34; --accent: #F0303A; --accent-ink: #FFFFFF; --accent-soft: #3A1517; --red: #FF5A52; --yellow: #F2C23A;
+    --green: #3CCB7D; --violet: #A98BFF; --blue: #5B8CFF; --fig: #232327; --mu: #3A3A42; --figgap: #18181B; --hl: #FF4D52; --hl2: #6E2226;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .5); color-scheme: dark; --an-b: #6A6A74; --an-f: #38383F; --an-eq: #DADADF; --an-eqf: #85858F; --an-fr: #404048; --an-pad: #5C5C66; --an-cab: #92929C; --an-gr: #131316; --an-pl: #A0A0AA;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -312,7 +313,7 @@ select.inp { appearance: none; -webkit-appearance: none; background-image: linea
 
 /* Feuilles (bottom sheets) */
 .sheet-wrap { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; justify-content: center; }
-.sheet-bg { position: absolute; inset: 0; background: rgba(8, 11, 17, .45); animation: fade .2s ease; }
+.sheet-bg { position: absolute; inset: 0; background: rgba(10, 10, 12, .45); animation: fade .2s ease; }
 .sheet { position: relative; width: 100%; max-width: 600px; max-height: calc(100% - env(safe-area-inset-top, 0px) - 18px); background: var(--bg); border-radius: 20px 20px 0 0;
   display: flex; flex-direction: column; box-shadow: var(--shadow); animation: up .26s cubic-bezier(.2,.8,.2,1); }
 .sheet.tall { height: calc(100% - env(safe-area-inset-top, 0px) - 18px); }
@@ -2684,7 +2685,7 @@ function saveUI() { try { localStorage.setItem(LS_UI, JSON.stringify({ seg: UI.s
 { const h = (location.hash || "").slice(1); if (TABS.indexOf(h) >= 0) UI.tab = h; }
 
 /* ================= Silhouettes ================= */
-const GROUP_COLOR = { pecs: "var(--red)", dos: "var(--accent)", epaules: "var(--green)", biceps: "var(--yellow)", triceps: "var(--yellow)", avantbras: "var(--yellow)",
+const GROUP_COLOR = { pecs: "var(--red)", dos: "var(--blue)", epaules: "var(--green)", biceps: "var(--yellow)", triceps: "var(--yellow)", avantbras: "var(--yellow)",
   abdos: "var(--violet)", quadriceps: "var(--red)", ischios: "var(--red)", fessiers: "var(--red)", mollets: "var(--red)", fullbody: "var(--ink-2)", cardio: "var(--green)", mobilite: "var(--violet)", etirements: "var(--green)" };
 function figStyle(p, s) { let v = ""; (s || []).forEach(m => { v += "--m-" + m + ":var(--hl2);"; }); (p || []).forEach(m => { v += "--m-" + m + ":var(--hl);"; }); return v; }
 function figHTML(p, s, size) {
@@ -3032,7 +3033,7 @@ function backupDue() {
 }
 
 /* ================= Personnes / agenda ================= */
-const P_COLORS = ["var(--red)", "var(--yellow)", "var(--green)", "var(--violet)"];
+const P_COLORS = ["var(--blue)", "var(--yellow)", "var(--green)", "var(--violet)"];
 const NAMES = {};
 function people() {
   const list = [{ key: "me", name: "Moi", color: "var(--accent)", events: S.agenda, mine: true }];
@@ -3839,7 +3840,7 @@ function platesHTML(total) {
   const bar = S.profile.barre || 20;
   if (!total || total <= bar) return total && total < bar ? `<div class="plates"><span>Moins lourd que la barre (${bar} kg) : prends une barre plus légère.</span></div>` : "";
   let side = (total - bar) / 2; const used = [];
-  const P = [[25, "var(--red)", 44], [20, "var(--accent)", 44], [15, "var(--yellow)", 40], [10, "var(--green)", 36], [5, "var(--plate5)", 28], [2.5, "var(--red)", 22], [1.25, "var(--plate125)", 18]];
+  const P = [[25, "var(--red)", 44], [20, "var(--blue)", 44], [15, "var(--yellow)", 40], [10, "var(--green)", 36], [5, "var(--plate5)", 28], [2.5, "var(--red)", 22], [1.25, "var(--plate125)", 18]];
   P.forEach(([w, c, hh]) => { while (side >= w - 1e-9) { used.push([w, c, hh]); side -= w; } });
   return `<div class="plates" id="plates"><div class="bar">${used.map(([w, c, hh]) => `<i class="pl" style="height:${hh}px;background:${c}"></i>`).join("")}</div><span>Par côté : ${used.map(u => fmtNum(u[0])).join(" + ")}${side > 0.01 ? " (≈)" : ""}<br>barre de ${bar} kg</span></div>`;
 }
