@@ -3,7 +3,7 @@
 Appli de musculation en français, installable sur iPhone et Android (PWA), qui fonctionne sans réseau.
 
 - **Exercices** : environ 200 fiches avec muscles travaillés, consignes, conseils et animation du mouvement.
-- **Séances types et programme** adaptés au profil (sexe, âge, taille, poids, niveau, objectif) : séries, répétitions, repos et charges de départ.
+- **Séances types et programme** adaptés au profil (sexe, âge, taille, poids, niveau) et à **un ou plusieurs objectifs** : chaque séance du programme est réglée sur son objectif, et l’accueil propose toujours **la prochaine séance** à faire.
 - **Mode séance** : minuteur de repos, charges et disques à charger, « Plus tard » quand la machine est prise, étirements de fin de séance, **superséries** (deux exercices enchaînés sans repos).
 - **Progression** : courbe par exercice (1RM estimé, charge max, répétitions ou durée), **records** détectés en fin de séance, conseil de charge pour la séance suivante (double progression, ressenti, allègement après 3 séances ratées).
 - **Notes par exercice** (réglage du siège, prise…), affichées pendant la séance.

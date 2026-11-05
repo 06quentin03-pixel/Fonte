@@ -76,6 +76,39 @@ test("programme : autant de séances que de jours demandés, toutes existantes",
     pr.ids.forEach(id => assert.ok(G.TPL_BY_ID[id], id));
   }
 });
+test("objList : objectif principal en premier, sans doublon, « forme » par défaut", () => {
+  same(G.objList({}), ["forme"]);
+  same(G.objList({ objectif: "muscle" }), ["muscle"]);
+  same(G.objList({ objectif: "perte", objectifs: ["muscle", "perte", "muscle", "inconnu"] }), ["perte", "muscle"]);
+});
+test("programme à un seul objectif : identique à avant (une seule clé objectif)", () => {
+  const a = G.programme(Object.assign({}, P_H, { objectifs: ["muscle"] })), b = G.programme(P_H);
+  same(a.ids, b.ids); same(a.objs, ["muscle", "muscle", "muscle"]);
+});
+test("programme à plusieurs objectifs : chaque objectif a ses séances, le principal le plus", () => {
+  const combos = [["muscle", "perte"], ["perte", "muscle"], ["force", "muscle"], ["perte", "tonus"], ["muscle", "perte", "tonus"], ["forme", "tonus"]];
+  combos.forEach(O => ["debutant", "intermediaire", "avance"].forEach(niv => {
+    for (let j = 1; j <= 6; j++) {
+      const pr = G.programme(Object.assign({}, P_H, { objectif: O[0], objectifs: O, niveau: niv, jours: j }));
+      const tag = O.join("+") + " " + niv + " " + j + " j";
+      assert.strictEqual(pr.ids.length, j, tag); assert.strictEqual(pr.objs.length, j, tag); assert.strictEqual(pr.offsets.length, j, tag);
+      pr.ids.forEach(id => assert.ok(G.TPL_BY_ID[id], tag + " : " + id));
+      const cnt = k => pr.objs.filter(x => x === k).length;
+      O.slice(0, j).forEach(k => assert.ok(cnt(k) >= 1, tag + " : aucune séance " + k));
+      O.slice(1).forEach(k => assert.ok(cnt(O[0]) >= cnt(k), tag + " : le principal doit compter au moins autant"));
+    }
+  }));
+});
+test("programme muscle + perte : séances de muscu et de cardio alternées", () => {
+  const pr = G.programme(Object.assign({}, P_H, { objectif: "muscle", objectifs: ["muscle", "perte"], jours: 4 }));
+  same(pr.objs, ["muscle", "perte", "muscle", "perte"]);
+  pr.ids.forEach((id, i) => assert.strictEqual(G.TPL_BY_ID[id].kind === "muscu", pr.objs[i] === "muscle", id));
+});
+test("profFor : la séance est réglée sur l'objectif du jour", () => {
+  const t = G.TPL_BY_ID["fb-halteres"];
+  const a = G.prescribe(t, G.profFor(P_H, "force")), b = G.prescribe(t, G.profFor(P_H, "perte"));
+  assert.ok(a.items[0].reps < b.items[0].reps, "force : moins de répétitions que perte de poids");
+});
 test("coolDown : 4 étirements maximum, jamais déjà dans la séance", () => {
   G.TPL.forEach(t => {
     const se = G.prescribe(t, P_H), cd = G.coolDown(se.items);
