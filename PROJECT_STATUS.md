@@ -8,51 +8,55 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 | Phase | Statut | Session / branche | Livrables |
 |---|---|---|---|
 | 1 — Audit complet | ✅ Terminée le 5 nov. 2026 | `claude/audit-phase-1` | `docs/AUDIT_PHASE1.md`, `tools/analyse-volume.js`, `docs/PROMPT_PHASE2.md` |
-| 2 — Plan d’amélioration | ⏳ À faire (nouvelle session) | — | `docs/PLAN_PHASE2.md` attendu |
-| 3a — Sécurité des données | À faire | — | — |
-| 3b — Séparation des 4 moteurs | À faire | — | — |
-| 3c — Références de charge + correction de l’historique | À faire | — | — |
-| 3d — Rééquilibrage sportif | À faire | — | — |
-| 3e — Expérience de séance, iPad | À faire | — | — |
+| 2 — Plan d’amélioration | ✅ Terminée le 5 nov. 2026 | `claude/plan-phase-2` (part de `claude/audit-phase-1`) | `docs/PLAN_PHASE2.md`, `docs/PROMPT_PHASE3A.md` |
+| 3a — Filet de sécurité (D2, D5, D6, D1-a, S1-a, banc de test navigateur) | ⏳ À faire (nouvelle session) | — | voir `docs/PROMPT_PHASE3A.md` |
+| 3b — Moteurs en fichiers séparés (A1, A3, D8 cadre) | À faire | — | — |
+| 3c — Format v2 + profils multiples + migration (U4, S1-b format, D3) | À faire | — | — |
+| 3d — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | À faire | — | — |
+| 3e — Charges et historique (S1-b, S8, D4, D10, S9) | À faire | — | — |
+| 3f — Règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | À faire | — | — |
+| 3g — Expérience de séance, iPad (U1, U2, U3, U5) | À faire | — | — |
+| 3h — Programmes validés par le propriétaire (S2/S3) | Conditionnel | — | — |
 | 4 — Tests complets | À faire | — | — |
 | 5 — Validation et documentation | À faire | — | — |
 
+Le détail de chaque session (contenu, taille, critères « terminé », tests) est dans `docs/PLAN_PHASE2.md`, sections 4 à 6.
+
 ## Version du code de l’appli
 
-- Dernière version de l’appli auditée : commit `029e2da` sur `main`.
-- **Aucune ligne de l’appli (`index.html`, `sw.js`, manifeste, tests) n’a encore été modifiée** par ce chantier.
-- Tests existants : `node tests/run.js` → 77 réussis, 0 en échec (5 nov. 2026).
+- Dernière version de l’appli : commit `029e2da` sur `main` (identique sur `claude/audit-phase-1` et `claude/plan-phase-2`).
+- **Aucune ligne de l’appli (`index.html`, `sw.js`, manifeste, `tests/run.js`) n’a encore été modifiée** par ce chantier.
+- Tests : `node tests/run.js` → 77 réussis, 0 en échec (relancé le 5 nov. 2026 en phase 2).
+- Attention : dans un clone, la branche locale `main` peut être périmée ; comparer avec `origin/main`.
 
-## Phase 1 — résumé
+## Phase 2 — résumé
 
-Ce qui a été fait : lecture complète du code, calcul du volume hebdomadaire de tous les programmes (`node tools/analyse-volume.js`), exemples chiffrés de progression, essai de l’appli dans un iPhone et un iPad simulés (aucune erreur JavaScript, reprise de séance après rechargement OK).
+- Code relu aux endroits cités par l’audit et exemples rejoués : l’audit est **confirmé**, avec des compléments (section 1 du plan) :
+  - S1 touche **161 combinaisons** de profils à 2 objectifs (pas seulement force + muscle) ;
+  - D1 : la connexion Firebase **anonyme** actuelle ne permettrait pas de récupérer une sauvegarde en ligne après perte du téléphone → comptes e-mail + mot de passe ;
+  - le journal des séances n’enregistre pas les répétitions visées → les références anciennes servent de point de départ au recalcul ;
+  - S8 : charge du palier 4 trop **légère** (et non trop lourde) ; « mollets 0–2 » faux pour muscle intermédiaire 4 j ;
+  - références : Bell 2023 = Delphi, enquête = Rogerson 2024 ; Pelland paru dans *Sports Medicine* (2026) ; ACSM 2009 remplacée par une position 2026 ; Grgic 2018 plus nuancé que présenté.
+- Les applis d’écran d’accueil iOS sont exemptées de l’effacement Safari « 7 jours » : le risque D1 vient surtout de la perte/réinitialisation du téléphone ou de la suppression de l’appli.
 
-Problèmes majeurs (détail et preuves dans `docs/AUDIT_PHASE1.md`) :
-- 🔴 D1 Historique/profil/performances jamais copiés hors du téléphone (Firebase ne synchronise que l’agenda).
-- 🔴 D2 « Ne pas enregistrer » efface la séance en un toucher.
-- 🔴 S1 Charge de référence mémorisée par exercice sans tenir compte des répétitions (ex. 5×5 à 100 kg → 102,5 kg proposés pour 10 répétitions).
-- 🟠 D3/D4 Erreurs de saisie impossibles à corriger, suppression qui ne recalcule pas les références.
-- 🟠 S2/S3 Volume déséquilibré (fessiers 27–33 séries/sem contre pecs 8–10 ; dos 3 séries/sem en perte de poids) et muscles travaillés 1×/semaine dans plusieurs programmes.
-- 🟠 S4 Passage de niveau au seul nombre de séances.
-- 🟠 U1/U2 Saisie strictement linéaire ; fin de repos non signalée écran verrouillé.
+## Décisions prises (phase 2, par le propriétaire)
 
-## Décisions techniques prises
+1. **Firebase : oui** — sauvegarde et synchro en ligne, hors ligne et copie locale conservés, sécurité et isolation prioritaires. Mise en œuvre retenue : comptes e-mail + mot de passe (un par profil), compte anonyme actuel relié (l’agenda partagé continue), une séance = un document, corbeille 30 jours, plan gratuit Spark (coût prévu 0 €). À savoir : le propriétaire du projet Firebase peut techniquement voir toutes les données dans la console (plan, section 3.1).
+2. **Programmes actuels : aucune modification automatique.** S2/S3 → document de propositions en 3f ; application en 3h uniquement de ce qui est validé ; test « photographie » des programmes pour garantir qu’ils ne changent pas par erreur.
+3. **Échec : oui, approche prudente** — plus d’échec pour les débutants ; cibles de répétitions en réserve selon niveau et type d’exercice (tableau, plan section 9.3).
+4. **Passage de niveau : proposé, jamais automatique** — critères : ~6 mois réguliers, progression devenue lente, ≥ 3 paliers ; charges réelles conservées (plus de +45 %).
+5. **Profils multiples : oui**, totalement indépendants sur un même appareil ; profils séparés mais pas secrets sur un appareil partagé (pas de code par défaut).
 
-- Phase 1 : aucun changement de code (demandé).
-- Architecture cible proposée (à valider en phase 2) : 4 moteurs en fichiers séparés **sans outil de construction**, chargés dans l’ordre et mis en cache par le service worker ; pas de réécriture de l’interface.
+Décisions techniques : 4 moteurs en fichiers séparés sans outil de construction (3b), avec un script facultatif pour reconstituer le fichier unique « artifact Claude » ; une **seule** migration de format v1 → v2 en 3c ; `fonte:v1` conservé comme copie de secours ; tests navigateur avec Playwright (outil de test uniquement, rien ajouté à l’appli).
 
-## Décisions en attente de l’utilisateur
+## Décisions en attente
 
-1. Sauvegarde automatique en ligne des données personnelles via Firebase ?
-2. Modifier les programmes existants (fréquence 2×/semaine, rééquilibrage) ?
-3. Échec musculaire retiré pour les débutants ?
-4. Passage de niveau automatique ou seulement proposé ?
-5. Plusieurs profils sur un même appareil ?
+Aucune bloquante. À trancher plus tard : validation des propositions de programmes (fin de 3f) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
 
 ## Problèmes ouverts connus
 
-Tous ceux listés dans `docs/AUDIT_PHASE1.md`, section 2. Aucun corrigé à ce jour.
+Tous ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. Aucun corrigé à ce jour. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi).
 
 ## Prochaine étape
 
-Ouvrir une **nouvelle session** Claude Code et lui donner le contenu de `docs/PROMPT_PHASE2.md`.
+Faire une sauvegarde fichier (Profil › Sauvegarder → iCloud Drive) sur chaque iPhone, puis ouvrir une **nouvelle session** Claude Code et lui donner le contenu de `docs/PROMPT_PHASE3A.md`.
