@@ -4,6 +4,7 @@ Appli de musculation en français, installable sur iPhone et Android (PWA), qui 
 
 - **Exercices** : environ 200 fiches avec muscles travaillés, consignes, conseils et animation du mouvement.
 - **Séances types et programme** adaptés au profil (sexe, âge, taille, poids, niveau) et à **un ou plusieurs objectifs** : chaque séance du programme est réglée sur son objectif, et l’accueil propose toujours **la prochaine séance** à faire.
+- **Variété** : jamais deux fois la même séance dans la semaine. Quand un groupe de muscles revient (Haut/Bas en 4 jours, Push/Pull/Legs en 6 jours, full body en 3 jours…), le programme prend une variante (Push B, Haut du corps B, Full body guidé, Cardio varié, HIIT cardio-boxe…). Si le programme change, l’agenda programmé est mis à jour tout seul.
 - **Premier lancement guidé** : 5 questions (prénom, objectif, homme/femme, âge, taille, poids, niveau, jours d’entraînement et heure), puis « Voici ton programme ». Le questionnaire peut être refait depuis le profil.
 - **Accueil centré sur la séance du jour** (« C’est parti », « Pas aujourd’hui » pour la reporter, ou jour de repos), la semaine (prévues / faites), puis les progrès.
 - **Programmé** (bouton en haut de l’accueil) : les séances des 4 prochaines semaines. Le programme est ajouté automatiquement **un mois à l’avance** et la suite s’ajoute au fil des jours. **Séance manquée** : l’accueil propose de la reporter au prochain jour libre (ou à la date choisie) ou de la laisser tomber.

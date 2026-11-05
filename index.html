@@ -1314,6 +1314,39 @@ const TPL = [
   { id: "legs", n: "Legs", cat: "split", kind: "muscu", mode: "series",
     desc: "La séance jambes du programme Push / Pull / Legs.",
     items: [["squat-barre", "C"], ["sdt-roumain", "C"], ["presse-cuisses", "C"], ["leg-curl-allonge", "I"], ["leg-extension", "I"], ["mollets-debout", "I"], ["releve-genoux-chaise", "G"]] },
+  /* Variantes : mêmes muscles, autres exercices, pour ne jamais refaire la même séance dans la semaine (voir PROG_ALT) */
+  { id: "push-b", n: "Push B", cat: "split", kind: "muscu", mode: "series",
+    desc: "Variante de la séance Push : pectoraux, épaules et triceps avec d’autres exercices.",
+    items: [["di-barre", "C"], ["presse-epaules", "C"], ["dc-halteres", "C"], ["ecarte-incline", "I"], ["elev-lat-poulie", "I"], ["extension-barre-poulie", "I"]] },
+  { id: "pull-b", n: "Pull B", cat: "split", kind: "muscu", mode: "series",
+    desc: "Variante de la séance Pull : dos, arrière des épaules et biceps avec d’autres exercices.",
+    items: [["tirage-vertical", "C"], ["rowing-haltere", "C"], ["rowing-machine", "C"], ["reverse-pec-deck", "I"], ["curl-incline", "I"], ["curl-poulie", "I"]] },
+  { id: "legs-b", n: "Legs B", cat: "split", kind: "muscu", mode: "series",
+    desc: "Variante de la séance Legs : priorité aux fessiers et au travail sur une jambe.",
+    items: [["hack-squat", "C"], ["hip-thrust", "C"], ["squat-bulgare", "C"], ["leg-curl-assis", "I"], ["leg-extension", "I"], ["mollets-assis", "I"], ["planche", "G"]] },
+  { id: "haut-b", n: "Haut du corps B", cat: "haut", kind: "muscu", mode: "series",
+    desc: "Variante du haut du corps : d’autres angles pour les pectoraux, le dos et les épaules.",
+    items: [["di-halteres", "C"], ["tirage-horizontal", "C"], ["arnold", "C"], ["tirage-serre", "C"], ["curl-marteau", "I"], ["extension-nuque", "I"]] },
+  { id: "bas-b", n: "Bas du corps B", cat: "bas", kind: "muscu", mode: "series",
+    desc: "Variante du bas du corps : presse, fentes et travail des ischios.",
+    items: [["presse-cuisses", "C"], ["sdt-roumain-halteres", "C"], ["fentes-arriere", "C"], ["leg-curl-assis", "I"], ["leg-extension", "I"], ["mollets-debout", "I"]] },
+  { id: "fb-guide", n: "Full body guidé", cat: "full", kind: "muscu", mode: "series",
+    desc: "Tout le corps sur machines guidées et poulies, avec d’autres exercices que la séance découverte.",
+    items: [["squat-smith", "C"], ["smith-incline", "C"], ["tirage-horizontal", "C"], ["leg-curl-allonge", "I"], ["elevations-laterales", "I"], ["dead-bug", "G"]] },
+  { id: "fb-barre-b", n: "Full body barre B", cat: "full", kind: "muscu", mode: "series",
+    desc: "Variante force : soulevé de terre, développé incliné et fentes.",
+    items: [["souleve-terre", "C"], ["di-barre", "C"], ["tirage-vertical", "C"], ["fentes-marchees", "C"], ["dips-assiste", "I"], ["planche", "G"]] },
+  { id: "fb-maison-b", n: "Renfo maison", cat: "full", kind: "muscu", mode: "circuit",
+    desc: "Deuxième circuit au poids du corps : fentes latérales, gainage et fessiers.",
+    circuit: { timed: false },
+    items: [["fentes-laterales", "W"], ["pompes-inclinees", "W"], ["fire-hydrant", "W"], ["bird-dog", "W"], ["chaise", "W"], ["dead-bug", "W"]] },
+  { id: "cardio-mix", n: "Cardio varié", cat: "cardio", kind: "cardio", mode: "series",
+    desc: "Trois machines différentes en zone 2 pour ne pas s’ennuyer.",
+    items: [["elliptique", "K", { min: 5 }], ["tapis-course", "K", { f: 0.5 }], ["velo", "K", { f: 0.5 }], ["etirement-ischios", "M"], ["etirement-fessiers", "M"]] },
+  { id: "hiit-boxe", n: "HIIT cardio-boxe", cat: "cardio", kind: "hiit", mode: "circuit",
+    desc: "Circuit intense façon boxe, sans matériel.",
+    circuit: { timed: true },
+    items: [["shadow-boxing", "W"], ["skater-jumps", "W"], ["burpee-sans-saut", "W"], ["jumping-jacks", "W"], ["bear-crawl", "W"], ["mountain-climbers", "W"]] },
   { id: "abdos", n: "Abdos & gainage", cat: "core", kind: "muscu", mode: "series",
     desc: "Grand droit, obliques et gainage profond pour une sangle abdominale solide.",
     items: [["planche", "G"], ["crunch-inverse", "G"], ["russian-twist", "G"], ["planche-laterale", "G"], ["dead-bug", "G"], ["releve-genoux-chaise", "G"]] },
@@ -1625,8 +1658,26 @@ function interleave(a, b) {
   }
   return out;
 }
+/* Variété : jamais deux fois la même séance dans la semaine. Une séance déjà prévue est remplacée
+   par une variante qui travaille les mêmes muscles (ou, à défaut, une séance proche). */
+const PROG_ALT = {
+  push: ["push-b"], pull: ["pull-b"], legs: ["legs-b"], haut: ["haut-b"], bas: ["bas-b", "jambes"],
+  "fb-machines": ["fb-guide", "fb-halteres"], "fb-halteres": ["fb-guide", "fb-barre"], "fb-barre": ["fb-barre-b", "fb-halteres"],
+  "fb-maison": ["fb-maison-b", "cardio-renfo"], "cardio-endurance": ["cardio-mix", "cardio-fractionne"], "hiit-20": ["hiit-boxe", "cardio-fractionne"],
+  "cardio-renfo": ["hiit-boxe", "hiit-20", "fb-maison-b"], "cardio-fractionne": ["hiit-20", "cardio-mix"]
+};
+function vary(ids) {
+  const seen = new Set();
+  return ids.map(id => {
+    if (seen.has(id)) { const a = (PROG_ALT[id] || []).find(x => TPL_BY_ID[x] && !seen.has(x)); if (a) id = a; }
+    seen.add(id); return id;
+  });
+}
 /* Programme de la semaine : { ids, offsets, objs } — objs[i] = objectif sur lequel la séance i est réglée */
 function programme(p) {
+  const r = programme0(p); r.ids = vary(r.ids); return r;
+}
+function programme0(p) {
   p = p || {};
   const O = objList(p), J = Math.min(6, Math.max(1, p.jours || 3));
   if (O.length === 1) { const r = programme1(Object.assign({}, p, { objectif: O[0] })); r.objs = r.ids.map(() => O[0]); return r; }
@@ -2984,9 +3035,15 @@ function autoPlan() {
 function replan() {
   const today = todayISO();
   S.agenda = S.agenda.filter(e => !(!e.fait && e.date >= today && isProgEv(e)));
-  S.profile.autoPlan = true;
+  S.profile.autoPlan = true; S.profile.planKey = progKey(programme(S.profile));
   const n = autoPlan(); commit("pa");
   return n;
+}
+/* Le programme a changé (objectif, niveau, jours, nouvelle version de l’appli…) : l’agenda programmé suit */
+function syncPlan() {
+  const p = S.profile; if (!p.autoPlan) return false;
+  const k = progKey(programme(p)); if (p.planKey === k) return false;
+  replan(); return true;
 }
 /* Séances prévues non faites des 14 derniers jours */
 function missedEvents() {
@@ -3026,6 +3083,7 @@ function progWhy(p, ss) {
     const ex = []; ss.forEach(x => x.se.items.forEach(it => { if (it.charge > 0 && LOAD[it.id] && ex.length < 3 && !ex.some(e => e[0] === it.id)) ex.push([it.id, it.charge]); }));
     b.push(`Poids calculés pour tes ${fmtNum(p.poids)} kg${p.taille ? " et ton " + p.taille + " cm" : ""}${hist ? ", puis ajustés d’après tes dernières séances" : ""}${ex.length ? " (par exemple " + ex.map(([id, kg]) => EX_BY_ID[id].n.replace(/ \(.*\)$/, "").toLowerCase() + " " + kgTxt(id, kg)).join(", ") + ")" : ""}. Tu peux toujours les changer.`);
   }
+  if (ss.length > 1) b.push("Jamais deux fois la même séance dans la semaine : quand un groupe de muscles revient, c’est avec une variante et d’autres exercices.");
   if ((NIV_KEYS[p.niveau] || 1) === 1) b.push("Débutant : 5 exercices au plus par séance, une série de moins, et les mouvements difficiles remplacés par des versions plus simples.");
   return b;
 }
@@ -4850,13 +4908,13 @@ const A = {
   },
   "import-del": el => { if (!arm(el, "Confirmer")) return; S.imports = S.imports.filter(x => x.id !== el.dataset.id); commit("p"); render(); },
   /* profil */
-  "pf-set": el => { const f = el.dataset.f; let v = el.dataset.v; if (f === "jours" || f === "barre") v = +v; S.profile[f] = v; commit("p"); render(); },
+  "pf-set": el => { const f = el.dataset.f; let v = el.dataset.v; if (f === "jours" || f === "barre") v = +v; S.profile[f] = v; commit("p"); if (syncPlan()) toast("Programme et agenda mis à jour"); render(); },
   "pf-obj": el => {
     const k = el.dataset.v, a = S.profile.objectifs.slice(), i = a.indexOf(k);
     if (i >= 0) { if (a.length === 1) { toast("Garde au moins un objectif"); return; } a.splice(i, 1); } else a.push(k);
-    S.profile.objectifs = a; S.profile.objectif = a[0]; commit("p"); render();
+    S.profile.objectifs = a; S.profile.objectif = a[0]; commit("p"); if (syncPlan()) toast("Programme et agenda mis à jour"); render();
   },
-  "pf-obj-main": el => { const k = el.dataset.v, a = S.profile.objectifs.filter(x => x !== k); a.unshift(k); S.profile.objectifs = a; S.profile.objectif = k; commit("p"); render(); toast("Objectif principal : " + OBJECTIFS[k].n); },
+  "pf-obj-main": el => { const k = el.dataset.v, a = S.profile.objectifs.filter(x => x !== k); a.unshift(k); S.profile.objectifs = a; S.profile.objectif = k; commit("p"); syncPlan(); render(); toast("Objectif principal : " + OBJECTIFS[k].n); },
   "pf-toggle": el => { const f = el.dataset.f; S.profile[f] = !S.profile[f]; commit("p"); render(); },
   "hist-clear": el => { if (!arm(el)) return; S.historique = []; S.lastPerf = {}; S.histDel = {}; S.histClear = Date.now(); commit("p"); render(); toast("Historique effacé"); },
   "reset-all": el => { if (!arm(el)) return; const keep = { partners: S.partners }; S = Object.assign(clone(DEF), keep); S.histClear = Date.now(); commit("pa"); render(); toast("Application réinitialisée"); }
@@ -4921,7 +4979,7 @@ document.addEventListener("change", ev => {
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (TABS.indexOf(h) >= 0 && h !== UI.tab) { UI.tab = h; render(); window.scrollTo(0, 0); } });
 
 /* ================= Démarrage ================= */
-autoPlan();
+if (!syncPlan()) autoPlan();
 render();
 if (onbNeeded() && !loadRun()) openOnb();
 Sync.init();
