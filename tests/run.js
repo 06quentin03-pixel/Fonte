@@ -12,7 +12,7 @@ const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
 if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
 const ctx = vm.createContext({ console });
 /* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES"];
+const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER"];
 vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
 const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
 
@@ -88,6 +88,9 @@ test("variété : jamais deux fois la même séance dans la semaine", () => {
       pr.ids.forEach(id => assert.ok(G.TPL_BY_ID[id], tag));
     }
   }));
+});
+test("HARDER : progressions vers des exercices existants, mêmes muscles, même type", () => {
+  Object.keys(G.HARDER).forEach(k => { const a = G.EX_BY_ID[k], b = G.EX_BY_ID[G.HARDER[k]]; assert.ok(a && b, k); assert.strictEqual(a.t, b.t, k); assert.ok(a.p.some(m => b.p.indexOf(m) >= 0), k); });
 });
 test("variété : la variante travaille le même type de séance", () => {
   same(G.programme(Object.assign({}, P_H, { niveau: "debutant", jours: 3 })).ids, ["fb-machines", "fb-halteres", "fb-guide"]);
@@ -170,6 +173,56 @@ test("coolDown : 4 étirements maximum, jamais déjà dans la séance", () => {
     assert.ok(cd.length <= 4);
     cd.forEach(it => { assert.ok(G.EX_BY_ID[it.id]); assert.ok(!se.items.some(x => x.id === it.id)); });
   });
+});
+
+console.log("Paliers et niveau");
+test("progressTick : un palier = 4 semaines de séances, puis palier suivant", () => {
+  let p = Object.assign({}, P_F, { jours: 3, planJours: [0, 2, 4], phase: 1, phaseDone: 0 });
+  for (let k = 0; k < 11; k++) { const r = G.progressTick(p); assert.ok(!r.phaseUp); p = Object.assign(p, r); }
+  const r = G.progressTick(p);
+  assert.ok(r.phaseUp && !r.levelUp); assert.strictEqual(r.phase, 2); assert.strictEqual(r.phaseDone, 0); assert.strictEqual(r.per, 12);
+});
+test("progressTick : débutant → intermédiaire automatiquement après 3 paliers, palier remis à 1", () => {
+  let p = Object.assign({}, P_F, { jours: 3, planJours: [0, 2, 4] }), up = null;
+  for (let k = 0; k < 36; k++) { const r = G.progressTick(p); if (r.levelUp) up = k + 1; p = Object.assign(p, r); }
+  assert.strictEqual(up, 36); assert.strictEqual(p.niveau, "intermediaire"); assert.strictEqual(p.phase, 1);
+  const a = Object.assign({}, P_H, { niveau: "avance", phase: 9, phaseDone: 11, jours: 3 });
+  const r = G.progressTick(a); assert.strictEqual(r.niveau, "avance"); assert.strictEqual(r.phase, 10);
+});
+test("paliers : une série de plus au palier 2, exercices plus durs au palier 3, plus lourd au palier 4", () => {
+  const t = G.TPL_BY_ID["fb-halteres"], p1 = G.prescribe(t, P_H), p2 = G.prescribe(t, Object.assign({}, P_H, { phase: 2 })), p4 = G.prescribe(t, Object.assign({}, P_H, { phase: 4 }));
+  assert.strictEqual(p2.items[0].series, Math.min(5, p1.items[0].series + 1), "série en plus sur un gros exercice");
+  assert.strictEqual(p2.items[p2.items.length - 1].series, p1.items[p1.items.length - 1].series, "gainage inchangé");
+  assert.ok(p4.items[0].reps < p1.items[0].reps, "moins de répétitions au palier 4 (muscle)");
+  const pp = G.prescribe(t, Object.assign({}, P_H, { objectif: "perte", phase: 4 })), pp1 = G.prescribe(t, Object.assign({}, P_H, { objectif: "perte" }));
+  assert.ok(pp.items[0].repos < pp1.items[0].repos, "pauses plus courtes (perte)");
+  const deb = Object.assign({}, P_F, { niveau: "debutant" }), pg = G.TPL_BY_ID["fb-maison"];
+  /* palier 3 : la version plus dure remplace l'exercice quand elle existe (« deb ») */
+  const t3 = { id: "x", n: "x", kind: "muscu", mode: "series", items: [["pompes-genoux", "C"]] };
+  G.TPL_BY_ID.x = t3;
+  assert.strictEqual(G.prescribe(t3, Object.assign({}, deb, { phase: 3 })).items[0].id, "pompes");
+  assert.strictEqual(G.prescribe(t3, Object.assign({}, deb, { phase: 2 })).items[0].id, "pompes-genoux");
+  delete G.TPL_BY_ID.x;
+  assert.ok(G.prescribe(pg, Object.assign({}, deb, { phase: 4 })).items.length > 0, "circuit inchangé");
+});
+test("paliers : toutes les séances restent valides à tous les paliers", () => {
+  [P_H, P_F].forEach(p => [1, 2, 3, 4, 7].forEach(ph => G.TPL.forEach(t => {
+    const se = G.prescribe(t, Object.assign({}, p, { phase: ph }));
+    se.items.forEach(it => { assert.ok(G.EX_BY_ID[it.id], t.id + " " + it.id); assert.ok(it.series >= 1 && it.series <= 12 && (it.reps > 0 || it.duree > 0) && it.repos >= 0, t.id + " " + it.id); });
+  })));
+});
+test("cardio en plus pour la perte de poids, plafonné à 15 min", () => {
+  const t = G.TPL_BY_ID["cardio-endurance"], P = Object.assign({}, P_H, { objectif: "perte" });
+  const tot = se => se.items.reduce((a, it) => a + it.duree, 0);
+  assert.strictEqual(tot(G.prescribe(t, Object.assign({}, P, { cardioPlus: 5 }))) - tot(G.prescribe(t, P)), 300);
+  assert.strictEqual(tot(G.prescribe(t, Object.assign({}, P, { cardioPlus: 40 }))) - tot(G.prescribe(t, P)), 900);
+  assert.strictEqual(tot(G.prescribe(t, Object.assign({}, P_H, { cardioPlus: 5 }))), tot(G.prescribe(t, P_H)), "objectif muscle : pas de cardio en plus");
+});
+test("plateau : poids stable sur 3 semaines", () => {
+  assert.ok(G.plateau([{ date: "2026-03-01", poids: 80 }, { date: "2026-03-18", poids: 79.9 }], "2026-03-20"));
+  assert.ok(!G.plateau([{ date: "2026-03-01", poids: 80 }, { date: "2026-03-18", poids: 79 }], "2026-03-20"), "en baisse");
+  assert.ok(!G.plateau([{ date: "2026-03-10", poids: 80 }, { date: "2026-03-18", poids: 80 }], "2026-03-20"), "moins de 14 jours");
+  assert.ok(!G.plateau([{ date: "2026-03-18", poids: 80 }], "2026-03-20"));
 });
 
 console.log("Progression");

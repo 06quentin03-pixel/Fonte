@@ -257,6 +257,19 @@ section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .opt[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .opt[aria-pressed="true"] .opt-check { background: var(--accent); border-color: var(--accent); }
 .opt[aria-pressed="true"] .opt-check .ic { opacity: 1; }
+.pbar-l { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 4px 0; }
+.pbar-l b { display: block; height: 100%; background: var(--accent); border-radius: 999px; min-width: 4px; }
+.ph-mini { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-top: 10px; text-align: left; width: 100%; }
+.fig-big { height: 290px; justify-content: center; gap: 8px; }
+.fig .mus { cursor: pointer; transition: opacity .15s; }
+.fig .mus:active { opacity: .6; }
+.wk-mus { cursor: pointer; }
+.mus-bar { height: 6px; border-radius: 999px; background: var(--surface-2); margin-top: 6px; overflow: hidden; }
+.mus-bar b { display: block; height: 100%; border-radius: 999px; min-width: 3px; }
+.mus-low { background: var(--yellow); } .mus-mid { background: color-mix(in srgb, var(--hl) 45%, var(--mu)); } .mus-ok { background: var(--green); } .mus-hi { background: var(--hl); }
+.tag.mus-low { background: color-mix(in srgb, var(--yellow) 25%, transparent); color: var(--ink); }
+.tag.mus-okt { background: color-mix(in srgb, var(--green) 22%, transparent); color: var(--ink); }
+.mus-t-low { color: var(--ink-2) !important; } .mus-t-hi { color: var(--hl) !important; }
 .prog-det summary { list-style: none; cursor: pointer; }
 .prog-det summary::-webkit-details-marker { display: none; }
 .dots { display: flex; gap: 3px; height: 6px; }
@@ -1523,9 +1536,11 @@ function prescribe(tpl, profile) {
       out.items.push({ id: ex.id, series: 1, reps: timed ? 0 : [0, 8, 12, 15][L], duree: timed ? work : 0, repos: rest, charge: 0 });
     });
   } else {
+    let lastK = -1; const roles = [];
     tpl.items.forEach(([id, role, o]) => {
       o = o || {};
       const ex = resolveEx(id, ctx, notes); if (!ex) return;
+      if (role === "K" && !o.min) lastK = out.items.length;
       let it = { id: ex.id, series: 3, reps: 0, duree: 0, repos: 60, charge: 0 };
       if (role === "C" || role === "I") {
         const [s, r, rest] = ctx.obj[role];
@@ -1551,9 +1566,13 @@ function prescribe(tpl, profile) {
       if ((role === "C" || role === "I" || role === "G") && ECH.has(ex.id) && (role !== "C" || ["muscle", "tonus", "perte"].indexOf(profile && profile.objectif) >= 0)) {
         it.echec = 1; notes.add("Dernière série jusqu’à l’échec sur les exercices sans risque");
       }
-      out.items.push(it);
+      out.items.push(it); roles.push(role);
     });
-    if (L === 1 && tpl.kind === "muscu" && out.items.length > 5) { out.items = out.items.slice(0, 5); notes.add("Séance raccourcie pour débuter"); }
+    if (L === 1 && tpl.kind === "muscu" && out.items.length > 5) { out.items = out.items.slice(0, 5); roles.length = 5; notes.add("Séance raccourcie pour débuter"); }
+    /* Cardio en plus quand le poids ne baisse plus (voir plateau) */
+    const plus = Math.min(15, Math.max(0, +(profile && profile.cardioPlus) || 0));
+    if (plus && lastK >= 0 && ["perte", "tonus"].indexOf(profile.objectif) >= 0) { out.items[lastK].duree += plus * 60; notes.add(plus + " min de cardio en plus"); }
+    phaseAdjust(out, profile && profile.phase, ctx, notes, roles);
   }
   out.notes = [...notes];
   return out;
@@ -2088,6 +2107,81 @@ function deloadDue(hist, today, lastMon, every) {
   let s = 0;
   for (let k = w.length - 1; k >= 0; k--) { if (lastMon && w[k].mon <= lastMon) break; if (!w[k].n) break; s++; }
   return { weeks: s, due: s >= every };
+}
+/* ===== Paliers : le programme évolue toutes les 4 semaines d’entraînement =====
+   Un palier = 4 semaines de séances (4 × séances par semaine), compté en séances faites : une pause ne fait pas avancer.
+   Palier 2 : une série de plus sur les gros exercices. Palier 3 : versions plus dures des exercices.
+   Palier 4 et suivants : plus lourd (moins de répétitions) pour muscle/force/forme, pauses plus courtes pour perte/tonus. */
+const PHASE_WEEKS = 4;
+/* Passage de niveau automatique après ce nombre de paliers terminés (débutant : 3 paliers ≈ 3 mois) */
+const LEVEL_UP_PHASES = { 1: 3, 2: 6 };
+const PHASE_NAMES = ["Découverte", "Construction", "Progression", "Intensité"];
+const phaseName = n => PHASE_NAMES[Math.min(PHASE_NAMES.length, Math.max(1, n || 1)) - 1];
+const phasePer = p => PHASE_WEEKS * planDays(p).length;
+/* Ce qui change à un palier (texte) */
+function phaseChanges(n, objectif) {
+  if (n <= 1) return ["Mise en route : tu prends tes repères avec les séances de ton niveau, les poids montent séance après séance."];
+  if (n === 2) return ["Une série de plus sur les gros exercices (squat, développé, tirage…)."];
+  if (n === 3) return ["Des versions plus dures de certains exercices (par exemple pompes classiques au lieu de pompes sur les genoux).", "La série en plus du palier 2 est conservée."];
+  return [["perte", "tonus"].indexOf(objectif) >= 0 ? "Des pauses plus courtes entre les séries pour brûler plus." : "Plus lourd : 2 mouvements de moins par série sur les gros exercices, avec une charge plus élevée.", "Les séries en plus et les exercices plus durs sont conservés."];
+}
+/* Progressions naturelles : machine → haltères → barre, version aidée → version complète (mêmes muscles) */
+const HARDER = {
+  "pompes-genoux": "pompes", "pompes-inclinees": "pompes", "pompes": "pompes-declinees", "presse-pecs": "dc-halteres", "smith-incline": "di-halteres", "dc-halteres": "dc-barre", "di-halteres": "di-barre",
+  "presse-epaules": "dm-halteres", "dm-halteres": "dm-barre", "tirage-horizontal": "rowing-haltere", "rowing-machine": "rowing-haltere", "rowing-haltere": "rowing-barre",
+  "tractions-assistees": "tractions", "dips-assiste": "dips-triceps", "squat-pdc": "goblet-squat", "squat-smith": "goblet-squat", "goblet-squat": "squat-barre",
+  "fentes-arriere": "fentes-marchees", "fentes-avant": "fentes-marchees", "pont-fessier": "hip-thrust", "sdt-roumain-halteres": "sdt-roumain", "leg-curl-assis": "leg-curl-allonge",
+  "crunch": "crunch-inverse", "releve-genoux-chaise": "releve-jambes-suspendu", "planche": "hollow", "curl-halteres": "curl-incline", "extension-corde": "extension-nuque-poulie"
+};
+/* Version plus dure d’un exercice, si elle convient au profil (niveau, sauts, corpulence) et n’est pas déjà dans la séance */
+function harderEx(id, ctx, used) {
+  const e = EX_BY_ID[id]; if (!e) return null;
+  const ok = x => x && x.id !== id && x.t === e.t && x.l <= (ctx.lvl === 1 ? 2 : 3) && !(ctx.low && x.imp) && !(ctx.heavy && BMI_SWAP[x.id]) && used.indexOf(x.id) < 0;
+  const h = EX_BY_ID[HARDER[id]];
+  return ok(h) ? h : (EX.find(x => x.deb === id && ok(x)) || null);
+}
+function phaseAdjust(out, phase, ctx, notes, roles) {
+  const ph = Math.max(1, Math.floor(+phase || 1));
+  if (ph < 2 || out.mode === "circuit") return out;
+  out.items.forEach((it, k) => {
+    const role = (roles || [])[k];
+    if (role !== "C" && role !== "I" && role !== "G") return;
+    if (role === "C" && it.series < 5) it.series++;
+    if (ph >= 3) { const h = harderEx(it.id, ctx, out.items.map(x => x.id)); if (h) { it.id = h.id; if (!ECH.has(h.id)) it.echec = 0; } }
+    if (ph >= 4 && role !== "G") {
+      if (["perte", "tonus"].indexOf(ctx.p.objectif) >= 0) it.repos = Math.max(30, it.repos - 15);
+      else if (role === "C" && it.reps > 6) it.reps = Math.max(5, it.reps - 2);
+    }
+  });
+  notes.add("Palier " + ph + " : " + phaseName(ph).toLowerCase());
+  return out;
+}
+/* Une séance de plus faite : avance dans le palier, passe au palier suivant, et au niveau suivant (automatique) */
+function progressTick(p) {
+  p = p || {};
+  const per = phasePer(p), lvl = NIV_KEYS[p.niveau] || 1;
+  let phase = Math.max(1, p.phase || 1), done = (p.phaseDone || 0) + 1, niveau = p.niveau || "debutant", phaseUp = false, levelUp = false;
+  if (done >= per) {
+    done = 0; phase++; phaseUp = true;
+    if (LEVEL_UP_PHASES[lvl] && phase > LEVEL_UP_PHASES[lvl]) { niveau = lvl === 1 ? "intermediaire" : "avance"; phase = 1; levelUp = true; }
+  }
+  return { phase, phaseDone: done, niveau, phaseUp, levelUp, per };
+}
+/* Poids qui ne baisse plus : au moins 2 pesées sur 14 jours ou plus dans les 3 dernières semaines, et moins de 0,3 kg perdus */
+function plateau(pts, today) {
+  const from = isoAdd(today, -21), P = (pts || []).filter(x => x && x.poids > 0 && x.date >= from && x.date <= today).sort((a, b) => a.date.localeCompare(b.date));
+  if (P.length < 2) return false;
+  const a = P[0], b = P[P.length - 1];
+  if (isoAdd(a.date, 14) > b.date) return false;
+  return b.poids - a.poids > -0.3;
+}
+/* Charges multipliées par f (arrondies au matériel disponible) */
+function scaleCharges(se, f) {
+  se.items.forEach(it => {
+    if (it.cool || it.warm) return;
+    if (it.charge > 0 && !isAssist(it.id)) { const e = EX_BY_ID[it.id], L = LOAD[it.id], t = it.charge * f; it.charge = L && (L[0] === "d" || L[0] === "k") ? ((L[0] === "d" ? DB_KG : KB_KG).filter(x => x <= t + 1e-9).pop() || it.charge) : Math.max(0, Math.round(t / chargeStep(e)) * chargeStep(e)); }
+  });
+  return se;
 }
 /* Séance allégée : environ 40 % de séries en moins, charges à 85 % */
 function deloadSe(se) {
@@ -2943,6 +3037,7 @@ function applySuggestions(se) {
     } else if (!it.charge) { const e = estCharge(it.id, it.reps || 12, S.profile); if (e) it.charge = e; }
   });
   if (deloadActive() && !se.dl) { deloadSe(se); se.dl = 1; se.notes = (se.notes || []).concat(["Semaine allégée : moins de séries, charges à 85 %"]); }
+  else if (repriseActive() && !se.dl && !se.rp) { scaleCharges(se, 0.9); se.rp = 1; se.notes = (se.notes || []).concat(["Séance de reprise après une pause : charges à 90 % pour repartir en douceur"]); }
   return se;
 }
 function animHTML(id) {
@@ -3036,7 +3131,7 @@ function replan() {
   const today = todayISO();
   S.agenda = S.agenda.filter(e => !(!e.fait && e.date >= today && isProgEv(e)));
   S.profile.autoPlan = true; S.profile.planKey = progKey(programme(S.profile));
-  const n = autoPlan(); commit("pa");
+  const n = autoPlan(); requeue(); commit("pa");
   return n;
 }
 /* Le programme a changé (objectif, niveau, jours, nouvelle version de l’appli…) : l’agenda programmé suit */
@@ -3048,7 +3143,7 @@ function syncPlan() {
 /* Séances prévues non faites des 14 derniers jours */
 function missedEvents() {
   const t = todayISO(), from = addDays(t, -14);
-  return S.agenda.filter(e => !e.fait && e.date < t && e.date >= from && refInfo(e.ref)).sort((a, b) => a.date.localeCompare(b.date));
+  return S.agenda.filter(e => !e.fait && e.date < t && e.date >= from && refInfo(e.ref) && !(S.profile.autoPlan && isProgEv(e))).sort((a, b) => a.date.localeCompare(b.date));
 }
 const moveTarget = e => nextFreeDay(S.agenda, addDays(e.date, 1) > todayISO() ? addDays(e.date, 1) : todayISO(), e.id);
 const dayName = d => d === todayISO() ? "aujourd’hui" : d === addDays(todayISO(), 1) ? "demain" : fmtDayShort(d);
@@ -3096,6 +3191,7 @@ function viewProgramme() {
   const p = S.profile, ss = progSessions(), w = weekPlan(p), nx = nextProg(), sim = simple();
   let h = "";
   if (!p.sexe || !p.age || !p.taille || !p.poids) h += `<section><div class="note">${icon("sparkle")}<span>Complète ton profil (sexe, âge, taille, poids) pour un programme vraiment calé sur toi. <button class="link-in" data-a="tab" data-t="profil">Mon profil</button></span></div></section>`;
+  h += progressCard() + bodyCard();
   h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="h3">Fait pour toi</div>${progTags(p)}<p class="small">${esc(progSummary(p))}</p><details class="fold-in"><summary>En savoir plus</summary><ul class="bullets">${progWhy(p, ss).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details><button class="btn" data-a="tab" data-t="profil">${icon("edit")}Changer d’objectif ou de poids</button></div></section>`;
   h += `<section><div class="sec-h"><h2>Ma semaine</h2><span class="small muted">${plural(ss.length, "séance")}</span></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
     <p class="small muted">Touche un jour pour t’y entraîner ou te reposer. Le programme s’adapte au nombre de jours.${ss.length >= 2 ? "" : " Conseil : 2 ou 3 jours par semaine, c’est idéal pour progresser."}</p>${weekStrip(p)}
@@ -3129,6 +3225,186 @@ function openPlanMonth() {
   Sheet.open({ key: "pm", title: "Programmé", tall: true, body, foot: fut ? `<button class="btn btn-lg" data-a="ics-all">${icon("cal")}Calendrier du téléphone</button>` : "" });
 }
 
+/* ================= Progression : paliers, niveau, bilans ================= */
+const countable = h => !!h && h.kind !== "mob";
+/* Applique une séance de plus au profil : palier, niveau ; garde l’historique des paliers pour les bilans */
+function applyTick(r, date) {
+  const p = S.profile;
+  if (r.phaseUp) { p.phases = (p.phases || []).concat([{ n: p.phase || 1, niv: p.niveau, from: p.phaseStart || date, to: date, up: r.levelUp ? r.niveau : undefined }]).slice(-40); p.phaseStart = date; }
+  if (r.levelUp && p.simple == null && (NIV_KEYS[p.niveau] || 1) === 1) p.simple = true; /* le mode simple ne disparaît pas sans prévenir */
+  Object.assign(p, { phase: r.phase, phaseDone: r.phaseDone, niveau: r.niveau });
+}
+/* Première ouverture de cette version : les séances déjà faites comptent */
+function initProgress() {
+  const p = S.profile; if (p.phase != null) return;
+  const hist = S.historique.filter(countable).slice().reverse();
+  Object.assign(p, { phase: 1, phaseDone: 0, phaseStart: hist.length ? hist[0].date : todayISO(), phases: [] });
+  let up = false;
+  hist.forEach(h => { const r = progressTick(p); if (r.levelUp) up = true; applyTick(r, h.date); });
+  if (up) p.bilanNew = (p.phases || []).length - 1;
+  commit("p");
+}
+/* Séance enregistrée : avance d’une séance ; renvoie vrai si un palier vient d’être terminé */
+function tickProgress() {
+  const r = progressTick(S.profile); applyTick(r, todayISO());
+  if (r.phaseUp) S.profile.bilanNew = S.profile.phases.length - 1;
+  return r;
+}
+function progressCard(home) {
+  const p = S.profile, per = phasePer(p), done = Math.min(per, p.phaseDone || 0), ph = p.phase || 1, L = NIV_KEYS[p.niveau] || 1, left = per - done;
+  const nextLvl = LEVEL_UP_PHASES[L] ? LEVEL_UP_PHASES[L] - ph + 1 : 0;
+  const bar = `<div class="pbar-l" role="img" aria-label="${done} séances sur ${per}"><b style="width:${Math.round(done / per * 100)}%"></b></div>`;
+  if (home) return `<button class="card ph-mini" data-a="seg" data-v="prog"><div class="row-main"><div class="row-title">Palier ${ph} · ${esc(phaseName(ph))}</div>${bar}<div class="row-sub">${done} séance${done > 1 ? "s" : ""} sur ${per} · niveau ${NIVEAUX[L].toLowerCase()}</div></div>${icon("chev", "ic chev")}</button>`;
+  const nx = phaseChanges(ph + 1, p.objectif)[0];
+  return `<section><div class="sec-h"><h2>Ma progression</h2><span class="tag tag-p">${NIVEAUX[L]}</span></div><div class="card" style="display:flex;flex-direction:column;gap:10px">
+    <div class="h3">Palier ${ph} · ${esc(phaseName(ph))}</div>${bar}
+    <p class="small">${done} séance${done > 1 ? "s" : ""} sur ${per} faite${done > 1 ? "s" : ""}. ${nextLvl === 1 && L < 3 ? `Encore ${plural(left, "séance")} et tu passes <b>au niveau ${NIVEAUX[L + 1].toLowerCase()}</b>.` : `Encore ${plural(left, "séance")} avant le palier ${ph + 1} : ${esc(nx.charAt(0).toLowerCase() + nx.slice(1))}`}</p>
+    <details class="fold-in"><summary>Comment ça marche</summary><ul class="bullets"><li>Un palier, c’est 4 semaines de séances (${per} séances pour toi). Seules les séances faites comptent : si tu fais une pause, le palier t’attend.</li><li>À chaque palier, le programme évolue : une série de plus, puis des exercices plus durs, puis plus lourd. Les poids, eux, augmentent séance après séance.</li>${L < 3 ? `<li>Après ${plural(LEVEL_UP_PHASES[L], "palier")} au niveau ${NIVEAUX[L].toLowerCase()} (environ ${LEVEL_UP_PHASES[L] * PHASE_WEEKS / 4} mois), tu passes automatiquement au niveau ${NIVEAUX[L + 1].toLowerCase()}${nextLvl > 1 ? ", dans " + plural(nextLvl, "palier") : ""}.</li>` : ""}<li>À la fin de chaque palier, un bilan te montre tes progrès.</li></ul></details>
+    ${(p.phases || []).length ? `<button class="btn" data-a="bilan-open">${icon("trophy")}Mes bilans (${p.phases.length})</button>` : ""}
+  </div></section>`;
+}
+/* Meilleure série (kg, puis répétitions) de chaque exercice au début et à la fin d’une période */
+function gainsIn(from, to) {
+  const first = {}, last = {};
+  S.historique.filter(h => h.date >= from && h.date <= to && Array.isArray(h.log)).slice().reverse().forEach(h => h.log.forEach(l => {
+    if (l.warm || l.cool || !EX_BY_ID[l.id] || !(l.sets || []).length) return;
+    const kg = Math.max.apply(null, l.sets.map(x => x.kg || 0)), r = Math.max.apply(null, l.sets.map(x => x.r || 0));
+    if (!kg && !r) return; const v = { kg, r }; if (!first[l.id]) first[l.id] = v; last[l.id] = v;
+  }));
+  return Object.keys(first).map(id => { const a = first[id], b = last[id]; return { id, a, b, g: a.kg && !isAssist(id) ? (b.kg - a.kg) / a.kg : (b.r - a.r) / Math.max(1, a.r) }; }).filter(x => x.g > 0).sort((x, y) => y.g - x.g).slice(0, 5);
+}
+function openBilan(idx) {
+  const p = S.profile, list = p.phases || [];
+  if (idx == null || !list[idx]) idx = list.length - 1;
+  const b = list[idx]; if (!b) return;
+  if (p.bilanNew != null) { delete p.bilanNew; commit("p"); }
+  const after = h => idx > 0 ? h.date > b.from : h.date >= b.from; /* la séance qui termine un palier appartient à ce palier */
+  const hs = S.historique.filter(h => countable(h) && after(h) && h.date <= b.to);
+  const mins = Math.round(hs.reduce((a, h) => a + (h.duree || 0), 0) / 60), recs = hs.reduce((a, h) => a + (h.pr || []).length, 0);
+  const g = gainsIn(idx > 0 ? addDays(b.from, 1) : b.from, b.to);
+  const pts = mesPts("poids"), w0 = pts.filter(x => x.date <= b.from).pop() || pts.find(x => x.date <= b.to), w1 = pts.filter(x => x.date <= b.to).pop();
+  const tp = mesPts("tour"), t0 = tp.filter(x => x.date <= b.from).pop() || tp.find(x => x.date <= b.to), t1 = tp.filter(x => x.date <= b.to).pop();
+  const last = idx === list.length - 1, nxtN = last ? p.phase : (list[idx + 1] || {}).n;
+  const body = `${b.up ? `<div class="card card-accent" style="display:flex;flex-direction:column;gap:6px"><div class="eyebrow" style="color:inherit;opacity:.85">Nouveau niveau</div><div class="hero-t" style="margin:0">Niveau ${esc(NIVEAUX[NIV_KEYS[b.up]])}</div><p class="small">Après ${plural(b.n, "palier")} réguliers, ton programme passe au niveau au-dessus : séances plus complètes, plus d’exercices, et tu repars au palier 1 de ce niveau.</p></div>` : ""}
+    <div class="eyebrow">Du ${fmtDayShort(b.from)} au ${fmtDayShort(b.to)} · niveau ${esc(NIVEAUX[NIV_KEYS[b.niv] || 1].toLowerCase())}</div>
+    <div class="sum"><div class="stat"><b>${hs.length}</b><span>séances</span></div><div class="stat"><b>${fmtDur(mins * 60)}</b><span>d’entraînement</span></div><div class="stat"><b>${recs}</b><span>record${recs > 1 ? "s" : ""}</span></div><div class="stat"><b>${w0 && w1 && w1.date > w0.date ? (w1.poids - w0.poids >= 0 ? "+" : "−") + fmtNum(Math.abs(Math.round((w1.poids - w0.poids) * 10) / 10)) : "–"}<small style="font-size:17px"> kg</small></b><span>poids de corps</span></div></div>
+    ${g.length ? `<div><div class="h3" style="margin-bottom:8px">Tes progrès</div><div class="list">${g.map(x => `<div class="row"><div class="row-main"><div class="row-title">${esc(EX_BY_ID[x.id].n)}</div><div class="row-sub">${x.a.kg && !isAssist(x.id) ? fmtNum(x.a.kg) + " kg → <b>" + fmtNum(x.b.kg) + " kg</b>" : x.a.r + " → <b>" + x.b.r + " répétitions</b>"}</div></div><span class="tag tag-p">+${Math.round(x.g * 100)} %</span></div>`).join("")}</div></div>` : `<p class="small muted">Continue à noter tes poids et tes répétitions : le prochain bilan montrera tes progrès exercice par exercice.</p>`}
+    ${t0 && t1 && t1.date > t0.date ? `<p class="small">Tour de taille : ${fmtNum(t0.tour)} cm → <b>${fmtNum(t1.tour)} cm</b>.</p>` : ""}
+    ${nxtN ? `<div class="card" style="display:flex;flex-direction:column;gap:6px"><div class="h3">Maintenant : palier ${nxtN} · ${esc(phaseName(nxtN))}</div><ul class="bullets">${phaseChanges(nxtN, p.objectif).map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+    ${list.length > 1 ? `<div class="chips" role="group" aria-label="Bilans">${list.map((x, i) => `<button class="chip chip-sm" data-a="bilan-open" data-i="${i}" aria-pressed="${i === idx}">Palier ${x.n}${x.up ? " ★" : ""}</button>`).join("")}</div>` : ""}`;
+  Sheet.closeAll();
+  Sheet.open({ key: "bilan", title: `Bilan du palier ${b.n}`, tall: true, body, foot: `<button class="btn btn-primary btn-lg" data-a="sheet-close">${b.up ? "Super, on continue" : "On continue"}</button>` });
+}
+
+/* ================= Reprise après une pause ================= */
+const REPRISE_DAYS = 10;
+function repriseActive() {
+  const h = S.historique.find(countable); if (!h) return false;
+  return addDays(h.date, REPRISE_DAYS) <= todayISO();
+}
+
+/* ================= File d’attente : les séances du programme avancent dans l’ordre ================= */
+/* Les séances du programme manquées ne restent pas en retard : la prochaine séance prévue devient celle qui n’a pas été faite,
+   et toute la suite se décale. Renvoie le nombre de séances manquées absorbées. */
+function requeue() {
+  const p = S.profile; if (!p.autoPlan) return 0;
+  const t = todayISO(), n0 = S.agenda.length;
+  S.agenda = S.agenda.filter(e => !(isProgEv(e) && !e.fait && e.date < t));
+  const missed = n0 - S.agenda.length;
+  const pr = programme(p), key = progKey(pr), n = pr.ids.length, multi = objList(p).length > 1;
+  const last = S.historique.find(h => h.pk === key && h.pj != null && h.pj < n);
+  const start = last ? (last.pj + 1) % n : 0;
+  let ch = missed > 0;
+  S.agenda.filter(e => isProgEv(e) && !e.fait && e.date >= t).sort((a, b) => a.date === b.date ? byTime(a, b) : a.date.localeCompare(b.date)).forEach((e, k) => {
+    const j = (start + k) % n, id = pr.ids[j];
+    if (e.ref.j !== j || e.ref.id !== id || e.ref.o !== pr.objs[j]) { Object.assign(e, { titre: TPL_BY_ID[id].n, note: multi ? OBJECTIFS[pr.objs[j]].n : "", ref: { k: "t", id, o: pr.objs[j], j } }); ch = true; }
+  });
+  if (ch) commit("a");
+  return missed;
+}
+
+/* ================= Le programme suit ton corps ================= */
+/* Perte de poids qui stagne 3 semaines : 5 min de cardio en plus (15 au plus), au plus une fois toutes les 3 semaines */
+function bodyCheck() {
+  const p = S.profile, t = todayISO();
+  if (!objList(p).some(k => k === "perte" || k === "tonus")) return false;
+  if (p.cardioAt && addDays(p.cardioAt, 21) > t) return false;
+  if ((p.cardioPlus || 0) >= 15 || !plateau(mesPts("poids"), t)) return false;
+  p.cardioPlus = (p.cardioPlus || 0) + 5; p.cardioAt = t; commit("p");
+  return true;
+}
+const goalReached = p => !!(p.poidsCible && p.poids && p.goalAck !== p.poidsCible && ((p.objectif === "perte" && p.poids <= p.poidsCible) || (p.objectif === "muscle" && p.poids >= p.poidsCible)));
+function bodyCard(home) {
+  const p = S.profile, items = [];
+  if (goalReached(p)) items.push(`<div class="card card-accent" style="display:flex;flex-direction:column;gap:10px"><div class="h3">Objectif atteint : ${fmtNum(p.poids)} kg</div><p class="small">Bravo ! Tu as atteint ton poids visé (${fmtNum(p.poidsCible)} kg). On adapte ton programme ?</p><div class="btn-row">${p.objectif === "perte" ? `<button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="forme">Garder la forme</button><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="muscle">Prendre du muscle</button>` : `<button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="force">Gagner en force</button><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="forme">Garder la forme</button>`}</div><button class="link small" style="color:inherit" data-a="goal-keep">Garder mon objectif actuel</button></div>`);
+  if (home) return items.length ? `<section>${items.join("")}</section>` : "";
+  if (p.cardioPlus) items.push(`<div class="note">${icon("flame")}<span><b>${p.cardioPlus} min de cardio en plus</b> dans tes séances cardio : ton poids ne baissait plus depuis 3 semaines. <button class="link-in" data-a="cardio-reset">Revenir à la normale</button></span></div>`);
+  const stuck = Object.keys(S.lastPerf).filter(id => EX_BY_ID[id] && (S.lastPerf[id].fails || 0) >= 2);
+  if (stuck.length >= 3 && !deloadActive()) items.push(`<div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="h3">Tes charges stagnent</div><p class="small muted">Sur ${plural(stuck.length, "exercice")} (${esc(stuck.slice(0, 3).map(id => EX_BY_ID[id].n.replace(/ \(.*\)$/, "").toLowerCase()).join(", "))}${stuck.length > 3 ? "…" : ""}). C’est normal de temps en temps : une semaine plus légère laisse le corps récupérer, et tu repars plus fort.</p><button class="btn btn-primary" data-a="dl-on">Alléger cette semaine</button></div>`);
+  if (!p.poidsCible && (p.objectif === "perte" || p.objectif === "muscle")) items.push(`<div class="note">${icon("sparkle")}<span>Indique ton <b>poids visé</b> dans ton profil : Fonte te préviendra quand tu l’atteins et adaptera ton programme. <button class="link-in" data-a="tab" data-t="profil">Mon profil</button></span></div>`);
+  if (!items.length) return "";
+  return `<section><div class="sec-h"><h2>Ton corps</h2>${S.mesures.length ? `<button class="link" data-a="mes-open">Mesures</button>` : ""}</div>${items.join("")}</section>`;
+}
+
+/* ================= Mes muscles : silhouette interactive et exercices conseillés ================= */
+const FIGI = {};
+/* Contenu d’une moitié de silhouette (symbole), avec chaque muscle cliquable */
+function figPart(id) {
+  if (FIGI[id] != null) return FIGI[id];
+  const sym = document.getElementById(id);
+  return (FIGI[id] = sym ? sym.innerHTML.replace(/<(path|ellipse|circle|rect|polygon)([^>]*?)style="fill:var\(--m-([a-z_]+),var\(--mu\)\)"/g, (m, tg, at, mu) => MUSCLES[mu] ? `<${tg}${at}class="mus" data-a="mus-open" data-m="${mu}" style="fill:var(--m-${mu},var(--mu))"` : m) : "");
+}
+function figBig(sets) {
+  const one = (half, lab) => `<svg viewBox="0 0 120 236" role="img" aria-label="${lab}"><g fill="var(--fig)" stroke="var(--fig)"><use href="#fb-l"/><use href="#fb-l" transform="matrix(-1 0 0 1 120 0)"/></g><g>${figPart(half)}</g><g transform="matrix(-1 0 0 1 120 0)">${figPart(half)}</g></svg>`;
+  return `<div class="fig fig-big" style="${heatStyle(sets)}">${one("ff-l", "Vue de face")}${one("fr-l", "Vue de dos")}</div>`;
+}
+const MUS_LIST = ["pecs", "dorsaux", "rhomboides", "trapezes", "lombaires", "epaules_ant", "epaules_lat", "epaules_post", "biceps", "triceps", "avantbras", "abdos", "obliques", "quadriceps", "ischios", "fessiers", "abducteurs", "adducteurs", "mollets"];
+/* Séries par semaine conseillées : moins de 4 = à travailler, 4 à 9 = correct, 10 à 20 = bien, plus = beaucoup */
+function musStatus(perWeek) { return perWeek < 4 ? ["low", "À travailler"] : perWeek < 10 ? ["mid", "Correct"] : perWeek <= 20 ? ["ok", "Bien travaillé"] : ["hi", "Beaucoup"]; }
+function musPeriod() { const d = UI.musDays || 7, to = todayISO(); return { d, to, from: addDays(to, -(d - 1)), sets: muscleSets(S.historique, addDays(to, -(d - 1)), to) }; }
+/* Exercices conseillés pour un muscle : ciblés (peu d’autres muscles), adaptés au niveau et aux articulations */
+function musExercises(m, n, exclude) {
+  const L = NIV_KEYS[S.profile.niveau] || 1, low = lowImpact(S.profile), ex = exclude || [];
+  return EX.filter(e => e.p.indexOf(m) >= 0 && ["cardio", "mobilite", "etirements", "fullbody"].indexOf(e.g) < 0 && e.l <= (L === 1 ? 2 : 3) && !(low && e.imp) && ex.indexOf(e.id) < 0)
+    .sort((a, b) => (a.p.length - b.p.length) || (Math.abs(a.l - L) - Math.abs(b.l - L)) || ((LOAD[b.id] ? 1 : 0) - (LOAD[a.id] ? 1 : 0)) || a.n.localeCompare(b.n)).slice(0, n || 5);
+}
+function lowMuscles(per) {
+  const k = 7 / per.d;
+  return MAJOR_MUSCLES.concat(["epaules_post", "lombaires"]).filter(m => (per.sets[m] || 0) * k < 4).sort((a, b) => (per.sets[a] || 0) - (per.sets[b] || 0));
+}
+function musclesSheetBody() {
+  const per = musPeriod(), k = 7 / per.d, low = lowMuscles(per), any = Object.keys(per.sets).some(m => per.sets[m] > 0);
+  const rows = MUS_LIST.map(m => ({ m, v: per.sets[m] || 0 })).sort((a, b) => b.v - a.v);
+  const max = Math.max(10, rows[0] ? rows[0].v : 0);
+  let h = `<div class="seg" role="group" aria-label="Période"><button data-a="mus-days" data-v="7" aria-pressed="${per.d === 7}">7 jours</button><button data-a="mus-days" data-v="30" aria-pressed="${per.d === 30}">30 jours</button></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;gap:8px">${figBig(per.sets)}<p class="small muted" style="text-align:center">Touche un muscle pour voir ce que tu as fait et les exercices conseillés.</p><div class="heat-leg small muted"><i style="background:var(--mu)"></i>pas travaillé<i style="background:color-mix(in srgb, var(--hl) 22%, var(--mu))"></i>peu<i style="background:var(--hl)"></i>10 séries et +</div></div>`;
+  if (!any) h += `<div class="card empty"><p>Pas encore de séance sur cette période. Tes muscles se colorent au fil de tes séances.</p></div>`;
+  if (low.length) {
+    h += `<div><div class="sec-h"><h2>À travailler</h2></div><p class="small muted" style="margin:4px 0 10px">Moins de 4 séries par semaine : un exercice conseillé pour chacun.</p><div class="list">${low.slice(0, 6).map(m => { const x = musExercises(m, 1)[0]; return `<button class="row" data-a="mus-open" data-m="${m}">${x ? figHTML(x.p, x.s, "xs") : ""}<div class="row-main"><div class="row-title">${esc(MUSCLES[m])}</div><div class="row-sub">${x ? "Par exemple : " + esc(x.n) : ""}</div></div><span class="tag mus-low">${fmtNum(Math.round((per.sets[m] || 0) * 2) / 2)} série${(per.sets[m] || 0) > 1 ? "s" : ""}</span></button>`; }).join("")}</div>
+      <button class="btn btn-primary btn-block" style="margin-top:10px" data-a="mus-go" data-m="${low.slice(0, 4).join(",")}">${icon("play")}Séance express pour ces muscles</button></div>`;
+  }
+  h += `<div><div class="sec-h"><h2>Tous les muscles</h2><span class="small muted">séries${per.d === 30 ? " sur 30 jours" : " sur 7 jours"}</span></div><div class="list">${rows.map(r => { const [cl, lab] = musStatus(r.v * k); return `<button class="row mus-row" data-a="mus-open" data-m="${r.m}"><div class="row-main"><div class="row-title">${esc(MUSCLES[r.m])}</div><div class="mus-bar"><b class="mus-${cl}" style="width:${Math.round(r.v / max * 100)}%"></b></div></div><div class="presc">${fmtNum(Math.round(r.v * 2) / 2)}<small class="mus-t-${cl}">${lab}</small></div></button>`; }).join("")}</div></div>`;
+  return h;
+}
+function openMuscles() { Sheet.open({ key: "mus", title: "Mes muscles", tall: true, body: musclesSheetBody() }); }
+function openMuscle(m) {
+  if (!MUSCLES[m] || m === "cardio") return;
+  const per = musPeriod(), v = per.sets[m] || 0, wk = v * 7 / per.d, [cl, lab] = musStatus(wk), ex = musExercises(m, 6);
+  const last = S.historique.find(h => (h.log || []).some(l => !l.warm && !l.cool && EX_BY_ID[l.id] && (EX_BY_ID[l.id].p.indexOf(m) >= 0 || EX_BY_ID[l.id].s.indexOf(m) >= 0)));
+  const msg = cl === "low" ? `Peu travaillé ces derniers temps. Vise au moins 4 à 10 séries par semaine : ajoute un ou deux de ces exercices à ta prochaine séance, ou lance une séance express.` : cl === "hi" ? `Très sollicité : laisse-le récupérer au moins 48 h avant de le retravailler.` : `Bien entretenu, continue comme ça.`;
+  const body = `<div style="display:flex;gap:14px;align-items:center">${figHTML([m], [], "sm")}<div class="row-main"><div class="h3">${fmtNum(Math.round(v * 2) / 2)} série${v > 1 ? "s" : ""} en ${per.d} jours</div><span class="tag mus-${cl === "low" ? "low" : "okt"}">${lab}</span><p class="small muted" style="margin-top:6px">${last ? "Dernière fois : " + fmtDay(last.date) : "Pas encore travaillé dans tes séances enregistrées."}</p></div></div>
+    <div class="note">${icon("info")}<span>${msg}</span></div>
+    <div><div class="h3" style="margin-bottom:8px">Exercices conseillés</div><div class="list">${ex.map(x => exRow(x)).join("")}</div></div>`;
+  Sheet.open({ key: "mus1", title: MUSCLES[m], tall: true, body, foot: ex.length ? `<button class="btn btn-primary btn-lg" data-a="mus-go" data-m="${m}">${icon("play")}Séance express : ${esc(MUSCLES[m].toLowerCase())}</button>` : "" });
+}
+/* Séance express : 2 ou 3 exercices par muscle demandé (environ 5 exercices en tout) */
+function musSession(ms) {
+  const ids = [], per = Math.max(1, Math.round(5 / ms.length));
+  ms.forEach(m => musExercises(m, per, ids).forEach(x => ids.push(x.id)));
+  const se = { nom: "Séance express : " + (ms.length === 1 ? MUSCLES[ms[0]].toLowerCase() : "muscles oubliés"), mode: "series", kind: "muscu", items: ids.slice(0, 6).map(id => defaultItem(EX_BY_ID[id])) };
+  return applySuggestions(se);
+}
+
 /* ================= Accueil : séance du jour ================= */
 function heroCard() {
   const t = todayISO(), p = S.profile;
@@ -3138,7 +3414,7 @@ function heroCard() {
   const block = (eb, title, sub, se, btns) => { const [mp, ms] = se ? seanceMuscles(se.items) : [[], []]; return `<section><div class="card hero"><div class="hero-top">${se ? figHTML(mp, ms, "sm") : ""}<div class="row-main"><div class="eyebrow">${eb}</div><div class="hero-t">${title}</div>${sub}</div></div>${btns}</div></section>`; };
   if (evs.length) {
     const e = evs[0], ri = refInfo(e.ref), se = ri.se(), d = estDuree(se);
-    return block(`Aujourd’hui${e.heure ? " · " + esc(e.heure) : ""}`, esc(e.titre), `<div class="meta"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${plural(se.items.length, "exercice")}</span>${e.note ? `<span>${esc(e.note)}</span>` : ""}</div>`, se,
+    return block(`Aujourd’hui${e.heure ? " · " + esc(e.heure) : ""}`, esc(e.titre), `<div class="meta"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${plural(se.items.length, "exercice")}</span>${e.note ? `<span>${esc(e.note)}</span>` : ""}</div>${se.rp ? `<p class="small muted">Séance de reprise : poids un peu plus légers pour repartir en douceur.</p>` : ""}`, se,
       `<button class="btn btn-primary btn-lg btn-block" data-a="ev-start" data-id="${esc(e.id)}">${icon("play")}C’est parti</button><div class="btn-row"><button class="btn" data-a="ev-see" data-id="${esc(e.id)}">Voir la séance</button><button class="btn" data-a="ev-move" data-id="${esc(e.id)}">Pas aujourd’hui</button></div>`);
   }
   const x = nextProg(), d = estDuree(x.se);
@@ -3165,12 +3441,12 @@ function closeOnb() { $("#onb").hidden = true; $("#onb").innerHTML = ""; lockPag
 function onbRead() {
   const v = id => { const el = $("#" + id); return el ? el.value : null; }, d = ONB.d;
   if (v("onb-prenom") != null) d.prenom = v("onb-prenom").trim().slice(0, 30);
-  ["age", "taille", "poids"].forEach(f => { const x = v("onb-" + f); if (x != null) d[f] = x === "" ? "" : num(x); });
+  ["age", "taille", "poids", "cible"].forEach(f => { const x = v("onb-" + f); if (x != null) d[f] = x === "" ? "" : num(x); });
   if (v("onb-heure")) d.heure = v("onb-heure");
 }
 function onbProfile() {
   const d = ONB.d;
-  return Object.assign({}, S.profile, { prenom: d.prenom, sexe: d.sexe, age: d.age || null, taille: d.taille || null, poids: d.poids || null, niveau: d.niveau, objectif: d.objectif, objectifs: [d.objectif].concat((S.profile.objectifs || []).filter(k => k !== d.objectif && S.profile.onb)), planJours: d.days.slice(), jours: d.days.length });
+  return Object.assign({}, S.profile, { poidsCible: d.cible > 0 ? d.cible : (S.profile.poidsCible || null), prenom: d.prenom, sexe: d.sexe, age: d.age || null, taille: d.taille || null, poids: d.poids || null, niveau: d.niveau, objectif: d.objectif, objectifs: [d.objectif].concat((S.profile.objectifs || []).filter(k => k !== d.objectif && S.profile.onb)), planJours: d.days.slice(), jours: d.days.length });
 }
 function renderOnb() {
   const d = ONB.d, i = ONB.i;
@@ -3187,6 +3463,7 @@ function renderOnb() {
     title = "Toi";
     body = `<p class="onb-lead">Ça sert à calculer les poids à soulever et la durée des pauses.</p><div class="field"><div class="lbl">Je suis</div><div class="seg" role="group"><button data-a="onb-sexe" data-v="H" aria-pressed="${d.sexe === "H"}">Un homme</button><button data-a="onb-sexe" data-v="F" aria-pressed="${d.sexe === "F"}">Une femme</button></div></div>
       <div class="grid3"><div class="field"><label for="onb-age">Âge</label><input class="inp tnum" id="onb-age" inputmode="numeric" value="${esc(d.age)}" placeholder="ans"></div><div class="field"><label for="onb-taille">Taille</label><input class="inp tnum" id="onb-taille" inputmode="numeric" value="${esc(d.taille)}" placeholder="cm"></div><div class="field"><label for="onb-poids">Poids</label><input class="inp tnum" id="onb-poids" inputmode="decimal" value="${d.poids ? esc(fmtNum(d.poids)) : ""}" placeholder="kg"></div></div>
+      ${d.objectif === "perte" || d.objectif === "muscle" ? `<div class="field"><label for="onb-cible">Poids visé (facultatif)</label><input class="inp tnum" id="onb-cible" inputmode="decimal" value="${d.cible ? esc(fmtNum(d.cible)) : ""}" placeholder="kg"></div>` : ""}
       <p class="small muted">Ces informations restent sur ton téléphone.</p>`;
   } else if (i === 3) {
     title = "Ton niveau";
@@ -3242,12 +3519,12 @@ function heatStyle(sets) {
 function musclesCard() {
   const to = todayISO(), from = addDays(to, -6), sets = muscleSets(S.historique, from, to);
   const done = MAJOR_MUSCLES.filter(m => (sets[m] || 0) >= 1), low = MAJOR_MUSCLES.filter(m => !(sets[m] >= 1));
-  if (!done.length) return "";
+  if (!done.length) return S.historique.length ? `<section><div class="sec-h"><h2>Mes muscles</h2><button class="link" data-a="mus-all">Voir</button></div><button class="card row" data-a="mus-all" style="padding:14px">${figHTML([], [], "xs")}<div class="row-main"><div class="row-title">Aucun muscle travaillé cette semaine</div><div class="row-sub">Touche pour voir les muscles à travailler et des exercices conseillés</div></div>${icon("chev", "ic chev")}</button></section>` : "";
   const top = Object.keys(sets).filter(m => MUSCLES[m]).sort((a, b) => sets[b] - sets[a]).slice(0, 3);
-  return `<section><div class="sec-h"><h2>Muscles travaillés</h2><span class="small muted">7 derniers jours</span></div><div class="card wk-mus"><div class="fig fig-wk" style="${heatStyle(sets)}"><svg viewBox="0 0 120 236" role="img" aria-label="Vue de face"><use href="#fig-front"/></svg><svg viewBox="0 0 120 236" role="img" aria-label="Vue de dos"><use href="#fig-back"/></svg></div><div class="row-main" style="display:flex;flex-direction:column;gap:8px">
+  return `<section><div class="sec-h"><h2>Mes muscles</h2><button class="link" data-a="mus-all">Détail et conseils</button></div><div class="card wk-mus" data-a="mus-all" role="button" tabindex="0"><div class="fig fig-wk" style="${heatStyle(sets)}"><svg viewBox="0 0 120 236" role="img" aria-label="Vue de face"><use href="#fig-front"/></svg><svg viewBox="0 0 120 236" role="img" aria-label="Vue de dos"><use href="#fig-back"/></svg></div><div class="row-main" style="display:flex;flex-direction:column;gap:8px">
     <div><div class="lbl small muted">Le plus travaillé</div><div class="small">${top.map(m => `<b>${esc(MUSCLES[m])}</b> ${fmtNum(Math.round(sets[m] * 2) / 2)} séries`).join("<br>")}</div></div>
     ${low.length ? `<div><div class="lbl small muted">Peu ou pas travaillé</div><div class="small">${esc(low.map(m => MUSCLES[m]).join(", "))}</div></div>` : `<div class="small"><b>Tous les grands muscles</b> ont été travaillés.</div>`}
-    <div class="heat-leg small muted"><i style="background:color-mix(in srgb, var(--hl) 22%, var(--mu))"></i>peu<i style="background:var(--hl)"></i>10 séries et +</div></div></div></section>`;
+    <div class="heat-leg small muted"><i style="background:color-mix(in srgb, var(--hl) 22%, var(--mu))"></i>peu<i style="background:var(--hl)"></i>10 séries et +</div><span class="link small" style="color:var(--accent);font-weight:600">Touche pour les exercices conseillés ›</span></div></div></section>`;
 }
 function regulariteHTML() {
   const goal = Math.max(1, S.profile.jours || 3), w = weekCounts(S.historique, todayISO(), 8), st = weekStreak(S.historique, todayISO(), goal);
@@ -3861,6 +4138,7 @@ function viewAccueil() {
   if (!p.sexe || !p.age || !p.taille || !p.poids) {
     h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;gap:14px;align-items:center">${figHTML(["pecs", "quadriceps", "dorsaux", "fessiers"], ["abdos", "epaules_ant", "ischios"], "sm")}<div class="row-main"><div class="h3">Ton programme sur mesure</div><p class="small muted">5 petites questions et Fonte te prépare un programme avec les bons exercices et les bons poids.</p></div></div><button class="btn btn-primary" data-a="onb-open">Répondre aux questions</button></div></section>`;
   }
+  h += bodyCard(true);
   h += missedCard();
   h += deloadCard();
   h += heroCard();
@@ -3873,7 +4151,7 @@ function viewAccueil() {
     const dots = ppl.filter(pp => !pp.mine && pp.events.some(e => e.date === d)).slice(0, 2).map(pp => `<i style="background:${pp.color}"></i>`).join("");
     h += `<button class="wday ${d === today ? "today" : ""} ${done ? "done" : ""} ${plan ? "plan" : ""}" data-a="cal-go" data-d="${d}" aria-label="${fmtDay(d)}${done ? ", séance faite" : plan ? ", séance prévue" : ""}"><small>${"LMMJVSD"[i]}</small><b>${fromISO(d).getDate()}</b><span class="dots">${done ? icon("check", "ic wk-ic") : plan ? `<i style="background:var(--accent)"></i>` : ""}${dots}</span></button>`;
   }
-  h += `</div><div class="wk-legend small muted"><span><i style="background:var(--accent)"></i>prévue</span><span>${icon("check", "ic wk-ic")}faite</span></div><div class="btn-row" style="margin-top:12px"><button class="btn" data-a="plan-month">${icon("cal")}Programmé</button><button class="btn" data-a="seg" data-v="prog">${icon("list")}Mon programme</button></div></section>`;
+  h += `</div><div class="wk-legend small muted"><span><i style="background:var(--accent)"></i>prévue</span><span>${icon("check", "ic wk-ic")}faite</span></div><div class="btn-row" style="margin-top:12px"><button class="btn" data-a="plan-month">${icon("cal")}Programmé</button><button class="btn" data-a="seg" data-v="prog">${icon("list")}Mon programme</button></div>${progressCard(true)}</section>`;
   // les autres, aujourd’hui
   const oth = [];
   ppl.filter(pp => !pp.mine).forEach(pp => pp.events.filter(e => e.date === today).forEach(e => oth.push({ e, p: pp })));
@@ -3885,7 +4163,7 @@ function viewAccueil() {
   const vol = mo.reduce((a, x) => a + (x.volume || 0), 0);
   const volTxt = vol >= 1000 ? fmtNum(Math.round(vol / 100) / 10) + `<small style="font-size:17px"> t</small>` : Math.round(vol) + `<small style="font-size:17px"> kg</small>`;
   h += `<section><div class="sec-h"><h2>Mes progrès</h2></div><div class="stats"><div class="stat"><b>${mo.length}</b><span>${mo.length > 1 ? "séances" : "séance"} ce mois-ci</span></div><div class="stat"><b>${mins}</b><span>minutes ce mois-ci</span></div><div class="stat"><b>${volTxt}</b><span>soulevés ce mois-ci</span></div></div>${regulariteHTML()}</section>`;
-  if (!simple()) h += musclesCard();
+  h += musclesCard();
   if (S.historique.some(x => (x.log || []).some(l => !l.cool && !l.warm))) {
     const recs = recentRecords(30).slice(0, 3);
     h += `<section><div class="sec-h"><h2>Records et courbes</h2><button class="link" data-a="prog-open">Tout voir</button></div>${recs.length ? `<div class="list">${recs.map(recRow).join("")}</div>` : `<button class="card row" data-a="prog-open" style="padding:14px">${icon("chart", "ic rec-ic ch-ic")}<div class="row-main"><div class="row-title">Tes courbes par exercice</div><div class="row-sub">Poids soulevés, répétitions et records</div></div>${icon("chev", "ic chev")}</button>`}</section>`;
@@ -4170,6 +4448,7 @@ function viewProfil() {
     <div class="field"><label for="pf-prenom">Prénom</label><input class="inp" id="pf-prenom" data-pf="prenom" maxlength="30" autocomplete="given-name" value="${esc(p.prenom)}" placeholder="Ton prénom"></div>
     <div class="field"><div class="lbl">Je suis</div>${seg("sexe", [["H", "Un homme"], ["F", "Une femme"]])}</div>
     <div class="grid3"><div class="field"><label for="pf-age">Âge</label><input class="inp tnum" id="pf-age" data-pf="age" inputmode="numeric" value="${p.age || ""}" placeholder="ans"></div><div class="field"><label for="pf-taille">Taille</label><input class="inp tnum" id="pf-taille" data-pf="taille" inputmode="numeric" value="${p.taille || ""}" placeholder="cm"></div><div class="field"><label for="pf-poids">Poids</label><input class="inp tnum" id="pf-poids" data-pf="poids" inputmode="decimal" value="${p.poids ? fmtNum(p.poids) : ""}" placeholder="kg"></div></div>
+    <div class="field"><label for="pf-cible">Poids visé (facultatif)</label><input class="inp tnum" id="pf-cible" data-pf="poidsCible" inputmode="decimal" value="${p.poidsCible ? fmtNum(p.poidsCible) : ""}" placeholder="kg"><span class="small muted">Fonte te prévient quand tu l’atteins et adapte ton programme.</span></div>
     <div class="field"><div class="lbl">Niveau</div>${seg("niveau", [["debutant", "Débutant"], ["intermediaire", "Intermédiaire"], ["avance", "Avancé"]])}<span class="small muted">Débutant : moins de 6 mois de pratique régulière.</span></div>
     <div class="card"><button class="switch" role="switch" data-a="pf-simple" aria-checked="${simple()}"><span><b>Mode simple</b><br><span class="small muted">Explications pas à pas pendant la séance, moins de chiffres, options avancées cachées. Activé d’office pour les débutants.</span></span><span class="sw"></span></button></div>
     <div class="field"><div class="lbl">Objectifs</div><span class="small muted">Choisis-en un ou plusieurs. Le principal compte le plus de séances dans ton programme.</span><div class="list radio-list" role="group" aria-label="Objectifs">${Object.entries(OBJECTIFS).map(([k, o]) => { const i = p.objectifs.indexOf(k); return `<div class="radio obj-row"><button class="obj-t" role="checkbox" data-a="pf-obj" data-v="${k}" aria-checked="${i >= 0}"><span class="box">${icon("check")}</span><span>${esc(o.n)}</span></button>${i === 0 && p.objectifs.length > 1 ? `<span class="tag tag-p">Principal</span>` : i > 0 ? `<button class="link small" data-a="pf-obj-main" data-v="${k}">Mettre en principal</button>` : ""}</div>`; }).join("")}</div></div>
@@ -4447,6 +4726,9 @@ function saveRunHistory() {
   let ag = false;
   const ev = R.eventId ? S.agenda.find(e => e.id === R.eventId) : (ref ? S.agenda.find(e => e.date === today && !e.fait && e.ref && e.ref.k === ref.k && e.ref.id === ref.id) : null);
   if (ev) { ev.fait = true; ag = true; }
+  if (countable(S.historique[0])) { const r = tickProgress(); if (r.levelUp) { syncPlan(); ag = true; } }
+  if (requeue()) ag = true;
+  autoPlan();
   commit(ag ? "pa" : "p");
   return pr.length;
 }
@@ -4675,7 +4957,7 @@ const A = {
   },
   "run-end": () => { Sheet.closeAll(); finishRun(); },
   "run-feel": el => { R.feel = +el.dataset.v; renderRunner(); },
-  "run-save": () => { const n = saveRunHistory(); closeRunner(); toast(n ? "Séance enregistrée · " + (n > 1 ? n + " nouveaux records" : "nouveau record") : "Séance enregistrée"); },
+  "run-save": () => { const n = saveRunHistory(); closeRunner(); toast(n ? "Séance enregistrée · " + (n > 1 ? n + " nouveaux records" : "nouveau record") : "Séance enregistrée"); if (S.profile.bilanNew != null) setTimeout(() => openBilan(S.profile.bilanNew), 400); },
   "run-discard": () => { Sheet.closeAll(); closeRunner(); },
   "run-resume": () => { const r = loadRun(); if (!r) { render(); return; } if (r.se.items.some(it => !EX_BY_ID[it.id])) { clearRun(); render(); toast("Cette séance contenait un exercice qui n’existe plus."); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; lockPage(); renderRunner(); },
   /* accueil */
@@ -4728,13 +5010,21 @@ const A = {
     openPlanMonth();
   },
   "plan-month": () => openPlanMonth(),
+  "bilan-open": el => openBilan(el.dataset.i != null ? +el.dataset.i : null),
+  "mus-all": () => openMuscles(),
+  "mus-open": el => openMuscle(el.dataset.m),
+  "mus-days": el => { UI.musDays = +el.dataset.v; const sh = Sheet.stack.find(x => x.key === "mus"); if (sh) { const b = sh.el.querySelector(".sheet-body"); if (b) b.innerHTML = musclesSheetBody(); } },
+  "mus-go": el => { const ms = String(el.dataset.m || "").split(",").filter(m => MUSCLES[m]); if (!ms.length) return; const se = musSession(ms); if (!se.items.length) { toast("Pas d’exercice adapté pour l’instant."); return; } openEditor("prep", se, {}); },
+  "goal-switch": el => { const k = el.dataset.v, p = S.profile; p.goalAck = p.poidsCible; p.objectifs = [k].concat(p.objectifs.filter(x => x !== k && x !== p.objectif)); p.objectif = k; commit("p"); syncPlan(); render(); toast("Nouvel objectif : " + OBJECTIFS[k].n); },
+  "goal-keep": () => { S.profile.goalAck = S.profile.poidsCible; commit("p"); render(); },
+  "cardio-reset": () => { S.profile.cardioPlus = 0; S.profile.cardioAt = todayISO(); commit("p"); render(); toast("Cardio revenu à la normale"); },
   "gloss": el => openGloss(el && el.dataset ? el.dataset.k : ""),
   /* report d’une séance */
   "ev-move": el => {
     const e = S.agenda.find(x => x.id === el.dataset.id); if (!e) return;
     const to = el.dataset.to === "pick" ? (($("#mv-date") || {}).value || "") : moveTarget(e);
     if (!to) return;
-    e.date = to; commit("a"); Sheet.closeAll(); render();
+    e.date = to; requeue(); commit("a"); Sheet.closeAll(); render();
     toast("« " + e.titre + " » reportée " + dayName(to));
   },
   "ev-move-pick": el => {
@@ -4746,7 +5036,7 @@ const A = {
       <button class="btn btn-block" data-a="ev-move" data-to="pick" data-id="${esc(e.id)}">Déplacer à cette date</button>
       <button class="btn btn-ghost btn-block" data-a="ev-skip" data-id="${esc(e.id)}">Laisser tomber cette séance</button>` });
   },
-  "ev-skip": el => { S.agenda = S.agenda.filter(x => x.id !== el.dataset.id); commit("a"); Sheet.closeAll(); render(); toast("Séance retirée de l’agenda"); },
+  "ev-skip": el => { S.agenda = S.agenda.filter(x => x.id !== el.dataset.id); requeue(); commit("a"); Sheet.closeAll(); render(); toast("Séance retirée de l’agenda"); },
   /* premier lancement guidé */
   "onb-open": () => openOnb(),
   "onb-skip": () => { S.profile.onb = 1; commit("p"); closeOnb(); render(); },
@@ -4852,7 +5142,7 @@ const A = {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast("Choisis une date."); return; }
     if (!(poids > 0) && !(tour > 0)) { toast("Indique ton poids ou ton tour de taille."); return; }
     if ((poids && (poids < 25 || poids > 350)) || (tour && (tour < 40 || tour > 250))) { toast("Valeur étonnante : vérifie la saisie."); return; }
-    upsertMesure(date, { poids, tour }); commit("p"); Sheet.close();
+    upsertMesure(date, { poids, tour }); commit("p"); Sheet.close(); if (bodyCheck()) setTimeout(() => toast("Ton poids ne baisse plus depuis 3 semaines : 5 min de cardio en plus dans tes séances cardio"), 600);
     const t = Sheet.top(); if (t && t.key === "mes") t.el.querySelector(".sheet-body").innerHTML = mesSheetBody();
     render(); toast("Mesure enregistrée");
   },
@@ -4979,9 +5269,15 @@ document.addEventListener("change", ev => {
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (TABS.indexOf(h) >= 0 && h !== UI.tab) { UI.tab = h; render(); window.scrollTo(0, 0); } });
 
 /* ================= Démarrage ================= */
+initProgress();
+const BODY_UP = bodyCheck();
 if (!syncPlan()) autoPlan();
+const MISSED = requeue();
+if (MISSED) setTimeout(() => toast(MISSED > 1 ? MISSED + " séances manquées : le programme reprend là où tu t’étais arrêté" : "Séance manquée : tu la feras à ta prochaine séance, la suite est décalée"), 800);
+else if (BODY_UP) setTimeout(() => toast("Ton poids ne baisse plus depuis 3 semaines : 5 min de cardio en plus dans tes séances cardio"), 800);
 render();
 if (onbNeeded() && !loadRun()) openOnb();
+else if (S.profile.bilanNew != null && !loadRun()) setTimeout(() => openBilan(S.profile.bilanNew), 300);
 Sync.init();
 if (PWA) {
   Cloud.load();
