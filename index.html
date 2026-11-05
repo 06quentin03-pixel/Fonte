@@ -270,6 +270,7 @@ section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .tag.mus-low { background: color-mix(in srgb, var(--yellow) 25%, transparent); color: var(--ink); }
 .tag.mus-okt { background: color-mix(in srgb, var(--green) 22%, transparent); color: var(--ink); }
 .mus-t-low { color: var(--ink-2) !important; } .mus-t-hi { color: var(--hl) !important; }
+.chips-wrap { flex-wrap: wrap; overflow: visible; margin-inline: 0; padding-inline: 0; }
 .prog-det summary { list-style: none; cursor: pointer; }
 .prog-det summary::-webkit-details-marker { display: none; }
 .dots { display: flex; gap: 3px; height: 6px; }
@@ -1360,6 +1361,75 @@ const TPL = [
     desc: "Circuit intense façon boxe, sans matériel.",
     circuit: { timed: true },
     items: [["shadow-boxing", "W"], ["skater-jumps", "W"], ["burpee-sans-saut", "W"], ["jumping-jacks", "W"], ["bear-crawl", "W"], ["mountain-climbers", "W"]] },
+  /* ---- Force : une séance par grand mouvement (A et B : même mouvement principal, autres exercices d’appoint) ---- */
+  { id: "force-squat", n: "Force : squat", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Le squat lourd en exercice principal, puis ce qui le renforce : presse, fentes, ischios et gainage.",
+    items: [["squat-barre", "C"], ["presse-cuisses", "I"], ["fentes-marchees", "I"], ["leg-curl-assis", "I"], ["planche", "G"]] },
+  { id: "force-squat-b", n: "Force : squat B", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Squat lourd, puis travail sur une jambe et gainage profond.",
+    items: [["squat-barre", "C"], ["squat-bulgare", "I"], ["leg-extension", "I"], ["mollets-debout", "I"], ["dead-bug", "G"]] },
+  { id: "force-dc", n: "Force : développé couché", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Le développé couché lourd, équilibré par un tirage lourd, puis triceps et arrière des épaules.",
+    items: [["dc-barre", "C"], ["rowing-barre", "C"], ["di-halteres", "I"], ["dips-assiste", "I"], ["face-pull", "I"]] },
+  { id: "force-dc-b", n: "Force : développé couché B", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Développé couché lourd, rowing, développé prise serrée pour les triceps.",
+    items: [["dc-barre", "C"], ["rowing-haltere", "C"], ["dc-serre", "I"], ["ecarte-halteres", "I"], ["extension-nuque", "I"]] },
+  { id: "force-sdt", n: "Force : soulevé de terre", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Le soulevé de terre en exercice principal, puis fessiers, dos et lombaires.",
+    items: [["souleve-terre", "C"], ["tirage-vertical", "C"], ["hip-thrust", "I"], ["extension-lombaire", "I"], ["releve-genoux-chaise", "G"]] },
+  { id: "force-sdt-b", n: "Force : soulevé de terre B", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Soulevé de terre lourd, tirage serré, travail de la chaîne arrière.",
+    items: [["souleve-terre", "C"], ["tirage-serre", "C"], ["pull-through", "I"], ["leg-curl-allonge", "I"], ["crunch-inverse", "G"]] },
+  { id: "force-dm", n: "Force : développé militaire", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Le développé militaire debout, les tractions, puis épaules et bras.",
+    items: [["dm-barre", "C"], ["tractions", "C"], ["dc-halteres", "I"], ["elevations-laterales", "I"], ["curl-ez", "I"], ["planche-laterale", "G"]] },
+  { id: "force-dm-b", n: "Force : développé militaire B", cat: "split", kind: "muscu", mode: "series", obj: "force",
+    desc: "Développé militaire lourd, tirage vertical, puis arrière des épaules et biceps.",
+    items: [["dm-barre", "C"], ["tirage-vertical", "C"], ["di-halteres", "I"], ["oiseau", "I"], ["curl-marteau", "I"]] },
+  /* ---- Perte de poids : circuits « brûle-graisses » avec charges ---- */
+  { id: "metab-haut", n: "Brûle-graisses haut du corps", cat: "cardio", kind: "hiit", mode: "circuit", obj: "perte",
+    desc: "Circuit avec haltères pour le haut du corps : on enchaîne, le cœur reste haut, on brûle plus.",
+    circuit: { timed: false },
+    items: [["dc-halteres", "W"], ["rowing-haltere", "W"], ["dm-halteres", "W"], ["mountain-climbers", "W"], ["kickback", "W"], ["planche", "W"]] },
+  { id: "metab-haut-b", n: "Brûle-graisses haut du corps B", cat: "cardio", kind: "hiit", mode: "circuit", obj: "perte",
+    desc: "Deuxième circuit haut du corps : pompes, tirages et épaules.",
+    circuit: { timed: false },
+    items: [["pompes-inclinees", "W"], ["tirage-vertical", "W"], ["elevations-laterales", "W"], ["jumping-jacks", "W"], ["curl-halteres", "W"], ["shoulder-taps", "W"]] },
+  { id: "metab-bas", n: "Brûle-graisses bas du corps", cat: "cardio", kind: "hiit", mode: "circuit", obj: "perte",
+    desc: "Circuit jambes et fessiers : les plus gros muscles du corps, ceux qui dépensent le plus.",
+    circuit: { timed: false },
+    items: [["goblet-squat", "W"], ["fentes-arriere", "W"], ["kettlebell-swing", "W"], ["pont-fessier", "W"], ["jumping-jacks", "W"], ["chaise", "W"]] },
+  { id: "metab-bas-b", n: "Brûle-graisses bas du corps B", cat: "cardio", kind: "hiit", mode: "circuit", obj: "perte",
+    desc: "Deuxième circuit jambes : squat sumo, fentes latérales, step et gainage.",
+    circuit: { timed: false },
+    items: [["squat-sumo", "W"], ["fentes-laterales", "W"], ["step-up", "W"], ["hip-thrust", "W"], ["montees-genoux", "W"], ["planche-laterale", "W"]] },
+  /* ---- Tonus et endurance : beaucoup de répétitions, pauses courtes ---- */
+  { id: "tonus-haut", n: "Tonique haut du corps", cat: "haut", kind: "muscu", mode: "series", obj: "tonus",
+    desc: "Endurance musculaire du haut du corps : charges légères, beaucoup de répétitions, pauses courtes.",
+    items: [["presse-pecs", "C"], ["tirage-vertical", "C"], ["elevations-laterales", "I"], ["curl-poulie", "I"], ["extension-corde", "I"], ["planche", "G"]] },
+  { id: "tonus-haut-b", n: "Tonique haut du corps B", cat: "haut", kind: "muscu", mode: "series", obj: "tonus",
+    desc: "Variante : pompes, rowing et épaules, en séries longues.",
+    items: [["pompes-inclinees", "C"], ["rowing-machine", "C"], ["oiseau", "I"], ["curl-halteres", "I"], ["kickback", "I"], ["dead-bug", "G"]] },
+  { id: "tonus-bas", n: "Tonique bas du corps", cat: "bas", kind: "muscu", mode: "series", obj: "tonus",
+    desc: "Jambes et fessiers en séries longues pour l’endurance et une silhouette plus ferme.",
+    items: [["presse-cuisses", "C"], ["fentes-marchees", "C"], ["leg-curl-assis", "I"], ["abduction-machine", "I"], ["mollets-debout", "I"], ["chaise", "G"]] },
+  { id: "tonus-bas-b", n: "Tonique bas du corps B", cat: "bas", kind: "muscu", mode: "series", obj: "tonus",
+    desc: "Variante : goblet squat, pont, adducteurs et gainage.",
+    items: [["goblet-squat", "C"], ["pont-fessier", "C"], ["leg-extension", "I"], ["adduction-machine", "I"], ["mollets-assis", "I"], ["planche-laterale", "G"]] },
+  { id: "tonus-circuit", n: "Circuit tonique", cat: "full", kind: "hiit", mode: "circuit", obj: "tonus",
+    desc: "Tout le corps en circuit chronométré, au poids du corps.",
+    circuit: { timed: true },
+    items: [["squat-pdc", "W"], ["pompes-inclinees", "W"], ["fentes-avant", "W"], ["superman", "W"], ["crunch", "W"], ["planche-laterale", "W"]] },
+  /* ---- Remise en forme : en douceur, avec de la mobilité ---- */
+  { id: "forme-doux", n: "Remise en forme", cat: "full", kind: "muscu", mode: "series", obj: "forme",
+    desc: "Tout le corps sur machines, en douceur, pour reprendre de bonnes bases.",
+    items: [["presse-cuisses", "C"], ["presse-pecs", "C"], ["tirage-horizontal", "C"], ["pont-fessier", "I"], ["bird-dog", "G"]] },
+  { id: "forme-doux-b", n: "Remise en forme B", cat: "full", kind: "muscu", mode: "series", obj: "forme",
+    desc: "Variante : goblet squat, tirage vertical, épaules et gainage.",
+    items: [["goblet-squat", "C"], ["tirage-vertical", "C"], ["presse-epaules", "C"], ["leg-curl-assis", "I"], ["dead-bug", "G"]] },
+  { id: "forme-mobi", n: "Renfo & mobilité", cat: "mob", kind: "muscu", mode: "series", obj: "forme",
+    desc: "Renforcement léger entre des mouvements de mobilité : on bouge mieux, on se tient mieux.",
+    items: [["chat-vache", "M"], ["world-greatest", "M"], ["goblet-squat", "C"], ["pompes-inclinees", "C"], ["rowing-elastique", "I"], ["dead-bug", "G"], ["pigeon", "M"]] },
   { id: "abdos", n: "Abdos & gainage", cat: "core", kind: "muscu", mode: "series",
     desc: "Grand droit, obliques et gainage profond pour une sangle abdominale solide.",
     items: [["planche", "G"], ["crunch-inverse", "G"], ["russian-twist", "G"], ["planche-laterale", "G"], ["dead-bug", "G"], ["releve-genoux-chaise", "G"]] },
@@ -1539,7 +1609,9 @@ function prescribe(tpl, profile) {
     let lastK = -1; const roles = [];
     tpl.items.forEach(([id, role, o]) => {
       o = o || {};
-      const ex = resolveEx(id, ctx, notes); if (!ex) return;
+      let ex = resolveEx(id, ctx, notes); if (!ex) return;
+      const ez = EX_BY_ID[EASIER[ex.id]];
+      if (L === 1 && (+(profile && profile.phase) || 1) < 3 && ez && !tpl.items.some(x => x[0] === ez.id) && !out.items.some(x => x.id === ez.id)) { ex = ez; notes.add("Versions aux haltères pour apprendre les mouvements : la barre arrive au palier 3"); }
       if (role === "K" && !o.min) lastK = out.items.length;
       let it = { id: ex.id, series: 3, reps: 0, duree: 0, repos: 60, charge: 0 };
       if (role === "C" || role === "I") {
@@ -1572,6 +1644,7 @@ function prescribe(tpl, profile) {
     /* Cardio en plus quand le poids ne baisse plus (voir plateau) */
     const plus = Math.min(15, Math.max(0, +(profile && profile.cardioPlus) || 0));
     if (plus && lastK >= 0 && ["perte", "tonus"].indexOf(profile.objectif) >= 0) { out.items[lastK].duree += plus * 60; notes.add(plus + " min de cardio en plus"); }
+    addZones(out, tpl, ctx, notes, roles, profile);
     phaseAdjust(out, profile && profile.phase, ctx, notes, roles);
   }
   out.notes = [...notes];
@@ -1683,7 +1756,10 @@ const PROG_ALT = {
   push: ["push-b"], pull: ["pull-b"], legs: ["legs-b"], haut: ["haut-b"], bas: ["bas-b", "jambes"],
   "fb-machines": ["fb-guide", "fb-halteres"], "fb-halteres": ["fb-guide", "fb-barre"], "fb-barre": ["fb-barre-b", "fb-halteres"],
   "fb-maison": ["fb-maison-b", "cardio-renfo"], "cardio-endurance": ["cardio-mix", "cardio-fractionne"], "hiit-20": ["hiit-boxe", "cardio-fractionne"],
-  "cardio-renfo": ["hiit-boxe", "hiit-20", "fb-maison-b"], "cardio-fractionne": ["hiit-20", "cardio-mix"]
+  "cardio-renfo": ["hiit-boxe", "hiit-20", "fb-maison-b"], "cardio-fractionne": ["hiit-20", "cardio-mix"],
+  "force-squat": ["force-squat-b"], "force-dc": ["force-dc-b"], "force-sdt": ["force-sdt-b"], "force-dm": ["force-dm-b"],
+  "metab-haut": ["metab-haut-b", "hiit-boxe"], "metab-bas": ["metab-bas-b", "cardio-renfo"], "tonus-haut": ["tonus-haut-b"], "tonus-bas": ["tonus-bas-b"],
+  "tonus-circuit": ["fb-maison", "cardio-renfo"], "forme-doux": ["forme-doux-b", "fb-machines"], "forme-mobi": ["mobilite", "fb-machines"], "mobilite": ["etirements"]
 };
 function vary(ids) {
   const seen = new Set();
@@ -1708,7 +1784,7 @@ function programme0(p) {
   const other = [];
   used.forEach((k, i) => {
     if (STRENGTH_OBJ.indexOf(k) >= 0) { strObjs.push(k); strCount.push(n[i]); return; }
-    const pool = k === "perte" ? (deb ? ["cardio-endurance", "cardio-renfo"] : ["hiit-20", "cardio-endurance"]) : (deb ? ["fb-maison", "cardio-endurance"] : ["fb-maison", "cardio-renfo"]);
+    const pool = k === "perte" ? (deb ? ["metab-bas", "cardio-endurance", "metab-haut"] : ["metab-haut", "hiit-20", "metab-bas"]) : ["tonus-circuit", "tonus-haut", "tonus-bas"];
     for (let d = 0; d < n[i]; d++) other.push({ id: pool[d % pool.length], o: k });
   });
   let str = [];
@@ -1728,28 +1804,84 @@ function programme0(p) {
   const days = interleave(str, other);
   return { ids: days.map(d => d.id), objs: days.map(d => d.o), offsets: PROG_OFFSETS[J] };
 }
+/* Séances de la semaine selon l’objectif, le niveau (d = débutant, s = sinon) et le nombre de jours */
+const PLANS = {
+  muscle: {
+    d: [["fb-machines"], ["fb-machines", "fb-halteres"], ["fb-machines", "fb-halteres", "fb-machines"], ["haut", "bas", "haut", "bas"], ["push", "pull", "legs", "haut", "bas"], ["push", "pull", "legs", "push", "pull", "legs"]],
+    s: [["fb-halteres"], ["fb-barre", "fb-halteres"], ["push", "pull", "legs"], ["haut", "bas", "haut", "bas"], ["push", "pull", "legs", "haut", "bas"], ["push", "pull", "legs", "push", "pull", "legs"]]
+  },
+  force: {
+    d: [["fb-barre"], ["fb-barre", "fb-barre-b"], ["force-squat", "force-dc", "force-sdt"], ["force-squat", "force-dc", "force-sdt", "force-dm"], ["force-squat", "force-dc", "force-sdt", "force-dm", "fb-halteres"], ["force-squat", "force-dc", "force-sdt", "force-dm", "fb-barre", "fb-halteres"]],
+    s: [["fb-barre"], ["fb-barre", "fb-barre-b"], ["force-squat", "force-dc", "force-sdt"], ["force-squat", "force-dc", "force-sdt", "force-dm"], ["force-squat", "force-dc", "force-sdt", "force-dm", "fb-barre"], ["force-squat", "force-dc", "force-sdt", "force-dm", "fb-barre", "fb-barre-b"]]
+  },
+  perte: {
+    d: [["fb-machines"], ["fb-machines", "cardio-endurance"], ["fb-machines", "metab-bas", "cardio-endurance"], ["metab-haut", "cardio-endurance", "metab-bas", "fb-halteres"], ["metab-haut", "cardio-endurance", "metab-bas", "fb-halteres", "cardio-mix"], ["metab-haut", "cardio-endurance", "metab-bas", "fb-halteres", "cardio-mix", "fb-guide"]],
+    s: [["fb-halteres"], ["fb-halteres", "hiit-20"], ["metab-haut", "hiit-20", "metab-bas"], ["metab-haut", "metab-bas", "hiit-20", "cardio-endurance"], ["haut", "bas", "metab-haut", "hiit-20", "cardio-endurance"], ["push", "pull", "legs", "metab-haut", "hiit-20", "cardio-endurance"]]
+  },
+  tonus: {
+    d: [["tonus-circuit"], ["tonus-haut", "tonus-bas"], ["tonus-haut", "tonus-circuit", "tonus-bas"], ["tonus-haut", "cardio-endurance", "tonus-bas", "tonus-circuit"], ["tonus-haut", "cardio-endurance", "tonus-bas", "tonus-circuit", "cardio-mix"], ["tonus-haut", "cardio-endurance", "tonus-bas", "tonus-circuit", "cardio-mix", "fb-maison"]],
+    s: [["tonus-circuit"], ["tonus-haut", "tonus-bas"], ["tonus-haut", "tonus-circuit", "tonus-bas"], ["tonus-haut", "cardio-renfo", "tonus-bas", "tonus-circuit"], ["tonus-haut", "cardio-renfo", "tonus-bas", "tonus-circuit", "cardio-endurance"], ["tonus-haut", "cardio-renfo", "tonus-bas", "tonus-circuit", "cardio-endurance", "fb-maison"]]
+  },
+  forme: {
+    d: [["forme-doux"], ["forme-doux", "forme-mobi"], ["forme-doux", "cardio-endurance", "forme-mobi"], ["forme-doux", "cardio-endurance", "forme-mobi", "fb-machines"], ["forme-doux", "cardio-endurance", "forme-mobi", "fb-machines", "cardio-mix"], ["forme-doux", "cardio-endurance", "forme-mobi", "fb-machines", "cardio-mix", "mobilite"]],
+    s: [["forme-doux"], ["forme-doux", "forme-mobi"], ["forme-doux", "cardio-endurance", "forme-mobi"], ["forme-doux", "cardio-endurance", "forme-mobi", "fb-halteres"], ["forme-doux", "cardio-endurance", "forme-mobi", "fb-halteres", "cardio-mix"], ["forme-doux", "cardio-endurance", "forme-mobi", "fb-halteres", "cardio-mix", "mobilite"]]
+  }
+};
 function programme1(p) {
   p = p || {};
-  const j = Math.min(6, Math.max(1, p.jours || 3));
-  const deb = (NIV_KEYS[p.niveau] || 1) === 1;
-  const perte = p.objectif === "perte" || p.objectif === "tonus";
-  let ids;
-  if (j === 1) ids = [deb ? "fb-machines" : "fb-halteres"];
-  else if (j === 2) ids = deb ? ["fb-machines", "fb-halteres"] : ["fb-barre", "fb-halteres"];
-  else if (j === 3) ids = deb ? ["fb-machines", "fb-halteres", "fb-machines"] : ["push", "pull", "legs"];
-  else if (j === 4) ids = ["haut", "bas", "haut", "bas"];
-  else if (j === 5) ids = ["push", "pull", "legs", "haut", "bas"];
-  else ids = ["push", "pull", "legs", "push", "pull", "legs"];
-  if (perte) {
-    if (j === 2) ids = [deb ? "fb-machines" : "fb-halteres", "cardio-renfo"];
-    if (j === 3) ids = [deb ? "fb-machines" : "fb-halteres", "cardio-endurance", deb ? "fb-halteres" : "fb-barre"];
-    if (j === 4) ids = ["haut", "bas", "hiit-20", "cardio-endurance"];
-    if (j === 5) ids = ["push", "pull", "legs", "hiit-20", "cardio-endurance"];
-    if (j === 6) ids = ["push", "pull", "legs", "hiit-20", "fb-halteres", "cardio-endurance"];
-  }
-  if (p.objectif === "force" && j <= 3 && !deb) ids = ids.map((x, i) => j === 3 ? ["fb-barre", "fb-halteres", "fb-barre"][i] : x);
-  return { ids, offsets: PROG_OFFSETS[j] };
+  const j = Math.min(6, Math.max(1, p.jours || 3)), deb = (NIV_KEYS[p.niveau] || 1) === 1;
+  const plan = PLANS[OBJECTIFS[p.objectif] ? p.objectif : "forme"][deb ? "d" : "s"];
+  return { ids: plan[j - 1].slice(), offsets: PROG_OFFSETS[j] };
 }
+
+/* Semaines A et B : une semaine sur deux, chaque séance est remplacée par sa variante (mêmes muscles, autres exercices).
+   Les grands mouvements de force restent les mêmes pour pouvoir mesurer les progrès. */
+const WEEK_PAIRS = [["push", "push-b"], ["pull", "pull-b"], ["legs", "legs-b"], ["haut", "haut-b"], ["bas", "bas-b"], ["fb-machines", "fb-guide"], ["fb-barre", "fb-barre-b"],
+  ["fb-maison", "fb-maison-b"], ["cardio-endurance", "cardio-mix"], ["hiit-20", "hiit-boxe"], ["force-squat", "force-squat-b"], ["force-dc", "force-dc-b"], ["force-sdt", "force-sdt-b"],
+  ["force-dm", "force-dm-b"], ["metab-haut", "metab-haut-b"], ["metab-bas", "metab-bas-b"], ["tonus-haut", "tonus-haut-b"], ["tonus-bas", "tonus-bas-b"], ["forme-doux", "forme-doux-b"]];
+const WEEK_B = {};
+WEEK_PAIRS.forEach(([a, b]) => { WEEK_B[a] = b; WEEK_B[b] = a; });
+/* Semaine B : une semaine sur deux (semaines comptées depuis le lundi 1er janvier 2024) */
+function weekB(iso) {
+  const [y, m, d] = iso.split("-").map(Number), t = new Date(y, m - 1, d), mon = new Date(y, m - 1, d - (t.getDay() + 6) % 7);
+  return Math.round((mon - new Date(2024, 0, 1)) / 6048e5) % 2 === 1;
+}
+const weekVariant = (id, iso) => weekB(iso) && WEEK_B[id] ? WEEK_B[id] : id;
+
+/* Zone prioritaire (1 ou 2) : un exercice en plus pour cette zone dans les séances de musculation */
+const ZONES = {
+  bras: ["Bras", ["curl-halteres", "extension-corde", "curl-marteau", "extension-nuque", "curl-poulie", "kickback"]],
+  epaules: ["Épaules", ["elevations-laterales", "oiseau", "elev-lat-poulie", "face-pull", "arnold"]],
+  pecs: ["Pectoraux", ["ecarte-halteres", "pec-deck", "pompes", "ecarte-incline", "vis-a-vis"]],
+  dos: ["Dos", ["tirage-vertical", "rowing-haltere", "tirage-serre", "pull-over-poulie", "rowing-machine"]],
+  fessiers: ["Fessiers", ["hip-thrust", "kickback-poulie", "abduction-machine", "pont-fessier", "fire-hydrant"]],
+  jambes: ["Jambes", ["leg-extension", "leg-curl-assis", "fentes-arriere", "mollets-debout", "squat-bulgare"]],
+  abdos: ["Abdos", ["crunch-inverse", "planche-laterale", "russian-twist", "dead-bug", "releve-genoux-chaise", "crunch-poulie"]]
+};
+const zoneList = p => (Array.isArray(p && p.zones) ? p.zones : []).filter((z, i, a) => ZONES[z] && a.indexOf(z) === i).slice(0, 2);
+function addZones(out, tpl, ctx, notes, roles, profile) {
+  const zs = zoneList(profile); if (!zs.length || tpl.kind !== "muscu" || out.mode === "circuit") return;
+  const L = ctx.lvl, max = L === 1 ? 1 : 2;
+  let h = 0, added = 0; for (let k = 0; k < tpl.id.length; k++) h = (h * 31 + tpl.id.charCodeAt(k)) % 997;
+  zs.forEach((z, zi) => {
+    if (added >= max) return;
+    const list = ZONES[z][1];
+    for (let k = 0; k < list.length; k++) {
+      const ex = resolveEx(list[(h + zi * 3 + k) % list.length], ctx, new Set());
+      if (!ex || out.items.some(it => it.id === ex.id)) continue;
+      const role = z === "abdos" ? "G" : "I", it = { id: ex.id, series: 3, reps: 0, duree: 0, repos: 60, charge: 0 };
+      if (role === "I") { const [s0, r, rest] = ctx.obj.I; it.series = Math.max(2, s0 + (L === 1 ? -1 : 0)); if (ex.t === "t") it.duree = [0, 30, 45, 60][L]; else it.reps = r; it.repos = adjRest(ctx, rest); }
+      else { it.series = L === 1 ? 2 : 3; if (ex.t === "t") it.duree = Math.round((ex.dt || 45) * [0, 0.7, 1, 1.35][L] / 5) * 5; else it.reps = [0, 12, 15, 20][L]; it.repos = adjRest(ctx, ex.t === "t" ? 30 : 45); }
+      if (ex.pc && it.reps) it.parCote = 1;
+      if (ECH.has(ex.id) && it.series > 1) it.echec = 1;
+      out.items.push(it); roles.push(role); added++;
+      notes.add("Zone prioritaire : " + ZONES[z][0].toLowerCase());
+      break;
+    }
+  });
+}
+/* Débutant, paliers 1 et 2 : versions aux haltères des mouvements à la barre (la barre arrive au palier 3, voir HARDER) */
+const EASIER = { "squat-barre": "goblet-squat", "dc-barre": "dc-halteres", "dm-barre": "dm-halteres", "rowing-barre": "rowing-haltere", "di-barre": "di-halteres", "sdt-roumain": "sdt-roumain-halteres" };
 
 /* ===== Planning de la semaine =====
    p.planJours : jours d’entraînement choisis (0 = lundi … 6 = dimanche), autant que de séances par semaine.
@@ -3075,7 +3207,7 @@ function nextProg() {
   const pr = programme(S.profile), key = progKey(pr), n = pr.ids.length;
   const last = S.historique.find(h => h.pk === key && h.pj != null && h.pj < n);
   const j = ((last ? last.pj + 1 : 0) + (UI.progSkip || 0)) % n;
-  const t = TPL_BY_ID[pr.ids[j]], o = pr.objs[j], se = prescribe(t, profFor(S.profile, o));
+  const t = TPL_BY_ID[weekVariant(pr.ids[j], todayISO())], o = pr.objs[j], se = prescribe(t, profFor(S.profile, o));
   return { pr, key, j, n, t, o, se, done: S.historique.filter(h => h.pk === key && h.pj != null).length };
 }
 /* ================= Mode simple et mots expliqués ================= */
@@ -3110,6 +3242,7 @@ const PLAN_DAYS = 28; /* l’agenda est rempli un mois à l’avance */
 function progSessions() {
   const p = S.profile, pr = programme(p), days = planDays(p);
   return pr.ids.map((id, j) => {
+    id = weekVariant(id, todayISO());
     const t = TPL_BY_ID[id], o = pr.objs[j], se = applySuggestions(prescribe(t, profFor(p, o)));
     return { j, id, t, o, se, day: days[j], d: estDuree(se) };
   });
@@ -3117,7 +3250,7 @@ function progSessions() {
 /* Séances du programme prévues dans l’agenda (non faites), à partir d’une date */
 const isProgEv = e => !!(e && e.ref && e.ref.k === "t" && e.ref.j != null);
 const progEvents = from => S.agenda.filter(e => !e.fait && e.date >= from && isProgEv(e));
-function progEvent(pr, j, date, heure, multi) { return { id: rid(), date, heure: heure || "", titre: TPL_BY_ID[pr.ids[j]].n, note: multi ? OBJECTIFS[pr.objs[j]].n : "", fait: false, ref: { k: "t", id: pr.ids[j], o: pr.objs[j], j } }; }
+function progEvent(pr, j, date, heure, multi) { const id = weekVariant(pr.ids[j], date); return { id: rid(), date, heure: heure || "", titre: TPL_BY_ID[id].n, note: multi ? OBJECTIFS[pr.objs[j]].n : "", fait: false, ref: { k: "t", id, o: pr.objs[j], j } }; }
 /* Mois glissant : complète l’agenda avec les séances du programme jusqu’à 4 semaines devant */
 function autoPlan() {
   const p = S.profile; if (!p.autoPlan) return 0;
@@ -3156,6 +3289,7 @@ function progTags(p) {
   const t = objNames(p).map((n, i) => `<span class="tag ${i ? "" : "tag-p"}">${esc(n)}</span>`);
   if (p.poids) t.push(`<span class="tag">${fmtNum(p.poids)} kg</span>`);
   if (p.taille) t.push(`<span class="tag">${p.taille} cm</span>`);
+  zoneList(p).forEach(z => t.push(`<span class="tag tag-p">Priorité ${esc(ZONES[z][0].toLowerCase())}</span>`));
   t.push(`<span class="tag">${NIVEAUX[NIV_KEYS[p.niveau] || 1]}</span>`, `<span class="tag">${plural(planDays(p).length, "séance")} / semaine</span>`);
   return `<div class="tags">${t.join("")}</div>`;
 }
@@ -3178,6 +3312,10 @@ function progWhy(p, ss) {
     const ex = []; ss.forEach(x => x.se.items.forEach(it => { if (it.charge > 0 && LOAD[it.id] && ex.length < 3 && !ex.some(e => e[0] === it.id)) ex.push([it.id, it.charge]); }));
     b.push(`Poids calculés pour tes ${fmtNum(p.poids)} kg${p.taille ? " et ton " + p.taille + " cm" : ""}${hist ? ", puis ajustés d’après tes dernières séances" : ""}${ex.length ? " (par exemple " + ex.map(([id, kg]) => EX_BY_ID[id].n.replace(/ \(.*\)$/, "").toLowerCase() + " " + kgTxt(id, kg)).join(", ") + ")" : ""}. Tu peux toujours les changer.`);
   }
+  if (objList(p)[0] === "force") b.push("Objectif force : chaque séance est construite autour d’un grand mouvement (squat, développé couché, soulevé de terre, développé militaire) en séries lourdes et courtes, puis des exercices qui le renforcent.");
+  b.push("Semaines A et B : une semaine sur deux, tes séances passent à leur variante (mêmes muscles, autres exercices). Les grands mouvements restent pour suivre tes progrès.");
+  if (zoneList(p).length) b.push("Zone prioritaire (" + zoneList(p).map(z => ZONES[z][0].toLowerCase()).join(", ") + ") : un exercice en plus pour cette zone dans tes séances de musculation.");
+  if ((NIV_KEYS[p.niveau] || 1) === 1) b.push("Débutant : les mouvements à la barre se font d’abord aux haltères pour apprendre le geste ; la barre arrive au palier 3.");
   if (ss.length > 1) b.push("Jamais deux fois la même séance dans la semaine : quand un groupe de muscles revient, c’est avec une variante et d’autres exercices.");
   if ((NIV_KEYS[p.niveau] || 1) === 1) b.push("Débutant : 5 exercices au plus par séance, une série de moins, et les mouvements difficiles remplacés par des versions plus simples.");
   return b;
@@ -3193,7 +3331,7 @@ function viewProgramme() {
   if (!p.sexe || !p.age || !p.taille || !p.poids) h += `<section><div class="note">${icon("sparkle")}<span>Complète ton profil (sexe, âge, taille, poids) pour un programme vraiment calé sur toi. <button class="link-in" data-a="tab" data-t="profil">Mon profil</button></span></div></section>`;
   h += progressCard() + bodyCard();
   h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="h3">Fait pour toi</div>${progTags(p)}<p class="small">${esc(progSummary(p))}</p><details class="fold-in"><summary>En savoir plus</summary><ul class="bullets">${progWhy(p, ss).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details><button class="btn" data-a="tab" data-t="profil">${icon("edit")}Changer d’objectif ou de poids</button></div></section>`;
-  h += `<section><div class="sec-h"><h2>Ma semaine</h2><span class="small muted">${plural(ss.length, "séance")}</span></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
+  h += `<section><div class="sec-h"><h2>Ma semaine</h2><span class="small muted">Semaine ${weekB(todayISO()) ? "B" : "A"} · ${plural(ss.length, "séance")}</span></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
     <p class="small muted">Touche un jour pour t’y entraîner ou te reposer. Le programme s’adapte au nombre de jours.${ss.length >= 2 ? "" : " Conseil : 2 ou 3 jours par semaine, c’est idéal pour progresser."}</p>${weekStrip(p)}
     <div class="prog">${w.map((j, d) => { if (j < 0) return `<div class="prog-day" style="opacity:.55"><span class="num">${dayShort(d)}</span><div class="row-main"><div class="row-title">Repos</div></div></div>`; const x = ss[j]; return `<button class="prog-day" data-a="tpl-open" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}"><span class="num">${dayShort(d)}</span><div class="row-main"><div class="row-title">${esc(x.t.n)}${x.j === nx.j ? ` <span class="tag tag-p" style="vertical-align:1px">Prochaine</span>` : ""}</div><div class="row-sub">${esc(OBJECTIFS[x.o].n)} · ≈ ${fmtDur(x.d)}</div></div>${icon("chev", "ic chev")}</button>`; }).join("")}</div>
   </div></section>`;
@@ -3316,7 +3454,7 @@ function requeue() {
   const start = last ? (last.pj + 1) % n : 0;
   let ch = missed > 0;
   S.agenda.filter(e => isProgEv(e) && !e.fait && e.date >= t).sort((a, b) => a.date === b.date ? byTime(a, b) : a.date.localeCompare(b.date)).forEach((e, k) => {
-    const j = (start + k) % n, id = pr.ids[j];
+    const j = (start + k) % n, id = weekVariant(pr.ids[j], e.date);
     if (e.ref.j !== j || e.ref.id !== id || e.ref.o !== pr.objs[j]) { Object.assign(e, { titre: TPL_BY_ID[id].n, note: multi ? OBJECTIFS[pr.objs[j]].n : "", ref: { k: "t", id, o: pr.objs[j], j } }); ch = true; }
   });
   if (ch) commit("a");
@@ -3434,7 +3572,7 @@ const onbNeeded = () => !S.profile.onb && !(S.profile.sexe && S.profile.poids &&
 function openOnb() {
   const p = S.profile;
   ONB.i = 0; ONB.err = "";
-  ONB.d = { prenom: p.prenom || "", objectif: objList(p)[0], sexe: p.sexe || "", age: p.age || "", taille: p.taille || "", poids: p.poids || "", niveau: p.niveau || "debutant", days: planDays(p), heure: p.planHeure || "18:30", plan: true };
+  ONB.d = { prenom: p.prenom || "", objectif: objList(p)[0], sexe: p.sexe || "", age: p.age || "", taille: p.taille || "", poids: p.poids || "", niveau: p.niveau || "debutant", zones: zoneList(p), days: planDays(p), heure: p.planHeure || "18:30", plan: true };
   $("#onb").hidden = false; renderOnb(); lockPage();
 }
 function closeOnb() { $("#onb").hidden = true; $("#onb").innerHTML = ""; lockPage(); }
@@ -3446,7 +3584,7 @@ function onbRead() {
 }
 function onbProfile() {
   const d = ONB.d;
-  return Object.assign({}, S.profile, { poidsCible: d.cible > 0 ? d.cible : (S.profile.poidsCible || null), prenom: d.prenom, sexe: d.sexe, age: d.age || null, taille: d.taille || null, poids: d.poids || null, niveau: d.niveau, objectif: d.objectif, objectifs: [d.objectif].concat((S.profile.objectifs || []).filter(k => k !== d.objectif && S.profile.onb)), planJours: d.days.slice(), jours: d.days.length });
+  return Object.assign({}, S.profile, { zones: d.zones.slice(), poidsCible: d.cible > 0 ? d.cible : (S.profile.poidsCible || null), prenom: d.prenom, sexe: d.sexe, age: d.age || null, taille: d.taille || null, poids: d.poids || null, niveau: d.niveau, objectif: d.objectif, objectifs: [d.objectif].concat((S.profile.objectifs || []).filter(k => k !== d.objectif && S.profile.onb)), planJours: d.days.slice(), jours: d.days.length });
 }
 function renderOnb() {
   const d = ONB.d, i = ONB.i;
@@ -3458,7 +3596,8 @@ function renderOnb() {
     next = "Commencer";
   } else if (i === 1) {
     title = "Ton objectif";
-    body = `<p class="onb-lead">Qu’est-ce qui te motive le plus ?</p><div class="opts">${Object.keys(ONB_OBJ).map(k => opt("onb-obj", k, d.objectif === k, ONB_OBJ[k][0], esc(OBJECTIFS[k].n), ONB_OBJ[k][1])).join("")}</div><p class="small muted">Tu pourras en ajouter d’autres plus tard, dans ton profil.</p>`;
+    body = `<p class="onb-lead">Qu’est-ce qui te motive le plus ?</p><div class="opts">${Object.keys(ONB_OBJ).map(k => opt("onb-obj", k, d.objectif === k, ONB_OBJ[k][0], esc(OBJECTIFS[k].n), ONB_OBJ[k][1])).join("")}</div><p class="small muted">Tu pourras en ajouter d’autres plus tard, dans ton profil.</p>
+      <div class="field"><div class="lbl">Une zone à travailler en priorité ? (facultatif)</div><div class="chips chips-wrap" role="group" aria-label="Zones prioritaires">${Object.keys(ZONES).map(z => `<button class="chip" data-a="onb-zone" data-v="${z}" aria-pressed="${d.zones.indexOf(z) >= 0}">${esc(ZONES[z][0])}</button>`).join("")}</div></div>`;
   } else if (i === 2) {
     title = "Toi";
     body = `<p class="onb-lead">Ça sert à calculer les poids à soulever et la durée des pauses.</p><div class="field"><div class="lbl">Je suis</div><div class="seg" role="group"><button data-a="onb-sexe" data-v="H" aria-pressed="${d.sexe === "H"}">Un homme</button><button data-a="onb-sexe" data-v="F" aria-pressed="${d.sexe === "F"}">Une femme</button></div></div>
@@ -4452,6 +4591,7 @@ function viewProfil() {
     <div class="field"><div class="lbl">Niveau</div>${seg("niveau", [["debutant", "Débutant"], ["intermediaire", "Intermédiaire"], ["avance", "Avancé"]])}<span class="small muted">Débutant : moins de 6 mois de pratique régulière.</span></div>
     <div class="card"><button class="switch" role="switch" data-a="pf-simple" aria-checked="${simple()}"><span><b>Mode simple</b><br><span class="small muted">Explications pas à pas pendant la séance, moins de chiffres, options avancées cachées. Activé d’office pour les débutants.</span></span><span class="sw"></span></button></div>
     <div class="field"><div class="lbl">Objectifs</div><span class="small muted">Choisis-en un ou plusieurs. Le principal compte le plus de séances dans ton programme.</span><div class="list radio-list" role="group" aria-label="Objectifs">${Object.entries(OBJECTIFS).map(([k, o]) => { const i = p.objectifs.indexOf(k); return `<div class="radio obj-row"><button class="obj-t" role="checkbox" data-a="pf-obj" data-v="${k}" aria-checked="${i >= 0}"><span class="box">${icon("check")}</span><span>${esc(o.n)}</span></button>${i === 0 && p.objectifs.length > 1 ? `<span class="tag tag-p">Principal</span>` : i > 0 ? `<button class="link small" data-a="pf-obj-main" data-v="${k}">Mettre en principal</button>` : ""}</div>`; }).join("")}</div></div>
+    <div class="field"><div class="lbl">Zone à travailler en priorité</div><span class="small muted">Facultatif, 2 au plus : un exercice en plus pour cette zone dans tes séances de musculation.</span><div class="chips chips-wrap" role="group" aria-label="Zones prioritaires">${Object.keys(ZONES).map(z => `<button class="chip" data-a="pf-zone" data-v="${z}" aria-pressed="${zoneList(p).indexOf(z) >= 0}">${esc(ZONES[z][0])}</button>`).join("")}</div></div>
     <div class="field"><div class="lbl">Séances par semaine</div>${seg("jours", [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"], [6, "6"]])}<span class="small muted">Jours d’entraînement : ${planDays(p).map(d => JOURS_L[d].toLowerCase()).join(", ")}. <button style="color:var(--accent);font-weight:600" data-a="seg" data-v="prog">Choisir mes jours</button></span></div>
     <div class="card"><button class="switch" role="switch" data-a="pf-toggle" data-f="sansSaut" aria-checked="${!!p.sansSaut}"><span><b>Éviter les sauts</b><br><span class="small muted">Genoux ou dos sensibles : burpees, squats sautés et corde remplacés.</span></span><span class="sw"></span></button></div>
     ${simple() ? "" : `<div class="field"><div class="lbl">Poids de ta barre olympique</div>${seg("barre", [[20, "20 kg"], [15, "15 kg"], [10, "10 kg"]])}<span class="small muted">Sert au calcul des disques à charger de chaque côté.</span></div>`}
@@ -5062,6 +5202,17 @@ const A = {
     }
     if (ONB.i >= ONB_N - 1) { onbFinish(); return; }
     ONB.i++; renderOnb();
+  },
+  "pf-zone": el => {
+    const z = el.dataset.v, a = zoneList(S.profile), i = a.indexOf(z);
+    if (i >= 0) a.splice(i, 1); else { if (a.length >= 2) { toast("2 zones au plus : retire-en une d’abord"); return; } a.push(z); }
+    S.profile.zones = a; commit("p"); render();
+    toast(a.length ? "Zone prioritaire : " + a.map(x => ZONES[x][0].toLowerCase()).join(" et ") : "Plus de zone prioritaire");
+  },
+  "onb-zone": el => {
+    onbRead(); const z = el.dataset.v, a = ONB.d.zones, i = a.indexOf(z);
+    if (i >= 0) a.splice(i, 1); else { if (a.length >= 2) { toast("2 zones au plus"); return; } a.push(z); }
+    renderOnb();
   },
   "pf-simple": () => { S.profile.simple = !simple(); commit("p"); render(); },
   /* agenda */
