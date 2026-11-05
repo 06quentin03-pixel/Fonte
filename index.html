@@ -2415,22 +2415,24 @@ function ik(R, T, l1, l2, b) {
     s = b === "x+" ? (m1[0] >= m2[0] ? 1 : -1) : b === "x-" ? (m1[0] <= m2[0] ? 1 : -1) : b === "y+" ? (m1[1] >= m2[1] ? 1 : -1) : (m1[1] <= m2[1] ? 1 : -1);
   }
   const M = add(R, base + s * A, l1);
-  return [M, add(M, angOf(M, add(R, base, d)), l2)];
+  return [M, add(M, angOf(M, add(R, base, d)), l2), s, A];
 }
 function chain(J, root, s, l1, l2, db) {
   if (Array.isArray(s)) { const M = add(root, s[0], l1 * (s[3] == null ? 1 : s[3])); return [M, add(M, s[1], l2 * (s[4] == null ? 1 : s[4])), s[1], s[2]]; }
   const T = s.k ? s.k : s.j ? plus(J[s.j], s.o || [0, 0]) : plus(root, s.r || [0, 0]);
-  const [M, E] = ik(root, T, l1 * (s.s1 || 1), l2 * (s.s2 || 1), s.b == null ? db : s.b);
-  return [M, E, angOf(M, E), s.w != null ? s.w : s.f];
+  const [M, E, sg, A] = ik(root, T, l1 * (s.s1 || 1), l2 * (s.s2 || 1), s.b == null ? db : s.b);
+  return [M, E, angOf(M, E), s.w != null ? s.w : s.f, sg, A];
 }
 function arm(J, sd, root, s, db, sc) {
   if (!s) return;
   const c = chain(J, root, s, F.ua, F.fa, db), w = c[3] != null ? c[3] : c[2];
+  if (c[4] != null) (J.sg || (J.sg = {}))["a" + sd] = [c[4], c[5]];
   J["r" + sd] = root; J["e" + sd] = c[0]; J["w" + sd] = c[1]; J["h" + sd] = add(c[1], w, F.hd * (sc || 1)); J["g" + sd] = add(c[1], w, 4 * (sc || 1));
 }
 function leg(J, sd, root, s, db, fdef, fl) {
   if (!s) return;
   const c = chain(J, root, s, F.th, F.sh, db), f = c[3] != null ? c[3] : fdef(c[2]);
+  if (c[4] != null) (J.sg || (J.sg = {}))["l" + sd] = [c[4], c[5]];
   J["p" + sd] = root; J["k" + sd] = c[0]; J["a" + sd] = c[1]; J["t" + sd] = add(c[1], f, (fl || F.ft) - 4); J["q" + sd] = add(c[1], f, -4);
 }
 function normPose(P, v) {
@@ -2620,7 +2622,75 @@ function drawFrame(A, P) {
 }
 
 /* ---------- Animation ---------- */
-const ease = u => u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+/* Transitions entre deux poses : départ et arrivée en douceur (sinus) ; quand un mouvement s'enchaîne sans pause
+   vers une autre pose, il garde son élan au lieu de s'arrêter à chaque étape. */
+const easeIO = u => .5 - .5 * Math.cos(Math.PI * u), easeI = u => 1 - Math.cos(Math.PI * u / 2), easeO = u => Math.sin(Math.PI * u / 2);
+/* Interpolation d'une pose à l'autre sans membres qui sautent ni qui tournent dans le mauvais sens :
+   - les angles prennent toujours le chemin le plus court (10° → 340° = 30° de rotation, pas 330°) ;
+   - un membre guidé vers une cible (main sur la barre, pied au sol) garde sa cible et le même sens de pliure du coude
+     ou du genou tout au long du geste ;
+   - sinon (cibles de nature différente, pliure qui changerait de côté), le membre passe d'une pose à l'autre
+     articulation par articulation. */
+const lerpA = (a, b, u) => a + na(b - a) * u;
+const ANGF = ["t", "t2", "n", "fr", "rot"];
+const LIMBS = { side: [["a", "aR", 0], ["a2", "aL", 0], ["l", "lR", 1], ["l2", "lL", 1]], front: [["a", "aR", 0], ["aL", "aL", 0], ["l", "lR", 1], ["lL", "lL", 1]], top: [["a", "aR", 0], ["aL", "aL", 0]] };
+function limbAng(J, key, isLeg) {
+  const sd = key[1], n = isLeg ? ["p", "k", "a", "t"] : ["r", "e", "w", "h"], R = J[n[0] + sd], M = J[n[1] + sd], E = J[n[2] + sd], X = J[n[3] + sd];
+  if (!R || !M || !E || !X) return null;
+  return [angOf(R, M), angOf(M, E), angOf(E, X), dist(R, M) / (isLeg ? F.th : F.ua), dist(M, E) / (isLeg ? F.sh : F.fa)];
+}
+const sameTarget = (a, b) => a && b && typeof a === "object" && typeof b === "object" && !Array.isArray(a) && !Array.isArray(b)
+  && !a.k === !b.k && a.j === b.j && (a.w == null) === (b.w == null) && (a.f == null) === (b.f == null);
+function mixIK(Pa, Pb, k, sg, u) { const a = Pa[k], b = Pb[k], o = lerp(a, b, u); o.b = sg; if (a.w != null) o.w = lerpA(a.w, b.w, u); if (a.f != null) o.f = lerpA(a.f, b.f, u); return o; }
+/* une cible qui passe tout près de l'épaule ou de la hanche ferait tourner le membre d'un coup : on le vérifie sur le trajet */
+function smoothIK(Pa, Pb, k, key, isLeg, sg, v) {
+  let prev = null;
+  for (let i = 0; i <= 16; i++) {
+    const u = i / 16, P = lerp(Pa, Pb, u); P[k] = mixIK(Pa, Pb, k, sg, u);
+    const q = limbAng(solve(P, v), key, isLeg);
+    if (!q) return false;
+    if (prev && (Math.abs(na(q[0] - prev[0])) > 30 || Math.abs(na(q[1] - prev[1])) > 30)) return false;
+    prev = q;
+  }
+  return true;
+}
+function prepMix(Pa, Pb, v) {
+  const Ja = solve(Pa, v), Jb = solve(Pb, v), plan = [];
+  (LIMBS[v] || []).forEach(([k, key, isLeg]) => {
+    const a = Pa[k], b = Pb[k];
+    if (a == null || b == null) return;
+    if (v === "front" && isLeg && (Pa.nl || Pb.nl)) return;
+    if (sameTarget(a, b)) {
+      const sa = Ja.sg && Ja.sg[key], sb = Jb.sg && Jb.sg[key];
+      if (sa && sb) {
+        // membre presque tendu à une extrémité : son sens de pliure ne compte pas
+        const sg = sa[0] === sb[0] || sb[1] < 8 ? sa[0] : sa[1] < 8 ? sb[0] : 0;
+        if (sg && smoothIK(Pa, Pb, k, key, isLeg, sg, v)) { plan.push([k, "ik", sg]); return; }
+      }
+    }
+    const qa = limbAng(Ja, key, isLeg), qb = limbAng(Jb, key, isLeg);
+    if (!qa || !qb) return;
+    // main ou pied qui reste en place (posé au sol, sur la barre) : on le garde au même endroit
+    const n = isLeg ? ["k", "a"] : ["e", "w"], sd = key[1], Ea = Ja[n[1] + sd], Eb = Jb[n[1] + sd];
+    if (dist(Ea, Eb) < 1) {
+      const at = (sg, J0, u) => { const P = lerp(Pa, Pb, u); P[k] = { k: mixP(Ea, Eb, u), b: sg, s1: qa[3] + (qb[3] - qa[3]) * u, s2: qa[4] + (qb[4] - qa[4]) * u }; P[k][isLeg ? "f" : "w"] = lerpA(qa[2], qb[2], u); return P; };
+      const fits = sg => [[Ja, 0], [Jb, 1]].every(([J0, u]) => dist(solve(at(sg, J0, u), v)[n[0] + sd], J0[n[0] + sd]) < 1.5);
+      const sg = fits(1) ? 1 : fits(-1) ? -1 : 0;
+      if (sg) { plan.push([k, "fix", sg, at]); return; }
+    }
+    plan.push([k, "ang", qa, qb]);
+  });
+  return u => {
+    const P = lerp(Pa, Pb, u);
+    ANGF.forEach(f => { if (typeof Pa[f] === "number" && typeof Pb[f] === "number") P[f] = lerpA(Pa[f], Pb[f], u); });
+    plan.forEach(([k, m, x, y]) => {
+      if (m === "ik") P[k] = mixIK(Pa, Pb, k, x, u);
+      else if (m === "fix") P[k] = y(x, null, u)[k];
+      else P[k] = [lerpA(x[0], y[0], u), lerpA(x[1], y[1], u), lerpA(x[2], y[2], u), x[3] + (y[3] - x[3]) * u, x[4] + (y[4] - x[4]) * u];
+    });
+    return P;
+  };
+}
 const DEFS = {};
 const CAP = { side: "Vue de profil", front: "Vue de face", top: "Vue de dessus", end: "Vue depuis les pieds" };
 function build(id, ex) {
@@ -2631,6 +2701,13 @@ function build(id, ex) {
   const vv = v === "end" ? "top" : v;
   const steps = []; let t = 0;
   (spec.s || [[0, 0, 600], [1, 1500, 300], [0, 1200, 500]]).forEach(([p, d, w, lab, lin], i) => { steps.push({ p, from: i ? steps[i - 1].p : p, t0: t, d: d || 0, w: w || 0, lab: lab || "", lin: !!lin }); t += (d || 0) + (w || 0); });
+  // élan : une étape enchaînée sans pause vers une pose différente de celle d'où l'on vient ne s'arrête pas entre les deux
+  const flows = (s, n) => s && n && s.d > 0 && n.d > 0 && !s.w && n.p !== s.from;
+  steps.forEach((s, i) => {
+    if (s.d > 0 && s.from !== s.p) s.mix = prepMix(K[s.from], K[s.p], vv);
+    const a = flows(steps[i - 1], s), b = flows(s, steps[i + 1]);
+    s.ease = s.lin || (a && b) ? (u => u) : a ? easeO : b ? easeI : easeIO;
+  });
   const mus = []; (ex ? ex.s : []).forEach(m => mus.push([m, "hl2"])); (ex ? ex.p : []).forEach(m => mus.push([m, "hl"]));
   const A = { v: vv, K, steps, total: t, mus, bk: !!spec.bk, legsBack: !!spec.lb, headBack: !!spec.hbk, props: (J, P) => { const out = []; (spec.p || []).forEach(x => { const r = typeof x === "function" ? x(J, P) : x; if (Array.isArray(r)) r.forEach(y => y && out.push(y)); else if (r) out.push(r); }); return out; }, floor: spec.floor !== false && v !== "top", cap: spec.cap || CAP[v] || "" };
   // cadrage : boîte englobante de toutes les poses ; le matériel (montants, poulies, bancs) peut déborder du cadre
@@ -2638,7 +2715,7 @@ function build(id, ex) {
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, q0 = 1e9, q1 = -1e9, r0 = 1e9, r1_ = -1e9;
   const eat = p => { if (!p || !isFinite(p[0])) return; x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); };
   const eatP = p => { if (!p || !isFinite(p[0])) return; q0 = Math.min(q0, p[0]); q1 = Math.max(q1, p[0]); r0 = Math.min(r0, p[1]); r1_ = Math.max(r1_, p[1]); };
-  const samples = K.slice(); for (let i = 1; i < steps.length; i++) samples.push(lerp(K[steps[i].from], K[steps[i].p], .5));
+  const samples = K.slice(); steps.forEach(s => { if (s.mix) [.25, .5, .75].forEach(u => samples.push(s.mix(u))); });
   samples.forEach(P => {
     const J = solve(P, vv);
     if (spec.focus) { spec.focus.forEach(k => eat(J[k])); return; }
@@ -2664,7 +2741,7 @@ function poseAt(A, t) {
   t = Math.max(0, t || 0);
   for (let i = 0; i < st.length; i++) {
     const s = st[i];
-    if (s.d > 0 && t < s.t0 + s.d) { const u = (t - s.t0) / s.d; return { P: lerp(A.K[s.from], A.K[s.p], s.lin ? u : ease(u)), i }; }
+    if (s.d > 0 && t < s.t0 + s.d) { const u = s.ease((t - s.t0) / s.d); return { P: s.mix ? s.mix(u) : A.K[s.p], i }; }
     if (t < s.t0 + s.d + s.w) return { P: A.K[s.p], i };
   }
   return { P: A.K[st[st.length - 1].p], i: st.length - 1 };
@@ -2826,7 +2903,7 @@ const benchRow = (a1, a2) => [{ h: [-20, -88], t: 100, n: 108, a: a1, a2: IK([30
 def("rowing-haltere", { k: benchRow([0, 0, 0], IJ("hip", [8, -6], "y-")), s: rep(1000, 1300, "Tire l’haltère vers la hanche", "Redescends lentement"), p: ROWB.concat([db1("gR", 8)]) });
 def("rowing-machine", { k: [SEAT(-56, { t: 168, a: IK([62, -118], "y+"), l: IK([36, -4], "y-", { f: 90 }) }), SEAT(-56, { t: 172, a: IK([16, -116], "y+"), l: IK([36, -4], "y-", { f: 90 }) })], s: rep(1100, 1400, "Tire les coudes vers l’arrière", "Reviens lentement"),
   p: [pad([-12, -46], [30, -46], 8), post([8, -42], [8, 0]), pad([24, -94], [27, -124], 9), post([30, -96], [40, 0]), post([86, 0], [86, -150]), J => L([86, -120], J.gR, 4, "fr"), hnd()] });
-def("rowing-inverse", () => { const A = [110, -8], t1 = tFor(A, -42, true), t2 = tFor(A, -80, true), B = [rootOf(A, t1)[0] + 4, -92]; return { k: [PL(A, t1, { a: IK(B, "y+", { w: 180 }), l: IK(A, "y-") }), PL(A, t2, { a: IK(B, "y+", { w: 180 }), l: IK(A, "y-") })], s: rep(1100, 1400, "Tire la poitrine vers la barre", "Redescends lentement"), p: [C(plus(B, [0, -4]), 4, "eq", 2), post(plus(B, [-12, -4]), [B[0] - 12, 0])] }; });
+def("rowing-inverse", () => { const A = [110, -8], t1 = tFor(A, -42, true), t2 = tFor(A, -80, true), B = [rootOf(A, t1)[0] + 4, -92]; return { k: [PL(A, t1, { a: IK(B, 1, { w: 180 }), l: IK(A, "y-") }), PL(A, t2, { a: IK(B, 1, { w: 180 }), l: IK(A, "y-") })], s: rep(1100, 1400, "Tire la poitrine vers la barre", "Redescends lentement"), p: [C(plus(B, [0, -4]), 4, "eq", 2), post(plus(B, [-12, -4]), [B[0] - 12, 0])] }; });
 def("souleve-terre", { k: [{ h: [-26, -58], t: 118, n: 126, a: [0, 0, 0], l: FT }, ST({ a: [0, 0, 0] })], s: rep(1400, 1500, "Pousse dans le sol, dos plat", "Redescends, fesses en arrière", [600, 400, 500]), p: [plate("gR", 21)] });
 def("sdt-kettlebell", { k: [{ h: [-24, -50], t: 125, n: 132, a: [0, 0, 0], l: FT }, ST({ a: [0, 0, 0] })], s: rep(1200, 1400, "Relève-toi en serrant les fessiers", "Redescends en contrôlant"), p: [kb()] });
 const HE = [0, -72];
