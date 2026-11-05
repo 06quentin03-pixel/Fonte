@@ -3365,6 +3365,23 @@ function weekStrip(p) {
   const w = weekPlan(p), today = (fromISO(todayISO()).getDay() + 6) % 7;
   return `<div class="week">${w.map((j, d) => `<button class="wday pday ${j >= 0 ? "on" : ""} ${d === today ? "today" : ""}" data-a="plan-day" data-d="${d}" aria-pressed="${j >= 0}" aria-label="${JOURS_L[d]} : ${j >= 0 ? "entraînement" : "repos"}"><small>${"LMMJVSD"[d]}</small><b>${j >= 0 ? icon("dumbbell") : "–"}</b></button>`).join("")}</div>`;
 }
+/* Les 7 prochains jours à partir d’aujourd’hui : les séances du programme dans l’ordre (à partir de la prochaine) sur les jours
+   d’entraînement, comme dans l’agenda. Aujourd’hui ne compte pas si une séance y est déjà faite. */
+function upcomingWeek(p, nx) {
+  const w = weekPlan(p), t = todayISO(), pr = nx.pr, n = pr.ids.length, rows = [];
+  const doneToday = S.historique.find(h => h.date === t);
+  let c = 0;
+  for (let k = 0; k < 7; k++) {
+    const date = addDays(t, k), d = (fromISO(date).getDay() + 6) % 7, r = { k, d, date };
+    if (k === 0 && doneToday) r.done = doneToday.nom;
+    else if (w[d] >= 0 && n) {
+      const j = (nx.j + c) % n, id = weekVariant(pr.ids[j], date), o = pr.objs[j], se = applySuggestions(prescribe(TPL_BY_ID[id], profFor(p, o)));
+      r.x = { j, id, t: TPL_BY_ID[id], o, d: estDuree(se) }; r.first = c === 0; c++;
+    }
+    rows.push(r);
+  }
+  return rows;
+}
 /* Séances › Mon programme : pour qui, la semaine (choix des jours), l’agenda, le détail de chaque séance */
 function viewProgramme() {
   const p = S.profile, ss = progSessions(), w = weekPlan(p), nx = nextProg(), sim = simple();
@@ -3374,7 +3391,8 @@ function viewProgramme() {
   h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="h3">Fait pour toi</div>${progTags(p)}<p class="small">${esc(progSummary(p))}</p><details class="fold-in"><summary>En savoir plus</summary><ul class="bullets">${progWhy(p, ss).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details><button class="btn" data-a="tab" data-t="profil">${icon("edit")}Changer d’objectif ou de poids</button></div></section>`;
   h += `<section><div class="sec-h"><h2>Ma semaine</h2><span class="small muted">Semaine ${weekB(todayISO()) ? "B" : "A"} · ${plural(ss.length, "séance")}</span></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
     <p class="small muted">Touche un jour pour t’y entraîner ou te reposer. Le programme s’adapte au nombre de jours.${ss.length >= 2 ? "" : " Conseil : 2 ou 3 jours par semaine, c’est idéal pour progresser."}</p>${weekStrip(p)}
-    <div class="prog">${w.map((j, d) => { if (j < 0) return `<div class="prog-day" style="opacity:.55"><span class="num">${dayShort(d)}</span><div class="row-main"><div class="row-title">Repos</div></div></div>`; const x = ss[j]; return `<button class="prog-day" data-a="tpl-open" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}"><span class="num">${dayShort(d)}</span><div class="row-main"><div class="row-title">${esc(x.t.n)}${x.j === nx.j ? ` <span class="tag tag-p" style="vertical-align:1px">Prochaine</span>` : ""}</div><div class="row-sub">${esc(OBJECTIFS[x.o].n)} · ≈ ${fmtDur(x.d)}</div></div>${icon("chev", "ic chev")}</button>`; }).join("")}</div>
+    <p class="small muted">Tes 7 prochains jours. Les séances se font dans l’ordre : une séance manquée passe au jour d’entraînement suivant.</p>
+    <div class="prog">${upcomingWeek(p, nx).map(r => { const lab = r.k === 0 ? "auj." : dayShort(r.d), rest = `<div class="prog-day" style="opacity:.55"><span class="num">${lab}</span><div class="row-main"><div class="row-title">${r.done ? "Séance faite" : "Repos"}</div>${r.done ? `<div class="row-sub">${esc(r.done)}</div>` : ""}</div></div>`; if (!r.x) return rest; const x = r.x, wk = weekB(r.date) !== weekB(todayISO()) ? " · semaine " + (weekB(r.date) ? "B" : "A") : ""; return `<button class="prog-day" data-a="tpl-open" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}"><span class="num">${lab}</span><div class="row-main"><div class="row-title">${esc(x.t.n)}${r.first ? ` <span class="tag tag-p" style="vertical-align:1px">Prochaine</span>` : ""}</div><div class="row-sub">${esc(OBJECTIFS[x.o].n)} · ≈ ${fmtDur(x.d)}${wk}</div></div>${icon("chev", "ic chev")}</button>`; }).join("")}</div>
   </div></section>`;
   const fut = progEvents(todayISO());
   h += `<section><div class="sec-h"><h2>Dans l’agenda</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
