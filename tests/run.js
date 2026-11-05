@@ -234,6 +234,67 @@ test("estDuree : un superset est plus court que les mêmes exercices à la suite
   assert.ok(G.estDuree(a) < G.estDuree(b));
 });
 
+console.log("Réserve, remplacement, semaine");
+test("progress : séries réussies sans aucune réserve → on garde la charge", () => {
+  const sg = G.progress("squat-barre", { sets: [{ r: 8, kg: 60, rir: 0 }, { r: 8, kg: 60, rir: 0 }], target: 8 });
+  assert.strictEqual(sg.why, "limit"); assert.strictEqual(sg.next, 60);
+});
+test("progress : 3 répétitions ou plus en réserve → deux crans", () => {
+  const sg = G.progress("squat-barre", { sets: [{ r: 8, kg: 60, rir: 3 }, { r: 8, kg: 60, rir: 3 }], target: 8 });
+  assert.strictEqual(sg.why, "up2"); assert.strictEqual(sg.next, 65);
+});
+test("progress : une réserve normale ne change rien", () => {
+  const sg = G.progress("squat-barre", { sets: [{ r: 8, kg: 60, rir: 2 }, { r: 8, kg: 60, rir: 1 }], target: 8 });
+  assert.strictEqual(sg.why, "up"); assert.strictEqual(sg.next, 62.5);
+});
+test("altsFor : mêmes muscles principaux, même façon de compter, exclusions respectées", () => {
+  ["presse-cuisses", "dc-barre", "tirage-vertical", "curl-halteres", "planche"].forEach(id => {
+    const e = G.EX_BY_ID[id]; if (!e) return;
+    const alts = G.altsFor(id, { exclude: [] });
+    assert.ok(alts.length >= 1, id + " sans remplaçant");
+    alts.forEach(a => { const x = G.EX_BY_ID[a]; assert.ok(x.p.some(m => e.p.indexOf(m) >= 0), id + " → " + a); assert.strictEqual(x.t, e.t, id + " → " + a); assert.notStrictEqual(a, id); });
+  });
+  const first = G.altsFor("dc-barre")[0];
+  assert.ok(G.altsFor("dc-barre", { exclude: [first] }).indexOf(first) < 0);
+});
+test("altsFor : sans saut quand le profil l'exige", () => {
+  G.EX.filter(e => e.imp).slice(0, 5).forEach(e => G.altsFor(e.id, { low: true }).forEach(a => assert.ok(!G.EX_BY_ID[a].imp, e.id + " → " + a)));
+});
+test("isoMon / isoAdd", () => {
+  assert.strictEqual(G.isoMon("2026-11-05"), "2026-11-02"); assert.strictEqual(G.isoMon("2026-11-02"), "2026-11-02"); assert.strictEqual(G.isoMon("2026-11-08"), "2026-11-02");
+  assert.strictEqual(G.isoAdd("2026-12-31", 1), "2027-01-01");
+});
+test("muscleSets : 1 série par muscle principal, ½ par secondaire, étirements exclus", () => {
+  const e = G.EX_BY_ID["dc-barre"];
+  const s = G.muscleSets([{ date: "2026-11-03", log: [{ id: "dc-barre", sets: [{ r: 8 }, { r: 8 }, { r: 8 }] }, { id: "etirement-pectoraux", cool: 1, sets: [{ d: 30 }] }] }], "2026-11-01", "2026-11-07");
+  e.p.forEach(m => assert.strictEqual(s[m], 3, m));
+  e.s.filter(m => e.p.indexOf(m) < 0).forEach(m => assert.strictEqual(s[m], 1.5, m));
+  assert.strictEqual(Object.keys(G.muscleSets([{ date: "2026-10-01", log: [{ id: "dc-barre", sets: [{ r: 8 }] }] }], "2026-11-01", "2026-11-07")).length, 0, "hors période");
+});
+const W = dates => dates.map((d, i) => ({ id: "w" + i, date: d, ts: i }));
+test("weekCounts et weekStreak", () => {
+  const hist = W(["2026-11-03", "2026-11-04", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-20", "2026-10-21", "2026-10-13"]);
+  const w = G.weekCounts(hist, "2026-11-05", 4);
+  same(w.map(x => x.n), [1, 2, 3, 2]); assert.strictEqual(w[3].mon, "2026-11-02");
+  assert.strictEqual(G.weekStreak(hist, "2026-11-05", 2), 3, "semaine en cours comptée car objectif atteint");
+  assert.strictEqual(G.weekStreak(hist, "2026-11-05", 3), 1, "seule la semaine du 27/10 atteint 3");
+  assert.strictEqual(G.weekStreak([], "2026-11-05", 2), 0);
+});
+test("deloadDue : après N semaines actives d'affilée, remis à zéro par une semaine allégée", () => {
+  const dates = []; for (let k = 1; k <= 7; k++) dates.push(G.isoAdd("2026-11-02", -7 * k + 1));
+  const hist = W(dates);
+  assert.ok(G.deloadDue(hist, "2026-11-05", null, 6).due);
+  assert.strictEqual(G.deloadDue(hist, "2026-11-05", null, 6).weeks, 7);
+  assert.ok(!G.deloadDue(hist, "2026-11-05", "2026-10-12", 6).due, "semaine allégée récente");
+  assert.ok(!G.deloadDue(W(["2026-10-27"]), "2026-11-05", null, 6).due);
+});
+test("deloadSe : moins de séries, charges à 85 % arrondies, assistance augmentée", () => {
+  const se = G.deloadSe({ mode: "series", items: [{ id: "squat-barre", series: 4, reps: 8, charge: 100, echec: 1 }, { id: "curl-halteres", series: 3, reps: 10, charge: 14 }, { id: "tractions-assistees", series: 3, reps: 8, charge: 20 }] });
+  assert.strictEqual(se.items[0].series, 2); assert.strictEqual(se.items[0].charge, 85); assert.strictEqual(se.items[0].echec, 0);
+  assert.strictEqual(se.items[1].series, 2); assert.strictEqual(se.items[1].charge, 10, "haltère du commerce ≤ 11,9 kg");
+  assert.strictEqual(se.items[2].charge, 25);
+});
+
 console.log("Exports");
 test("csvExport : une ligne par série, point-virgule et virgule décimale", () => {
   const csv = G.csvExport([{ id: "a", date: "2026-03-01", ts: 1, nom: "Push; lourd", duree: 3600, volume: 1234.5, ressenti: 3, log: [{ id: "dc-barre", sets: [{ r: 8, kg: 62.5 }, { r: 7, kg: 62.5 }] }] }]);
