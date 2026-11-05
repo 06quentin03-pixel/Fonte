@@ -207,6 +207,12 @@ section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .wday b { font-size: 16px; font-variant-numeric: tabular-nums; }
 .wday.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .wday.done b { color: var(--green); }
+.pday b { font-size: 14px; }
+.pday.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pday.on small, .pday.on b { color: inherit; }
+.pday.on.today { box-shadow: inset 0 0 0 2px var(--accent-ink); }
+.prog-det summary { list-style: none; cursor: pointer; }
+.prog-det summary::-webkit-details-marker { display: none; }
 .dots { display: flex; gap: 3px; height: 6px; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; display: block; }
 .prog { display: flex; flex-direction: column; }
@@ -1628,6 +1634,37 @@ function programme1(p) {
   return { ids, offsets: PROG_OFFSETS[j] };
 }
 
+/* ===== Planning de la semaine =====
+   p.planJours : jours d’entraînement choisis (0 = lundi … 6 = dimanche), autant que de séances par semaine.
+   Sinon, séances espacées par défaut (PROG_OFFSETS à partir du lundi). La séance i du programme tombe sur le i-ème jour choisi. */
+function planDays(p) {
+  p = p || {};
+  const J = Math.min(6, Math.max(1, p.jours || 3));
+  const a = (Array.isArray(p.planJours) ? p.planJours : []).map(Number)
+    .filter((d, i, arr) => Number.isInteger(d) && d >= 0 && d <= 6 && arr.indexOf(d) === i).sort((x, y) => x - y);
+  return a.length === J ? a : PROG_OFFSETS[J].slice();
+}
+/* Semaine type : pour chaque jour du lundi au dimanche, l’indice de la séance du programme, ou -1 (repos) */
+function weekPlan(p) { const w = [-1, -1, -1, -1, -1, -1, -1]; planDays(p).forEach((d, i) => { w[d] = i; }); return w; }
+/* Ajoute ou retire un jour d’entraînement : nouvelle liste, ou null (au moins 1 jour, au plus 6 pour garder un jour de repos) */
+function togglePlanDay(p, day) {
+  const d = planDays(p), i = d.indexOf(day);
+  if (i >= 0) { if (d.length <= 1) return null; d.splice(i, 1); }
+  else { if (d.length >= 6 || day < 0 || day > 6) return null; d.push(day); d.sort((x, y) => x - y); }
+  return d;
+}
+/* Dates des séances du programme sur plusieurs semaines, à partir de la date from (AAAA-MM-JJ, jours déjà passés de la première semaine ignorés) */
+function planDates(p, from, weeks) {
+  const [y, m, dd] = from.split("-").map(Number), f = new Date(y, m - 1, dd), mon = new Date(y, m - 1, dd - (f.getDay() + 6) % 7);
+  const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const out = [], days = planDays(p);
+  for (let k = 0; k < Math.max(1, weeks || 1); k++) days.forEach((day, j) => {
+    const d = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 7 * k + day);
+    if (d >= f) out.push({ date: iso(d), j });
+  });
+  return out;
+}
+
 /* ===== Progression, records, superséries, exports =====
    Fonctions pures (sans DOM ni état de l’appli) : elles sont vérifiées par tests/run.js. */
 
@@ -2720,7 +2757,7 @@ function commit(kinds) {
   if (kinds.indexOf("a") >= 0) { S.agUpd = now; Sync.queue("ag"); if (PWA) Cloud.queue(); }
   saveLocal();
 }
-const UI = { tab: "accueil", exG: "all", exQ: "", exMat: "", seg: "types", tplCat: "all", calMonth: todayISO().slice(0, 7), calSel: todayISO() };
+const UI = { tab: "accueil", exG: "all", exQ: "", exMat: "", seg: "prog", tplCat: "all", calMonth: todayISO().slice(0, 7), calSel: todayISO() };
 try { const u = JSON.parse(localStorage.getItem(LS_UI) || "null"); if (u) { if (u.seg) UI.seg = u.seg; } UI.hideInstall = localStorage.getItem("fonte:noinstall") === "1"; } catch (e) { }
 function saveUI() { try { localStorage.setItem(LS_UI, JSON.stringify({ seg: UI.seg })); } catch (e) { } }
 { const h = (location.hash || "").slice(1); if (TABS.indexOf(h) >= 0) UI.tab = h; }
@@ -2832,6 +2869,81 @@ function nextProg() {
 function nextCard() {
   const x = nextProg(), multi = objList(S.profile).length > 1, [mp, ms] = seanceMuscles(x.se.items), d = estDuree(x.se);
   return `<section><div class="sec-h"><h2>Ta prochaine séance</h2><span class="small muted">Jour ${x.j + 1} sur ${x.n}</span></div><div class="card nx-card"><button class="tpl" style="padding:0;border:0" data-a="tpl-open" data-id="${x.t.id}" data-o="${x.o}" data-j="${x.j}">${figHTML(mp, ms, "sm")}<div class="tpl-main"><div class="tpl-name">${esc(x.t.n)}</div><div class="tpl-desc">${multi ? "Objectif : " + esc(OBJECTIFS[x.o].n) + " · " : ""}${esc(x.t.desc)}</div><div class="meta"><span>${icon("clock")}${fmtDur(d)}</span><span>${x.se.items.length} exos</span><span>${icon("flame")}${estKcal(x.se, S.profile, d)} kcal</span></div></div></button><div class="btn-row"><button class="btn" data-a="prog-skip">${icon("refresh")}Une autre</button><button class="btn btn-primary" data-a="tpl-start" data-id="${x.t.id}" data-o="${x.o}" data-j="${x.j}">${icon("play")}Lancer</button></div></div></section>`;
+}
+
+/* ================= Programme sur mesure et planning de la semaine ================= */
+const JOURS_L = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+/* Séances du programme, chacune réglée sur son objectif, avec les charges conseillées (poids, historique) et son jour de la semaine */
+function progSessions() {
+  const p = S.profile, pr = programme(p), days = planDays(p);
+  return pr.ids.map((id, j) => {
+    const t = TPL_BY_ID[id], o = pr.objs[j], se = applySuggestions(prescribe(t, profFor(p, o)));
+    return { j, id, t, o, se, day: days[j], d: estDuree(se) };
+  });
+}
+/* Séances du programme déjà prévues dans l’agenda, à partir d’une date */
+const progEvents = from => S.agenda.filter(e => !e.fait && e.date >= from && e.ref && e.ref.k === "t" && e.ref.j != null);
+function progTags(p) {
+  const t = objNames(p).map((n, i) => `<span class="tag ${i ? "" : "tag-p"}">${esc(n)}</span>`);
+  if (p.poids) t.push(`<span class="tag">${fmtNum(p.poids)} kg</span>`);
+  if (p.taille) t.push(`<span class="tag">${p.taille} cm</span>`);
+  t.push(`<span class="tag">${NIVEAUX[NIV_KEYS[p.niveau] || 1]}</span>`, `<span class="tag">${plural(planDays(p).length, "séance")} / semaine</span>`);
+  return `<div class="tags">${t.join("")}</div>`;
+}
+/* Ce qui est réglé pour toi, objectif par objectif, puis les charges d’après le poids */
+function progWhy(p, ss) {
+  const b = [], seen = {};
+  ss.forEach(x => {
+    if (seen[x.o]) return; seen[x.o] = 1;
+    const ctx = profileCtx(profFor(p, x.o)), o = ctx.obj, L = ctx.lvl;
+    const sc = Math.max(2, o.C[0] + (L === 1 ? -1 : 0) + (L === 3 ? 1 : 0)), si = Math.max(2, o.I[0] + (L === 1 ? -1 : 0));
+    b.push(`« ${o.n} » : ${sc} × ${o.C[1]} sur les exercices de base (repos ${fmtRest(adjRest(ctx, o.C[2]))}), ${si} × ${o.I[1]} en isolation (repos ${fmtRest(adjRest(ctx, o.I[2]))}), ${Math.round(o.cardio * [0, 0.7, 1, 1.25][L])} min de cardio quand la séance en prévoit.`);
+  });
+  if (p.poids) {
+    const hist = ss.some(x => x.se.items.some(it => suggest(it.id)));
+    const ex = []; ss.forEach(x => x.se.items.forEach(it => { if (it.charge > 0 && LOAD[it.id] && ex.length < 3 && !ex.some(e => e[0] === it.id)) ex.push([it.id, it.charge]); }));
+    b.push(`Charges calculées pour tes ${fmtNum(p.poids)} kg${p.taille ? " et ton " + p.taille + " cm" : ""}${hist ? ", puis ajustées d’après tes dernières séances" : ""}${ex.length ? " (par exemple " + ex.map(([id, kg]) => EX_BY_ID[id].n.replace(/ \(.*\)$/, "").toLowerCase() + " " + kgTxt(id, kg)).join(", ") + ")" : ""}. Tu peux toujours les changer.`);
+  }
+  if (!p.poids) b.push("Ajoute ton poids dans ton profil : chaque exercice aura sa charge de départ.");
+  return b;
+}
+function weekStrip(p, act) {
+  const w = weekPlan(p), today = (fromISO(todayISO()).getDay() + 6) % 7;
+  return `<div class="week">${w.map((j, d) => `<button class="wday pday ${j >= 0 ? "on" : ""} ${d === today ? "today" : ""}" ${act ? `data-a="plan-day" data-d="${d}" aria-pressed="${j >= 0}" aria-label="${JOURS_L[d]} : ${j >= 0 ? "séance " + (j + 1) : "repos"}"` : `data-a="seg" data-v="prog" aria-label="${JOURS_L[d]} : ${j >= 0 ? "séance " + (j + 1) : "repos"}"`}><small>${"LMMJVSD"[d]}</small><b>${j >= 0 ? "J" + (j + 1) : "–"}</b></button>`).join("")}</div>`;
+}
+/* Accueil : le programme sur mesure et sa semaine type */
+function progHomeCard() {
+  const p = S.profile, ss = progSessions(), nx = nextProg();
+  let h = `<section><div class="sec-h"><h2>Ton programme sur mesure</h2><button class="link" data-a="seg" data-v="prog">Voir et planifier</button></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${progTags(p)}${weekStrip(p)}<div class="prog">`;
+  ss.forEach(x => { h += `<button class="prog-day" data-a="tpl-open" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}"><span class="num">${JOURS_C[(x.day + 1) % 7].slice(0, 3)}</span><div class="row-main"><div class="row-title">${esc(x.t.n)}${x.j === nx.j ? ` <span class="tag tag-p" style="vertical-align:1px">Prochaine</span>` : ""}</div><div class="row-sub">${esc(OBJECTIFS[x.o].n)} · ${x.se.items.length} exercices · ≈ ${fmtDur(x.d)}</div></div>${icon("chev", "ic chev")}</button>`; });
+  h += `</div><div class="btn-row"><button class="btn" data-a="seg" data-v="prog">${icon("cal")}Planifier ma semaine</button><button class="btn" data-a="${deloadActive() ? "dl-off" : "dl-on"}">${deloadActive() ? "Annuler l’allègement" : "Alléger cette semaine"}</button></div></div></section>`;
+  return h;
+}
+/* Séances › Programme : pourquoi ce programme, choix des jours, ajout à l’agenda, détail de chaque séance */
+function viewProgramme() {
+  const p = S.profile, ss = progSessions(), today = todayISO(), w = weekPlan(p), nx = nextProg();
+  let h = "";
+  if (!p.sexe || !p.age || !p.taille || !p.poids) h += `<section><div class="note">${icon("sparkle")}<span>Complète ton profil (sexe, âge, taille, poids) pour un programme vraiment calé sur toi. <button style="color:var(--accent);font-weight:600" data-a="tab" data-t="profil">Mon profil</button></span></div></section>`;
+  h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="h3">Fait pour toi</div>${progTags(p)}<ul class="bullets">${progWhy(p, ss).map(x => `<li>${esc(x)}</li>`).join("")}</ul><button class="btn" data-a="tab" data-t="profil">${icon("edit")}Changer d’objectif ou de poids</button></div></section>`;
+  // semaine
+  h += `<section><div class="sec-h"><h2>Ma semaine</h2><span class="small muted">${plural(ss.length, "séance")}</span></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
+    <p class="small muted">Touche un jour pour t’y entraîner ou te reposer. Le programme s’adapte au nombre de jours choisis.</p>${weekStrip(p, true)}
+    <div class="prog">${w.map((j, d) => { if (j < 0) return `<div class="prog-day" style="opacity:.55"><span class="num">${JOURS_C[(d + 1) % 7].slice(0, 3)}</span><div class="row-main"><div class="row-title">Repos</div></div></div>`; const x = ss[j]; return `<button class="prog-day" data-a="tpl-open" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}"><span class="num">${JOURS_C[(d + 1) % 7].slice(0, 3)}</span><div class="row-main"><div class="row-title">${esc(x.t.n)}${x.j === nx.j ? ` <span class="tag tag-p" style="vertical-align:1px">Prochaine</span>` : ""}</div><div class="row-sub">J${j + 1} · ${esc(OBJECTIFS[x.o].n)} · ≈ ${fmtDur(x.d)}</div></div>${icon("chev", "ic chev")}</button>`; }).join("")}</div>
+  </div></section>`;
+  // agenda
+  const planned = progEvents(today);
+  h += `<section><div class="sec-h"><h2>Mettre dans l’agenda</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">
+    <div class="grid3" style="grid-template-columns:1.4fr 1fr"><div class="field"><label for="pl-date">À partir du</label><input class="inp" type="date" id="pl-date" min="${today}" value="${esc(UI.plD && UI.plD >= today ? UI.plD : today)}"></div><div class="field"><label for="pl-heure">Heure</label><input class="inp" type="time" id="pl-heure" value="${esc(p.planHeure || "18:30")}"></div></div>
+    <div class="field"><label for="pl-sem">Pendant</label><select class="inp" id="pl-sem">${[1, 2, 4, 8, 12].map(n => `<option value="${n}" ${(UI.plW || 4) === n ? "selected" : ""}>${plural(n, "semaine")}</option>`).join("")}</select></div>
+    ${planned.length ? `<button class="switch" role="switch" data-a="pl-keep" aria-checked="${!UI.plKeep}"><span><b>Remplacer ce qui est déjà prévu</b><br><span class="small muted">${plural(planned.length, "séance")} du programme déjà dans ton agenda : elles seront remplacées par ce nouveau planning.</span></span><span class="sw"></span></button>` : ""}
+    <button class="btn btn-primary btn-lg" data-a="pp-save">${icon("cal")}Ajouter à mon agenda</button>
+    <p class="small muted">Ensuite, dans l’onglet Agenda, « Exporter » les envoie dans le calendrier du téléphone avec un rappel.</p>
+  </div></section>`;
+  // détail
+  h += `<section><div class="sec-h"><h2>Détail des séances</h2></div>${chargeNote({ items: [].concat.apply([], ss.map(x => x.se.items)) })}`;
+  ss.forEach(x => { const [mp, ms] = seanceMuscles(x.se.items); h += `<details class="card prog-det"${x.j === nx.j ? " open" : ""}><summary class="tpl" style="padding:0;border:0">${figHTML(mp, ms, "sm")}<div class="tpl-main"><div class="tpl-name">${JOURS_L[x.day]} · ${esc(x.t.n)}</div><div class="tpl-desc">J${x.j + 1} · ${esc(OBJECTIFS[x.o].n)}</div><div class="meta"><span>${icon("clock")}${fmtDur(x.d)}</span><span>${x.se.items.length} exos</span><span>${icon("flame")}${estKcal(x.se, p, x.d)} kcal</span></div></div></summary><div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">${(x.se.notes || []).length ? `<div class="note">${icon("sparkle")}<span>${x.se.notes.map(esc).join(" · ")}.</span></div>` : ""}${itemRows(x.se)}<div class="btn-row"><button class="btn" data-a="tpl-open" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}">Voir tout</button><button class="btn btn-primary" data-a="tpl-start" data-id="${x.id}" data-o="${x.o}" data-j="${x.j}">${icon("play")}Lancer</button></div></div></details>`; });
+  h += `</section>`;
+  return h;
 }
 
 /* ================= Semaine allégée ================= */
@@ -3451,7 +3563,7 @@ function renderHeader() {
   let eb = "", ti = "", ac = "";
   if (t === "accueil") { eb = fmtDay(todayISO()); ti = p.prenom ? "Salut " + esc(p.prenom) : "Bonjour"; ac = `<div class="brand"><svg aria-hidden="true"><use href="#logo"/></svg><b>FONTE</b></div>`; }
   if (t === "exercices") { eb = EX.length + " exercices"; ti = "Exercices"; }
-  if (t === "seances") { eb = UI.seg === "types" ? TPL.length + " séances types" : "Tes séances"; ti = "Séances"; ac = `<button class="btn-icon" data-a="my-new" aria-label="Créer une séance">${icon("plus")}</button>`; }
+  if (t === "seances") { eb = UI.seg === "prog" ? "Sur mesure" : UI.seg === "types" ? TPL.length + " séances types" : "Tes séances"; ti = "Séances"; ac = `<button class="btn-icon" data-a="my-new" aria-label="Créer une séance">${icon("plus")}</button>`; }
   if (t === "agenda") { eb = "Planning partagé"; ti = "Agenda"; ac = `<button class="btn-icon" data-a="ev-add" aria-label="Planifier une séance">${icon("plus")}</button>`; }
   if (t === "profil") { eb = "Séances sur mesure"; ti = "Profil"; }
   $("#hdr").innerHTML = `<div class="hdr-row"><div style="min-width:0"><div class="eyebrow">${eb}</div><h1>${ti}</h1></div><div class="hdr-actions">${ac}</div></div>`;
@@ -3479,6 +3591,7 @@ function viewAccueil() {
   }
   h += deloadCard();
   h += nextCard();
+  h += progHomeCard();
   const ppl = people().filter(isVisible);
   const evs = [];
   ppl.forEach(pp => pp.events.filter(e => e.date === today).forEach(e => evs.push({ e, p: pp })));
@@ -3506,11 +3619,6 @@ function viewAccueil() {
   const volTxt = vol >= 1000 ? fmtNum(Math.round(vol / 100) / 10) + `<small style="font-size:17px"> t</small>` : Math.round(vol) + `<small style="font-size:17px"> kg</small>`;
   h += `<section><div class="stats"><div class="stat"><b>${wk}</b><span>${wk > 1 ? "séances" : "séance"} cette semaine</span></div><div class="stat"><b>${mins}</b><span>minutes ce mois-ci</span></div><div class="stat"><b>${volTxt}</b><span>soulevés ce mois-ci</span></div></div></section>`;
   h += musclesCard();
-  // programme
-  const nx = nextProg(), pr = nx.pr, multi = objList(p).length > 1;
-  h += `<section><div class="sec-h"><h2>Ton programme</h2><button class="link" data-a="prog-plan">Planifier</button></div><div class="card"><div class="muted small">${plural(pr.ids.length, "jour")} par semaine · ${esc(objNames(p).join(" + "))} · ${NIVEAUX[NIV_KEYS[p.niveau] || 1]}</div><div class="prog">`;
-  pr.ids.forEach((id, i) => { const t = TPL_BY_ID[id], se = prescribe(t, profFor(p, pr.objs[i])); h += `<button class="prog-day" data-a="tpl-open" data-id="${id}" data-o="${pr.objs[i]}" data-j="${i}"><span class="num">J${i + 1}</span><div class="row-main"><div class="row-title">${esc(t.n)}${i === nx.j ? ` <span class="tag tag-p" style="vertical-align:1px">Prochaine</span>` : ""}</div><div class="row-sub">${multi ? esc(OBJECTIFS[pr.objs[i]].n) + " · " : ""}${se.items.length} exercices · ≈ ${fmtDur(estDuree(se))}</div></div>${icon("chev", "ic chev")}</button>`; });
-  h += `</div><button class="link small" style="margin-top:10px;color:var(--accent);font-weight:600" data-a="${deloadActive() ? "dl-off" : "dl-on"}">${deloadActive() ? "Annuler la semaine allégée" : "Alléger cette semaine"}</button></div></section>`;
   // outils
   h += `<section><div class="sec-h"><h2>Outils</h2></div><div class="tools">
     <button class="tool" data-a="timer-open">${icon("timer")}<b>Minuteur</b><span class="muted small">Repos, gainage, chrono</span></button>
@@ -3627,8 +3735,9 @@ function mesCard(m) {
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px"><button class="tpl" style="padding:0;border:0" data-a="my-open" data-id="${esc(m.id)}">${figHTML(p, s, "sm")}<div class="tpl-main"><div class="tpl-name">${esc(m.nom)}</div><div class="tpl-desc">${esc(m.items.map(it => (EX_BY_ID[it.id] || {}).n).filter(Boolean).join(" · "))}</div><div class="meta"><span>${icon("clock")}${fmtDur(d)}</span><span>${m.items.length} exos${m.mode === "circuit" ? " · " + (m.tours || 3) + " tours" : ""}</span></div></div></button><div class="btn-row"><button class="btn" data-a="my-edit" data-id="${esc(m.id)}">${icon("edit")}Modifier</button><button class="btn" data-a="my-plan" data-id="${esc(m.id)}">${icon("cal")}Planifier</button><button class="btn btn-primary" data-a="my-start" data-id="${esc(m.id)}">${icon("play")}Lancer</button></div></div>`;
 }
 function viewSeances() {
-  let h = `<section><div class="seg" role="group" aria-label="Type de séances"><button data-a="seg" data-v="types" aria-pressed="${UI.seg === "types"}">Séances types</button><button data-a="seg" data-v="mes" aria-pressed="${UI.seg === "mes"}">Mes séances${S.mesSeances.length ? " (" + S.mesSeances.length + ")" : ""}</button></div></section>`;
-  if (UI.seg === "types") {
+  let h = `<section><div class="seg" role="group" aria-label="Type de séances"><button data-a="seg" data-v="prog" aria-pressed="${UI.seg === "prog"}">Programme</button><button data-a="seg" data-v="types" aria-pressed="${UI.seg === "types"}">Séances types</button><button data-a="seg" data-v="mes" aria-pressed="${UI.seg === "mes"}">Mes séances${S.mesSeances.length ? " (" + S.mesSeances.length + ")" : ""}</button></div></section>`;
+  if (UI.seg === "prog") h += viewProgramme();
+  else if (UI.seg === "types") {
     const list = TPL.filter(t => UI.tplCat === "all" || t.cat === UI.tplCat);
     h += `<section>${adaptNote()}<div class="chips" role="group" aria-label="Catégories"><button class="chip" data-a="tpl-cat" data-c="all" aria-pressed="${UI.tplCat === "all"}">Toutes</button>${TPL_CATS.map(([k, l]) => `<button class="chip" data-a="tpl-cat" data-c="${k}" aria-pressed="${UI.tplCat === k}">${l}</button>`).join("")}</div><div class="tpl-grid">${list.map(tplCard).join("")}</div></section>`;
   } else {
@@ -3793,7 +3902,7 @@ function viewProfil() {
     <div class="grid3"><div class="field"><label for="pf-age">Âge</label><input class="inp tnum" id="pf-age" data-pf="age" inputmode="numeric" value="${p.age || ""}" placeholder="ans"></div><div class="field"><label for="pf-taille">Taille</label><input class="inp tnum" id="pf-taille" data-pf="taille" inputmode="numeric" value="${p.taille || ""}" placeholder="cm"></div><div class="field"><label for="pf-poids">Poids</label><input class="inp tnum" id="pf-poids" data-pf="poids" inputmode="decimal" value="${p.poids ? fmtNum(p.poids) : ""}" placeholder="kg"></div></div>
     <div class="field"><div class="lbl">Niveau</div>${seg("niveau", [["debutant", "Débutant"], ["intermediaire", "Intermédiaire"], ["avance", "Avancé"]])}<span class="small muted">Débutant : moins de 6 mois de pratique régulière.</span></div>
     <div class="field"><div class="lbl">Objectifs</div><span class="small muted">Choisis-en un ou plusieurs. Le principal compte le plus de séances dans ton programme.</span><div class="list radio-list" role="group" aria-label="Objectifs">${Object.entries(OBJECTIFS).map(([k, o]) => { const i = p.objectifs.indexOf(k); return `<div class="radio obj-row"><button class="obj-t" role="checkbox" data-a="pf-obj" data-v="${k}" aria-checked="${i >= 0}"><span class="box">${icon("check")}</span><span>${esc(o.n)}</span></button>${i === 0 && p.objectifs.length > 1 ? `<span class="tag tag-p">Principal</span>` : i > 0 ? `<button class="link small" data-a="pf-obj-main" data-v="${k}">Mettre en principal</button>` : ""}</div>`; }).join("")}</div></div>
-    <div class="field"><div class="lbl">Séances par semaine</div>${seg("jours", [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"], [6, "6"]])}</div>
+    <div class="field"><div class="lbl">Séances par semaine</div>${seg("jours", [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"], [6, "6"]])}<span class="small muted">Jours d’entraînement : ${planDays(p).map(d => JOURS_L[d].toLowerCase()).join(", ")}. <button style="color:var(--accent);font-weight:600" data-a="seg" data-v="prog">Choisir mes jours</button></span></div>
     <div class="card"><button class="switch" role="switch" data-a="pf-toggle" data-f="sansSaut" aria-checked="${!!p.sansSaut}"><span><b>Éviter les sauts</b><br><span class="small muted">Genoux ou dos sensibles : burpees, squats sautés et corde remplacés.</span></span><span class="sw"></span></button></div>
     <div class="field"><div class="lbl">Poids de ta barre olympique</div>${seg("barre", [[20, "20 kg"], [15, "15 kg"], [10, "10 kg"]])}<span class="small muted">Sert au calcul des disques à charger de chaque côté.</span></div>
   </div></section>
@@ -4316,18 +4425,28 @@ const A = {
   },
   "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
   "hist-all": () => Sheet.open({ key: "hall", title: "Historique", tall: true, body: `<div class="list">${S.historique.map(histRow).join("")}</div>` }),
-  "prog-plan": () => {
-    const pr = programme(S.profile);
-    const body = `<p class="muted">Ajoute ton programme (${pr.ids.map(id => TPL_BY_ID[id].n).join(", ")}) à ton agenda, en espaçant les séances pour récupérer.</p>
-      <div class="grid3" style="grid-template-columns:1.4fr 1fr"><div class="field"><label for="pp-date">À partir du</label><input class="inp" type="date" id="pp-date" value="${todayISO()}"></div><div class="field"><label for="pp-heure">Heure</label><input class="inp" type="time" id="pp-heure" value="18:30"></div></div>
-      <div class="field"><label for="pp-sem">Pendant</label><select class="inp" id="pp-sem"><option value="1">1 semaine</option><option value="2">2 semaines</option><option value="4" selected>4 semaines</option><option value="8">8 semaines</option></select></div><div id="pp-prev">${progPreview()}</div>`;
-    Sheet.open({ key: "pp", title: "Planifier le programme", body, foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="pp-save">Ajouter à l’agenda</button>` });
+  "prog-plan": () => { UI.seg = "prog"; saveUI(); goTab("seances"); },
+  "plan-day": el => {
+    const d = togglePlanDay(S.profile, +el.dataset.d);
+    if (!d) { toast(planDays(S.profile).length <= 1 ? "Garde au moins un jour d’entraînement" : "6 séances maximum : garde au moins un jour de repos"); return; }
+    const n0 = planDays(S.profile).length;
+    S.profile.planJours = d; S.profile.jours = d.length; UI.progSkip = 0; commit("p"); render();
+    if (d.length !== n0) toast("Programme adapté à " + plural(d.length, "séance") + " par semaine");
   },
+  "pl-keep": () => { UI.plKeep = !UI.plKeep; render(); },
   "pp-save": () => {
-    const pr = programme(S.profile), d0 = ($("#pp-date") || {}).value || todayISO(), h = ($("#pp-heure") || {}).value || "", w = +(($("#pp-sem") || {}).value || 4);
-    let n = 0;
-    for (let k = 0; k < w; k++) pr.ids.forEach((id, i) => { S.agenda.push({ id: rid(), date: addDays(d0, pr.offsets[i] + 7 * k), heure: h, titre: TPL_BY_ID[id].n, note: objList(S.profile).length > 1 ? OBJECTIFS[pr.objs[i]].n : "", fait: false, ref: { k: "t", id, o: pr.objs[i], j: i } }); n++; });
-    commit("a"); Sheet.closeAll(); UI.calSel = d0; UI.calMonth = d0.slice(0, 7); goTab("agenda"); toast(plural(n, "séance") + " ajoutées à l’agenda");
+    const p = S.profile, pr = programme(p), today = todayISO();
+    let d0 = ($("#pl-date") || {}).value || today; if (d0 < today) d0 = today;
+    const h = ($("#pl-heure") || {}).value || "", w = +(($("#pl-sem") || {}).value || 4), multi = objList(p).length > 1;
+    if (h) p.planHeure = h;
+    const old = UI.plKeep ? 0 : progEvents(d0).length;
+    if (!UI.plKeep) S.agenda = S.agenda.filter(e => !(!e.fait && e.date >= d0 && e.ref && e.ref.k === "t" && e.ref.j != null));
+    const ds = planDates(p, d0, w);
+    ds.forEach(({ date, j }) => S.agenda.push({ id: rid(), date, heure: h, titre: TPL_BY_ID[pr.ids[j]].n, note: multi ? OBJECTIFS[pr.objs[j]].n : "", fait: false, ref: { k: "t", id: pr.ids[j], o: pr.objs[j], j } }));
+    commit("a"); commit("p");
+    const first = ds.length ? ds[0].date : d0;
+    UI.calSel = first; UI.calMonth = first.slice(0, 7); goTab("agenda");
+    toast(plural(ds.length, "séance") + (ds.length > 1 ? " ajoutées" : " ajoutée") + " à l’agenda" + (old ? " (" + old + " remplacée" + (old > 1 ? "s" : "") + ")" : ""));
   },
   /* agenda */
   "cal-prev": () => { const [y, m] = UI.calMonth.split("-").map(Number); const d = new Date(y, m - 2, 1); UI.calMonth = d.getFullYear() + "-" + pad(d.getMonth() + 1); render(); },
@@ -4525,14 +4644,11 @@ document.addEventListener("change", ev => {
   }
   if (t.id === "fx-rappel") { try { localStorage.setItem(LS_RAPPEL, t.value); } catch (e) { } }
   if (t.id === "ae-ref") { const f = $("#ae-titre-f"); if (f) f.hidden = t.value !== "libre"; }
-  if (t.id === "pp-date" || t.id === "pp-sem") { const p = $("#pp-prev"); if (p) p.innerHTML = progPreview(); }
+  if (t.id === "pl-date") UI.plD = t.value;
+  if (t.id === "pl-sem") UI.plW = +t.value;
+  if (t.id === "pl-heure" && t.value) { S.profile.planHeure = t.value; commit("p"); }
   if (E && t.closest("#editor") && t.dataset.f) { const i = +t.dataset.i, f = t.dataset.f; edSet(i, f, num(t.value)); t.value = fmtNum(i < 0 ? E.se[f] : E.se.items[i][f]); }
 });
-function progPreview() {
-  const pr = programme(S.profile), d0 = ($("#pp-date") && $("#pp-date").value) || todayISO();
-  const multi = objList(S.profile).length > 1;
-  return `<div class="list">${pr.ids.map((id, i) => `<div class="row"><div class="row-main"><div class="row-title">${esc(TPL_BY_ID[id].n)}</div><div class="row-sub">${cap(fmtDay(addDays(d0, pr.offsets[i])))}${multi ? " · " + esc(OBJECTIFS[pr.objs[i]].n) : ""}</div></div></div>`).join("")}</div>`;
-}
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (TABS.indexOf(h) >= 0 && h !== UI.tab) { UI.tab = h; render(); window.scrollTo(0, 0); } });
 
 /* ================= Démarrage ================= */

@@ -104,6 +104,27 @@ test("programme muscle + perte : séances de muscu et de cardio alternées", () 
   same(pr.objs, ["muscle", "perte", "muscle", "perte"]);
   pr.ids.forEach((id, i) => assert.strictEqual(G.TPL_BY_ID[id].kind === "muscu", pr.objs[i] === "muscle", id));
 });
+test("planDays : jours choisis s'ils correspondent au nombre de séances, sinon séances espacées", () => {
+  same(G.planDays(Object.assign({}, P_H, { jours: 3 })), [0, 2, 4]);
+  same(G.planDays(Object.assign({}, P_H, { jours: 3, planJours: [5, 1, 3] })), [1, 3, 5]);
+  same(G.planDays(Object.assign({}, P_H, { jours: 4, planJours: [1, 3, 5] })), [0, 1, 3, 4], "nombre différent : par défaut");
+  same(G.planDays(Object.assign({}, P_H, { jours: 2, planJours: [1, 1, 9] })), [0, 3], "valeurs invalides ignorées");
+  same(G.weekPlan(Object.assign({}, P_H, { jours: 3, planJours: [1, 3, 6] })), [-1, 0, -1, 1, -1, -1, 2]);
+});
+test("togglePlanDay : ajoute ou retire un jour, entre 1 et 6 jours", () => {
+  const p = Object.assign({}, P_H, { jours: 3, planJours: [0, 2, 4] });
+  same(G.togglePlanDay(p, 6), [0, 2, 4, 6]);
+  same(G.togglePlanDay(p, 2), [0, 4]);
+  assert.strictEqual(G.togglePlanDay(Object.assign({}, P_H, { jours: 1, planJours: [3] }), 3), null, "au moins un jour");
+  assert.strictEqual(G.togglePlanDay(Object.assign({}, P_H, { jours: 6, planJours: [0, 1, 2, 3, 4, 5] }), 6), null, "un jour de repos");
+});
+test("planDates : séances sur les jours choisis, jours passés de la semaine ignorés", () => {
+  const p = Object.assign({}, P_H, { jours: 3, planJours: [0, 2, 4] });
+  /* 2026-03-04 est un mercredi */
+  same(G.planDates(p, "2026-03-04", 2), [{ date: "2026-03-04", j: 1 }, { date: "2026-03-06", j: 2 }, { date: "2026-03-09", j: 0 }, { date: "2026-03-11", j: 1 }, { date: "2026-03-13", j: 2 }]);
+  assert.strictEqual(G.planDates(p, "2026-03-02", 4).length, 12);
+  same(G.planDates(Object.assign({}, P_H, { jours: 1, planJours: [6] }), "2026-03-01", 1), [{ date: "2026-03-01", j: 0 }], "dimanche");
+});
 test("profFor : la séance est réglée sur l'objectif du jour", () => {
   const t = G.TPL_BY_ID["fb-halteres"];
   const a = G.prescribe(t, G.profFor(P_H, "force")), b = G.prescribe(t, G.profFor(P_H, "perte"));
