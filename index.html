@@ -3031,10 +3031,35 @@ function lsNum(k) { try { return +(localStorage.getItem(k) || 0); } catch (e) { 
 function markBackup() { try { localStorage.setItem(LS_BK, String(Date.now())); } catch (e) { } }
 function backupDue() {
   if (S.historique.length < 3 || Sync.state === "live") return null;
-  const last = lsNum(LS_BK), ref = last || Math.min.apply(null, S.historique.map(h => h.ts || Date.now()));
-  const days = Math.floor((Date.now() - ref) / 864e5);
-  if (days < 30 || Date.now() < lsNum(LS_BKS)) return null;
+  const last = lsNum(LS_BK), days = last ? Math.floor((Date.now() - last) / 864e5) : 0;
+  if ((last && days < 30) || Date.now() < lsNum(LS_BKS)) return null;
   return { last, days };
+}
+/* Fichier de sauvegarde complet : profil, séances, historique, records, notes, mesures, agenda */
+function backupName() { return "fonte-sauvegarde-" + todayISO() + ".json"; }
+function backupFile() { return new File([JSON.stringify(dataPayload())], backupName(), { type: "application/json" }); }
+/* Un toucher : feuille de partage iOS (Enregistrer dans Fichiers / iCloud Drive, AirDrop, Messages…), sinon téléchargement */
+function shareBackup() {
+  let f = null;
+  try { f = backupFile(); } catch (e) { toast("Sauvegarde impossible ici : copie plutôt le code."); return; }
+  let can = false; try { can = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch (e) { }
+  const done = msg => { markBackup(); try { localStorage.removeItem(LS_BKS); } catch (e) { } Sheet.closeAll(); render(); toast(msg); };
+  if (can) { navigator.share({ files: [f], title: "Sauvegarde Fonte" }).then(() => done("Sauvegarde enregistrée"), () => { }); return; }
+  try {
+    const url = URL.createObjectURL(f), a = document.createElement("a");
+    a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+    done("Fichier de sauvegarde téléchargé");
+  } catch (e) { toast("Sauvegarde impossible ici : copie plutôt le code."); }
+}
+function backupAgo() { const t = lsNum(LS_BK); if (!t) return "Aucune sauvegarde pour l’instant"; const d = Math.floor((Date.now() - t) / 864e5); return "Dernière sauvegarde : " + (d === 0 ? "aujourd’hui" : d === 1 ? "hier" : "il y a " + d + " jours"); }
+/* Résumé d’une sauvegarde avant de remplacer les données du téléphone */
+function parseBackup(raw) {
+  raw = String(raw || "").trim();
+  try { const m = raw.replace(/\s/g, "").match(/FONTEDATA1\.([A-Za-z0-9_-]+)/); const o = m ? JSON.parse(b64d(m[1])) : JSON.parse(raw); return o && typeof o === "object" && o.profile ? o : null; } catch (e) { return null; }
+}
+function backupSummary(o) {
+  const n = k => (Array.isArray(o[k]) ? o[k].length : 0);
+  return `Sauvegarde${o.at ? " du " + fmtDay(toISO(new Date(o.at))) : ""}${o.profile && o.profile.prenom ? " · " + esc(o.profile.prenom) : ""} : ${plural(n("historique"), "séance")} dans l’historique, ${plural(n("mesSeances"), "séance perso")}, ${plural(n("agenda"), "séance prévue")}${n("mesures") ? ", " + plural(n("mesures"), "mesure") : ""}.`;
 }
 
 /* ================= Personnes / agenda ================= */
@@ -3410,7 +3435,7 @@ function viewAccueil() {
   let h = "";
   if (PWA && !INSTALLED && !UI.hideInstall) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;gap:12px;align-items:center"><svg aria-hidden="true" style="width:44px;height:44px;flex-shrink:0"><use href="#logo"/></svg><div class="row-main"><div class="h3">Installe Fonte</div><p class="small muted">Dans Safari, touche le bouton Partager (le carré avec une flèche), puis « Sur l’écran d’accueil ». Fonte s’ouvrira comme une appli, même sans réseau.</p></div></div><button class="btn" data-a="hide-install">J’ai compris</button></div></section>`;
   const bk = backupDue();
-  if (bk) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="row-main"><div class="h3">Pense à sauvegarder</div><p class="small muted">${bk.last ? "Ta dernière sauvegarde date de " + plural(bk.days, "jour") + "." : "Tu n’as encore jamais sauvegardé tes données."} Ton historique et tes records ne sont que sur ce téléphone : garde une copie dans Fichiers ou iCloud Drive.</p></div><div class="btn-row"><button class="btn btn-primary" data-a="data-export">${icon("copy")}Sauvegarder</button><button class="btn" data-a="bk-later">Plus tard</button></div></div></section>`;
+  if (bk) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="row-main"><div class="h3">Sauvegarde du mois</div><p class="small muted">${bk.last ? "Ta dernière sauvegarde date de " + plural(bk.days, "jour") + "." : "Tu n’as encore jamais sauvegardé tes données."} Touche « Sauvegarder », puis « Enregistrer dans Fichiers » et choisis <b>iCloud Drive</b> : ton historique te suivra sur ton prochain iPhone.</p></div><div class="btn-row"><button class="btn btn-primary" data-a="bk-now">${icon("download")}Sauvegarder</button><button class="btn" data-a="bk-later">Plus tard</button></div></div></section>`;
   const run = loadRun();
   if (run) h += `<section><div class="card card-accent banner"><div class="row-main"><div class="eyebrow" style="color:inherit;opacity:.8">${run.done ? "Séance terminée, à enregistrer" : "Séance en cours"}</div><div class="row-title" style="font-size:17px">${esc(run.se.nom)}</div></div><button class="btn" data-a="run-resume" style="background:var(--accent-ink);color:var(--accent)">Reprendre</button></div></section>`;
   if (!p.sexe || !p.age || !p.taille || !p.poids) {
@@ -3729,7 +3754,7 @@ function viewProfil() {
   </div></section>
   ${mesuresCard()}
   <section>${adaptCard()}</section>
-  <section><div class="sec-h"><h2>Données</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${statusHTML()}<p class="small muted">${PWA ? "Tout reste sur ce téléphone et fonctionne sans réseau. Fais une sauvegarde de temps en temps, surtout avant de changer de téléphone." : "Tout est enregistré sur ce téléphone et fonctionne sans réseau une fois l’appli ouverte. Quand tu es connecté à ton compte Claude, ton profil, tes séances et ton historique sont aussi sauvegardés dans ton compte (privés, toi seul y as accès)."}</p><div class="btn-row"><button class="btn" data-a="data-export">${icon("copy")}${PWA ? "Sauvegarder" : "Transférer mes données"}</button><button class="btn" data-a="data-import">Restaurer</button></div><button class="btn" data-a="csv-export">${icon("download")}Exporter l’historique (tableur)</button><div class="btn-row"><button class="btn" data-a="hist-clear">Effacer l’historique</button><button class="btn btn-danger" data-a="reset-all">Tout réinitialiser</button></div></div></section>
+  <section><div class="sec-h"><h2>Données</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${statusHTML()}<p class="small muted">${PWA ? "Tout reste sur ce téléphone et fonctionne sans réseau. Fonte te propose une sauvegarde tous les 30 jours ; fais-en une aussi juste avant de changer de téléphone. " + backupAgo() + "." : "Tout est enregistré sur ce téléphone et fonctionne sans réseau une fois l’appli ouverte. Quand tu es connecté à ton compte Claude, ton profil, tes séances et ton historique sont aussi sauvegardés dans ton compte (privés, toi seul y as accès)."}</p><div class="btn-row"><button class="btn" data-a="data-export">${icon("download")}${PWA ? "Sauvegarder / transférer" : "Transférer mes données"}</button><button class="btn" data-a="data-import">Restaurer</button></div><button class="btn" data-a="csv-export">${icon("download")}Exporter l’historique (tableur)</button><div class="btn-row"><button class="btn" data-a="hist-clear">Effacer l’historique</button><button class="btn btn-danger" data-a="reset-all">Tout réinitialiser</button></div></div></section>
   <section><div class="card" style="display:flex;gap:14px;align-items:center"><div class="brand"><svg aria-hidden="true" style="width:46px;height:46px"><use href="#logo"/></svg></div><div class="row-main"><b>Fonte</b><span class="small muted">${EX.length} exercices · ${TPL.length} séances types. Les estimations (calories, fréquence cardiaque) sont indicatives. En cas de douleur ou de souci de santé, demande l’avis d’un médecin.</span></div></div></section>`;
 }
 const VIEWS = { accueil: viewAccueil, exercices: viewExercices, seances: viewSeances, agenda: viewAgenda, profil: viewProfil };
@@ -4332,7 +4357,8 @@ const A = {
   "mes-del": el => { if (!arm(el, "Supprimer ?")) return; S.mesures = S.mesures.filter(x => x.id !== el.dataset.id); commit("p"); const b = Sheet.body(); if (b) { if (S.mesures.length) b.innerHTML = mesSheetBody(); else Sheet.close(); } render(); },
   "ch-m": el => { if (!CH) return; CH.mode = el.dataset.v; if (CH.ptsBy) CH.sel = Math.min(CH.ptsBy[CH.mode].length, 30) - 1; el.parentNode.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === el)); $("#ch").innerHTML = chartInner(); },
   "ch-pt": el => { if (!CH) return; CH.sel = +el.dataset.i; $("#ch").innerHTML = chartInner(); },
-  "bk-later": () => { try { localStorage.setItem(LS_BKS, String(Date.now() + 7 * 864e5)); } catch (e) { } render(); },
+  "bk-later": () => { try { localStorage.setItem(LS_BKS, String(Date.now() + 3 * 864e5)); } catch (e) { } render(); },
+  "bk-now": () => shareBackup(),
   "csv-export": () => {
     if (!S.historique.length) { toast("Pas encore de séance dans l’historique."); return; }
     openFileSheet({ title: "Exporter l’historique", name: "fonte-historique-" + todayISO() + ".csv", mime: "text/csv", bom: true, make: () => csvExport(S.historique),
@@ -4359,23 +4385,24 @@ const A = {
     else A["share-export"]();
   },
   "data-export": () => {
-    const file = PWA && canShareFiles();
-    Sheet.open({ key: "dx", title: PWA ? "Sauvegarder mes données" : "Transférer mes données", body: `<p class="muted">${PWA ? "Enregistre le fichier dans Fichiers ou iCloud Drive, ou copie le code et garde-le dans tes notes. Pour récupérer tes données : Profil, Restaurer." : "Copie ce code, puis colle-le dans Fonte installé sur ton écran d’accueil (Profil, Restaurer). Profil, séances, historique et agenda passent d’un coup."}</p><textarea class="code-box" id="exp-code" readonly aria-label="Code de sauvegarde">${esc(dataCode())}</textarea>`, foot: `${file ? `<button class="btn btn-lg" data-a="data-file">Enregistrer le fichier</button>` : ""}<button class="btn btn-primary btn-lg" data-a="copy-code">${icon("copy")}Copier le code</button>` });
+    if (!PWA) { Sheet.open({ key: "dx", title: "Transférer mes données", body: `<p class="muted">Copie ce code, puis colle-le dans Fonte installé sur ton écran d’accueil (Profil, Restaurer). Profil, séances, historique et agenda passent d’un coup.</p><textarea class="code-box" id="exp-code" readonly aria-label="Code de sauvegarde">${esc(dataCode())}</textarea>`, foot: `<button class="btn btn-primary btn-lg" data-a="copy-code">${icon("copy")}Copier le code</button>` }); return; }
+    Sheet.open({ key: "dx", title: "Sauvegarder / transférer", tall: true, body: `<p class="muted">Un seul fichier contient tout : profil, séances, historique, records, notes, mesures et agenda. ${esc(backupAgo())}.</p>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Garder une copie</div><ol class="steps"><li><span>Touche « Sauvegarder » en bas.</span></li><li><span>Choisis <b>Enregistrer dans Fichiers</b>, puis le dossier <b>iCloud Drive</b>.</span></li></ol><p class="small muted">Dans iCloud Drive, la sauvegarde sera aussi sur ton prochain iPhone. Fonte te la redemande tous les 30 jours.</p></div>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Passer sur un autre iPhone</div><ol class="steps"><li><span>Ici : « Sauvegarder », puis <b>AirDrop</b> vers le nouvel iPhone (ou Messages, ou iCloud Drive).</span></li><li><span>Sur le nouvel iPhone : ouvre le lien de Fonte dans Safari, ajoute-la à l’écran d’accueil et ouvre-la.</span></li><li><span>Profil, <b>Restaurer</b>, « Choisir un fichier », puis prends la sauvegarde (dossier Téléchargements pour AirDrop).</span></li></ol></div>
+      <details><summary class="small muted" style="cursor:pointer">Pas de fichier possible ? Copier le code à la place</summary><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px"><p class="small muted">Colle-le dans tes notes ou envoie-le-toi par message, puis colle-le dans Restaurer.</p><button class="btn" data-a="dx-code">${icon("copy")}Copier le code de sauvegarde</button></div></details>`,
+      foot: `<button class="btn btn-primary btn-lg" data-a="bk-now">${icon("download")}Sauvegarder</button>` });
   },
-  "data-file": () => {
-    try {
-      const f = new File([JSON.stringify(dataPayload())], "fonte-sauvegarde-" + todayISO() + ".json", { type: "application/json" });
-      navigator.share({ files: [f], title: "Sauvegarde Fonte" }).then(() => { markBackup(); toast("Sauvegarde enregistrée"); }, () => { });
-    } catch (e) { toast("Enregistrement impossible ici : copie plutôt le code."); }
-  },
-  "data-import": () => Sheet.open({ key: "di", title: "Restaurer", body: `<p class="muted">Colle un code de sauvegarde (il commence par FONTEDATA1.)${PWA ? " ou choisis un fichier de sauvegarde" : ""}. Les données de ce téléphone seront remplacées.</p>${PWA ? `<label class="btn btn-block" for="imp-file">Choisir un fichier</label><input type="file" id="imp-file" accept=".json,application/json,text/plain" hidden>` : ""}<textarea class="code-box" id="imp-data" aria-label="Code de sauvegarde" placeholder="FONTEDATA1.…"></textarea><p class="small" id="imp-derr" style="color:var(--red)" hidden></p>`, foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="data-restore">Restaurer</button>` }),
+  "dx-code": () => { const c = dataCode(); const ok = () => { markBackup(); toast("Code copié"); render(); }; try { navigator.clipboard.writeText(c).then(ok, () => toast("Copie impossible ici")); } catch (e) { toast("Copie impossible ici"); } },
+  "data-file": () => shareBackup(),
+  "data-import": () => { IMP_RAW = ""; Sheet.open({ key: "di", title: "Restaurer", body: `<p class="muted">${PWA ? "Choisis le fichier de sauvegarde (iCloud Drive, ou Téléchargements s’il est arrivé par AirDrop), ou colle un code de sauvegarde." : "Colle un code de sauvegarde (il commence par FONTEDATA1.)."} Les données de ce téléphone seront remplacées.</p>${PWA ? `<label class="btn btn-block btn-primary" for="imp-file">${icon("download")}Choisir le fichier</label><input type="file" id="imp-file" accept=".json,application/json,text/plain" hidden>` : ""}<div class="note" id="imp-sum" hidden></div><textarea class="code-box" id="imp-data" aria-label="Code de sauvegarde" placeholder="Ou colle ici un code FONTEDATA1.…"></textarea><p class="small" id="imp-derr" style="color:var(--red)" hidden></p>`, foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="data-restore">Restaurer</button>` }); },
   "data-restore": el => {
-    const v = ($("#imp-data") || {}).value || "";
-    if (!v.trim()) { const p = $("#imp-derr"); p.textContent = "Colle un code ou choisis un fichier."; p.hidden = false; return; }
+    const v = IMP_RAW || ($("#imp-data") || {}).value || "";
+    if (!v.trim()) { const p = $("#imp-derr"); p.textContent = "Choisis un fichier ou colle un code."; p.hidden = false; return; }
+    if (!parseBackup(v)) { const p = $("#imp-derr"); p.textContent = "Ce fichier ou ce code n’est pas une sauvegarde Fonte complète."; p.hidden = false; return; }
     if (!arm(el, "Remplacer mes données ?")) return;
     const err = restoreData(v);
     if (err) { const p = $("#imp-derr"); p.textContent = err; p.hidden = false; return; }
-    Sheet.closeAll(); render(); toast("Données restaurées");
+    IMP_RAW = ""; markBackup(); Sheet.closeAll(); render(); toast("Données restaurées");
   },
   "import-del": el => { if (!arm(el, "Confirmer")) return; S.imports = S.imports.filter(x => x.id !== el.dataset.id); commit("p"); render(); },
   /* profil */
@@ -4401,9 +4428,10 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "Escape" && Sheet.stack.length) { Sheet.close(); return; }
   if ((ev.key === "Enter" || ev.key === " ") && ev.target.getAttribute && ev.target.getAttribute("role") === "button" && ev.target.dataset.a) { ev.preventDefault(); ev.target.click(); }
 });
-let pfTimer = null, noteTimer = null;
+let pfTimer = null, noteTimer = null, IMP_RAW = "";
 document.addEventListener("input", ev => {
   const t = ev.target;
+  if (t.id === "imp-data") { IMP_RAW = ""; const sum = $("#imp-sum"), o = parseBackup(t.value); if (sum) { sum.hidden = !o; if (o) sum.innerHTML = `${icon("check")}<span>${backupSummary(o)}</span>`; } return; }
   if (t.dataset.note) {
     const id = t.dataset.note, v = t.value.slice(0, 300);
     if (v.trim()) S.notes[id] = v; else delete S.notes[id];
@@ -4430,7 +4458,12 @@ document.addEventListener("change", ev => {
   const t = ev.target;
   if (t.id === "imp-file" && t.files && t.files[0]) {
     const r = new FileReader();
-    r.onload = () => { const ta = $("#imp-data"); if (ta) ta.value = String(r.result || ""); };
+    r.onload = () => {
+      IMP_RAW = String(r.result || ""); const o = parseBackup(IMP_RAW), sum = $("#imp-sum"), er = $("#imp-derr"), ta = $("#imp-data");
+      if (ta) ta.value = "";
+      if (o) { if (sum) { sum.innerHTML = `${icon("check")}<span>${backupSummary(o)} Touche « Restaurer » pour la charger.</span>`; sum.hidden = false; } if (er) er.hidden = true; }
+      else { IMP_RAW = ""; if (sum) sum.hidden = true; if (er) { er.textContent = "Ce fichier n’est pas une sauvegarde Fonte."; er.hidden = false; } }
+    };
     r.readAsText(t.files[0]);
   }
   if (t.id === "fx-rappel") { try { localStorage.setItem(LS_RAPPEL, t.value); } catch (e) { } }
