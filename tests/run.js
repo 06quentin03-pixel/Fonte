@@ -76,6 +76,24 @@ test("programme : autant de séances que de jours demandés, toutes existantes",
     pr.ids.forEach(id => assert.ok(G.TPL_BY_ID[id], id));
   }
 });
+test("variété : jamais deux fois la même séance dans la semaine", () => {
+  const objs = Object.keys(G.OBJECTIFS), combos = objs.map(k => [k]);
+  objs.forEach(a => objs.forEach(b => { if (a !== b) combos.push([a, b]); }));
+  combos.push(["muscle", "perte", "tonus"], ["force", "muscle", "forme"], ["perte", "tonus", "forme"]);
+  combos.forEach(O => ["debutant", "intermediaire", "avance"].forEach(niv => {
+    for (let j = 1; j <= 6; j++) {
+      const pr = G.programme(Object.assign({}, P_H, { objectif: O[0], objectifs: O, niveau: niv, jours: j }));
+      const tag = O.join("+") + " " + niv + " " + j + " j : " + pr.ids.join(", ");
+      assert.strictEqual(new Set(pr.ids).size, pr.ids.length, tag);
+      pr.ids.forEach(id => assert.ok(G.TPL_BY_ID[id], tag));
+    }
+  }));
+});
+test("variété : la variante travaille le même type de séance", () => {
+  same(G.programme(Object.assign({}, P_H, { niveau: "debutant", jours: 3 })).ids, ["fb-machines", "fb-halteres", "fb-guide"]);
+  same(G.programme(Object.assign({}, P_H, { jours: 4 })).ids, ["haut", "bas", "haut-b", "bas-b"]);
+  same(G.programme(Object.assign({}, P_H, { jours: 6 })).ids, ["push", "pull", "legs", "push-b", "pull-b", "legs-b"]);
+});
 test("objList : objectif principal en premier, sans doublon, « forme » par défaut", () => {
   same(G.objList({}), ["forme"]);
   same(G.objList({ objectif: "muscle" }), ["muscle"]);
