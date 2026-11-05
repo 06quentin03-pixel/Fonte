@@ -12,7 +12,7 @@ const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
 if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
 const ctx = vm.createContext({ console });
 /* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER"];
+const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList"];
 vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
 const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
 
@@ -173,6 +173,41 @@ test("coolDown : 4 étirements maximum, jamais déjà dans la séance", () => {
     assert.ok(cd.length <= 4);
     cd.forEach(it => { assert.ok(G.EX_BY_ID[it.id]); assert.ok(!se.items.some(x => x.id === it.id)); });
   });
+});
+
+console.log("Séances par objectif, semaines A/B, zone prioritaire");
+test("chaque objectif a ses propres séances", () => {
+  same(G.programme(Object.assign({}, P_H, { objectif: "force", jours: 4 })).ids, ["force-squat", "force-dc", "force-sdt", "force-dm"]);
+  const k = o => G.programme(Object.assign({}, P_H, { objectif: o, objectifs: [o], jours: 3 })).ids;
+  assert.ok(k("perte").some(id => /^metab/.test(id)), "perte : circuits brûle-graisses");
+  assert.ok(k("tonus").every(id => /^tonus/.test(id)), "tonus");
+  assert.ok(k("forme").indexOf("forme-doux") >= 0, "forme");
+  ["muscle", "force", "perte", "tonus", "forme"].forEach(o => ["d", "s"].forEach(l => G.PLANS[o][l].forEach((ids, i) => { assert.strictEqual(ids.length, i + 1, o + l + i); ids.forEach(id => assert.ok(G.TPL_BY_ID[id], id)); })));
+});
+test("semaines A/B : une semaine sur deux, variantes réciproques", () => {
+  assert.notStrictEqual(G.weekB("2026-03-02"), G.weekB("2026-03-09"));
+  assert.strictEqual(G.weekB("2026-03-02"), G.weekB("2026-03-08"), "même semaine du lundi au dimanche");
+  Object.keys(G.WEEK_B).forEach(a => { assert.ok(G.TPL_BY_ID[a] && G.TPL_BY_ID[G.WEEK_B[a]], a); assert.strictEqual(G.WEEK_B[G.WEEK_B[a]], a, a); });
+  const b = G.weekB("2026-03-02") ? "2026-03-02" : "2026-03-09";
+  assert.strictEqual(G.weekVariant("force-squat", b), "force-squat-b");
+  assert.strictEqual(G.TPL_BY_ID["force-squat-b"].items[0][0], G.TPL_BY_ID["force-squat"].items[0][0], "même mouvement principal");
+});
+test("débutant : haltères aux paliers 1 et 2, barre au palier 3", () => {
+  const t = G.TPL_BY_ID["force-squat"], deb = Object.assign({}, P_H, { niveau: "debutant", objectif: "force" });
+  assert.strictEqual(G.prescribe(t, deb).items[0].id, "goblet-squat");
+  assert.strictEqual(G.prescribe(t, Object.assign({}, deb, { phase: 3 })).items[0].id, "squat-barre");
+  assert.strictEqual(G.prescribe(t, Object.assign({}, P_H, { objectif: "force" })).items[0].id, "squat-barre", "intermédiaire : barre tout de suite");
+  const uniq = x => new Set(x.items.map(i => i[0])).size === x.items.length; /* cardio-fractionne : vélo au début et à la fin, voulu */
+  G.TPL.filter(uniq).forEach(x => { const ids = G.prescribe(x, deb).items.map(i => i.id); assert.strictEqual(new Set(ids).size, ids.length, x.id + " doublon"); });
+});
+test("zone prioritaire : un exercice en plus pour la zone, sans doublon", () => {
+  const t = G.TPL_BY_ID["force-squat"], a = G.prescribe(t, P_H), b = G.prescribe(t, Object.assign({}, P_H, { zones: ["bras"] }));
+  assert.strictEqual(b.items.length, a.items.length + 1);
+  assert.ok(G.ZONES.bras[1].indexOf(b.items[b.items.length - 1].id) >= 0);
+  const c = G.prescribe(t, Object.assign({}, P_H, { zones: ["bras", "abdos", "pecs"] }));
+  assert.strictEqual(c.items.length, a.items.length + 2, "2 zones au plus");
+  assert.strictEqual(G.prescribe(G.TPL_BY_ID["hiit-20"], Object.assign({}, P_H, { zones: ["bras"] })).items.length, G.prescribe(G.TPL_BY_ID["hiit-20"], P_H).items.length, "pas sur les circuits");
+  G.TPL.filter(x => new Set(x.items.map(i => i[0])).size === x.items.length).forEach(x => { const ids = G.prescribe(x, Object.assign({}, P_F, { zones: ["fessiers", "abdos"] })).items.map(i => i.id); assert.strictEqual(new Set(ids).size, ids.length, x.id); });
 });
 
 console.log("Paliers et niveau");
