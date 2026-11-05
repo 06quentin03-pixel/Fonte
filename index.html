@@ -316,6 +316,11 @@ select.inp { appearance: none; -webkit-appearance: none; background-image: linea
 .sheet-bg { position: absolute; inset: 0; background: rgba(10, 10, 12, .45); animation: fade .2s ease; }
 .sheet { position: relative; width: 100%; max-width: 600px; max-height: calc(100% - env(safe-area-inset-top, 0px) - 18px); background: var(--bg); border-radius: 20px 20px 0 0;
   display: flex; flex-direction: column; box-shadow: var(--shadow); animation: up .26s cubic-bezier(.2,.8,.2,1); }
+.sheet { overflow: hidden; }
+.sheet-body, .ov-body, .run-body { flex: 1 1 auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.sheet-body > *, .ov-body > *, .run-body > * { flex-shrink: 0; }
+/* fenêtre ou séance ouverte : la page derrière ne bouge plus */
+html.lock, html.lock body { overflow: hidden; }
 .sheet.tall { height: calc(100% - env(safe-area-inset-top, 0px) - 18px); }
 .sheet-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); flex-shrink: 0; }
 .sheet-top h3 { font-family: var(--font-display); font-weight: 800; text-transform: uppercase; font-size: 24px; line-height: 1; min-width: 0; }
@@ -3330,6 +3335,7 @@ function setupBody() {
 }
 
 /* ================= Feuilles, toast ================= */
+function lockPage() { const open = Sheet.stack.length || !$("#editor").hidden || !$("#runner").hidden; document.documentElement.classList.toggle("lock", !!open); }
 const Sheet = {
   stack: [],
   open(o) {
@@ -3340,7 +3346,7 @@ const Sheet = {
     w.innerHTML = `<div class="sheet-bg" data-a="sheet-close"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-top"><h3></h3><button class="btn-icon" data-a="sheet-close" aria-label="Fermer">${icon("x")}</button></div><div class="sheet-body"></div><div class="sheet-foot" hidden></div></div>`;
     $("#sheets").appendChild(w);
     const s = { el: w, key: o.key };
-    this.stack.push(s); this.fill(s, o); return s;
+    this.stack.push(s); this.fill(s, o); lockPage(); return s;
   },
   fill(s, o) {
     s.el.querySelector(".sheet-top h3").textContent = o.title || "";
@@ -3349,7 +3355,7 @@ const Sheet = {
     s.el.querySelector(".sheet").classList.toggle("tall", !!o.tall);
     s.key = o.key; s.onClose = o.onClose || null;
   },
-  close() { const s = this.stack.pop(); if (!s) return; s.el.remove(); if (s.onClose) s.onClose(); },
+  close() { const s = this.stack.pop(); if (!s) return; s.el.remove(); if (s.onClose) s.onClose(); lockPage(); },
   closeAll() { while (this.stack.length) this.close(); },
   top() { return this.stack[this.stack.length - 1]; },
   body() { const t = this.top(); return t ? t.el.querySelector(".sheet-body") : null; },
@@ -3534,9 +3540,22 @@ function tplCard(t) {
   const se = prescribe(t, S.profile), d = estDuree(se), [p, s] = seanceMuscles(se.items);
   return `<button class="tpl" data-a="tpl-open" data-id="${t.id}">${figHTML(p, s, "sm")}<div class="tpl-main"><div class="tpl-name">${esc(t.n)}</div><div class="tpl-desc">${esc(t.desc)}</div><div class="meta"><span>${icon("clock")}${fmtDur(d)}</span><span>${se.items.length} exos${se.mode === "circuit" ? " · " + se.tours + " tours" : ""}</span><span>${icon("flame")}${estKcal(se, S.profile, d)} kcal</span></div></div></button>`;
 }
+/* Aperçu d’une de mes séances : tout le contenu, avant de la lancer ou de la modifier */
+function openMes(id) {
+  const m = S.mesSeances.find(x => x.id === id); if (!m) return;
+  const se = applySuggestions(clone(m)), d = estDuree(se), [p, s] = seanceMuscles(se.items);
+  const circ = se.mode === "circuit" ? `<div class="note">${icon("refresh")}<span>Circuit : ${se.tours || 3} tours, ${fmtRest(se.roundRest || 60)} de pause entre les tours.</span></div>` : "";
+  const cd = etirOn(se) ? coolDown(se.items) : [];
+  const body = `<div style="display:flex;gap:14px;align-items:center">${figHTML(p, s, "sm")}<div class="meta" style="flex-direction:column;gap:6px;font-size:14px"><span>${icon("clock")}≈ ${fmtDur(d)}</span><span>${icon("dumbbell")}${plural(se.items.length, "exercice")}</span><span>${icon("flame")}≈ ${estKcal(se, S.profile, d)} kcal</span></div></div>
+    ${(se.notes || []).length ? `<div class="note">${icon("sparkle")}<span>${se.notes.map(esc).join(" · ")}.</span></div>` : ""}${circ}${chargeNote(se)}
+    ${itemRows(se)}
+    ${cd.length ? `<div class="note">${icon("heart")}<span>Pour finir, ${plural(cd.length, "étirement")} (≈ ${fmtDur(coolDuree(se.items))}) : ${esc(cd.map(it => EX_BY_ID[it.id].n.replace(/ \(.*\)$/, "")).join(", "))}.</span></div>` : ""}
+    <div class="btn-row"><button class="btn" data-a="my-edit" data-id="${esc(m.id)}">${icon("edit")}Modifier</button><button class="btn" data-a="my-plan" data-id="${esc(m.id)}">${icon("cal")}Planifier</button></div>`;
+  Sheet.open({ key: "mes-se", title: m.nom, body, tall: true, foot: `<button class="btn btn-primary btn-lg" data-a="my-start" data-id="${esc(m.id)}">${icon("play")}Lancer</button>` });
+}
 function mesCard(m) {
   const d = estDuree(m), [p, s] = seanceMuscles(m.items);
-  return `<div class="card" style="display:flex;flex-direction:column;gap:12px"><button class="tpl" style="padding:0;border:0" data-a="my-edit" data-id="${esc(m.id)}">${figHTML(p, s, "sm")}<div class="tpl-main"><div class="tpl-name">${esc(m.nom)}</div><div class="tpl-desc">${esc(m.items.map(it => (EX_BY_ID[it.id] || {}).n).filter(Boolean).join(" · "))}</div><div class="meta"><span>${icon("clock")}${fmtDur(d)}</span><span>${m.items.length} exos${m.mode === "circuit" ? " · " + (m.tours || 3) + " tours" : ""}</span></div></div></button><div class="btn-row"><button class="btn" data-a="my-edit" data-id="${esc(m.id)}">${icon("edit")}Modifier</button><button class="btn" data-a="my-plan" data-id="${esc(m.id)}">${icon("cal")}Planifier</button><button class="btn btn-primary" data-a="my-start" data-id="${esc(m.id)}">${icon("play")}Lancer</button></div></div>`;
+  return `<div class="card" style="display:flex;flex-direction:column;gap:12px"><button class="tpl" style="padding:0;border:0" data-a="my-open" data-id="${esc(m.id)}">${figHTML(p, s, "sm")}<div class="tpl-main"><div class="tpl-name">${esc(m.nom)}</div><div class="tpl-desc">${esc(m.items.map(it => (EX_BY_ID[it.id] || {}).n).filter(Boolean).join(" · "))}</div><div class="meta"><span>${icon("clock")}${fmtDur(d)}</span><span>${m.items.length} exos${m.mode === "circuit" ? " · " + (m.tours || 3) + " tours" : ""}</span></div></div></button><div class="btn-row"><button class="btn" data-a="my-edit" data-id="${esc(m.id)}">${icon("edit")}Modifier</button><button class="btn" data-a="my-plan" data-id="${esc(m.id)}">${icon("cal")}Planifier</button><button class="btn btn-primary" data-a="my-start" data-id="${esc(m.id)}">${icon("play")}Lancer</button></div></div>`;
 }
 function viewSeances() {
   let h = `<section><div class="seg" role="group" aria-label="Type de séances"><button data-a="seg" data-v="types" aria-pressed="${UI.seg === "types"}">Séances types</button><button data-a="seg" data-v="mes" aria-pressed="${UI.seg === "mes"}">Mes séances${S.mesSeances.length ? " (" + S.mesSeances.length + ")" : ""}</button></div></section>`;
@@ -3722,9 +3741,9 @@ function openEditor(mode, se, opts) {
   E = Object.assign({ mode, se: clone(se) }, opts || {});
   if (!Array.isArray(E.se.items)) E.se.items = [];
   if (!E.se.mode) E.se.mode = "series";
-  renderEditor(); $("#editor").hidden = false; $("#editor .ov-body").scrollTop = 0;
+  renderEditor(); $("#editor").hidden = false; $("#editor .ov-body").scrollTop = 0; lockPage();
 }
-function closeEditor() { E = null; $("#editor").hidden = true; $("#editor").innerHTML = ""; }
+function closeEditor() { E = null; $("#editor").hidden = true; $("#editor").innerHTML = ""; lockPage(); }
 function edStp(i, f, v, label, step) {
   return `<div class="stp"><span>${label}</span><div class="stp-ctl"><button type="button" data-a="ed-step" data-i="${i}" data-f="${f}" data-d="${-step}" aria-label="${label} moins">−</button><input id="ed-${i}-${f}" inputmode="decimal" data-i="${i}" data-f="${f}" value="${fmtNum(v || 0)}" aria-label="${label}"><button type="button" data-a="ed-step" data-i="${i}" data-f="${f}" data-d="${step}" aria-label="${label} plus">+</button></div></div>`;
 }
@@ -3810,7 +3829,7 @@ function startRun(se, opts) {
   if (!se.items.length) { toast("Aucun exercice de cette séance n’existe encore dans l’appli."); return; }
   Sheet.closeAll(); closeEditor();
   R = Object.assign({ se, steps: buildSteps(se), idx: 0, start: Date.now(), log: se.items.map(() => []), t: null, cur: null, beeped: {} }, opts || {});
-  unlockAudio(); wakeLock(); enterStep(); $("#runner").hidden = false;
+  unlockAudio(); wakeLock(); enterStep(); $("#runner").hidden = false; lockPage();
 }
 function enterStep() {
   const st = R.steps[R.idx];
@@ -3944,7 +3963,7 @@ function runNext() {
   }
   R.idx++; enterStep();
 }
-function closeRunner() { R = null; $("#runner").hidden = true; $("#runner").innerHTML = ""; releaseWake(); clearRun(); render(); }
+function closeRunner() { R = null; $("#runner").hidden = true; $("#runner").innerHTML = ""; releaseWake(); clearRun(); lockPage(); render(); }
 function saveRunHistory() {
   const sum = runSummary(), se = R.se;
   const log = runLog(), pr = findRecords(S.historique, log).map(r => ({ id: r.id, k: r.k, v: r.v }));
@@ -4092,6 +4111,7 @@ const A = {
   "tpl-copy": el => { const t = TPL_BY_ID[el.dataset.id]; if (!t) return; const se = prescribe(t, S.profile); delete se.notes; se.nom = t.n; openEditor("edit", se); },
   "tpl-plan": el => openAddEvent({ ref: Object.assign({ k: "t", id: el.dataset.id }, OBJECTIFS[el.dataset.o] ? { o: el.dataset.o } : {}, el.dataset.j != null && el.dataset.j !== "" ? { j: +el.dataset.j } : {}) }),
   "my-new": () => openEditor("edit", { nom: "", mode: "series", items: [] }),
+  "my-open": el => openMes(el.dataset.id),
   "my-edit": el => { const m = S.mesSeances.find(x => x.id === el.dataset.id); if (m) openEditor("edit", m, { srcId: m.id }); },
   "my-start": el => { const m = S.mesSeances.find(x => x.id === el.dataset.id); if (m) openEditor("prep", applySuggestions(clone(m)), { srcId: m.id }); },
   "my-plan": el => openAddEvent({ ref: { k: "p", id: el.dataset.id } }),
@@ -4184,7 +4204,7 @@ const A = {
   "run-feel": el => { R.feel = +el.dataset.v; renderRunner(); },
   "run-save": () => { const n = saveRunHistory(); closeRunner(); toast(n ? "Séance enregistrée · " + (n > 1 ? n + " nouveaux records" : "nouveau record") : "Séance enregistrée"); },
   "run-discard": () => { Sheet.closeAll(); closeRunner(); },
-  "run-resume": () => { const r = loadRun(); if (!r) { render(); return; } if (r.se.items.some(it => !EX_BY_ID[it.id])) { clearRun(); render(); toast("Cette séance contenait un exercice qui n’existe plus."); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; renderRunner(); },
+  "run-resume": () => { const r = loadRun(); if (!r) { render(); return; } if (r.se.items.some(it => !EX_BY_ID[it.id])) { clearRun(); render(); toast("Cette séance contenait un exercice qui n’existe plus."); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; lockPage(); renderRunner(); },
   /* accueil */
   "cal-go": el => { UI.calSel = el.dataset.d; UI.calMonth = el.dataset.d.slice(0, 7); goTab("agenda"); },
   "timer-open": () => { unlockAudio(); openTimer(); },
