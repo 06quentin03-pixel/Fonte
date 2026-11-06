@@ -9,7 +9,7 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 |---|---|---|---|
 | 1 — Audit complet | ✅ Terminée le 5 nov. 2026 | `claude/audit-phase-1` | `docs/AUDIT_PHASE1.md`, `tools/analyse-volume.js`, `docs/PROMPT_PHASE2.md` |
 | 2 — Plan d’amélioration | ✅ Terminée le 5 nov. 2026 | `claude/plan-phase-2` (part de `claude/audit-phase-1`) | `docs/PLAN_PHASE2.md`, `docs/PROMPT_PHASE3A.md` |
-| 3A — Filet de sécurité (D2, D5, D6, D1-a, S1-a, tests navigateur) **puis** moteurs en fichiers séparés (A1, A3, D8 cadre) | ⏳ À faire (nouvelle session) | — | voir `docs/PROMPT_PHASE3A.md` |
+| 3A — Filet de sécurité (D2, D5, D6, D1-a, S1-a, tests navigateur) **puis** moteurs en fichiers séparés (A1, A3, D8 cadre) | ⏳ En cours : partie 1 (filet de sécurité) faite | `claude/phase-3a-securite-moteurs` | voir `docs/PROMPT_PHASE3A.md` |
 | 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | À faire | — | — |
 | 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | À faire | — | — |
 | 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | À faire | — | — |

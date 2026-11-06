@@ -495,6 +495,7 @@ textarea.inp { padding: 10px 14px; min-height: 72px; resize: vertical; line-heig
   display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; background: var(--ink); color: var(--bg); border-radius: var(--r); box-shadow: var(--shadow); font-weight: 600; font-size: 14px; }
 .upd span { flex: 1; min-width: 0; }
 .upd .btn { min-height: 38px; }
+.undo { z-index: 75; }
 .toast { position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 16px); transform: translateX(-50%); z-index: 80;
   background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-weight: 600; font-size: 14px; box-shadow: var(--shadow); max-width: calc(100% - 32px); text-align: center; }
 
@@ -623,6 +624,7 @@ textarea.inp { padding: 10px 14px; min-height: 72px; resize: vertical; line-heig
 <div id="onb" class="overlay onb" hidden role="dialog" aria-modal="true" aria-label="Bienvenue dans Fonte"></div>
 <div id="sheets"></div>
 <div id="toast" class="toast" hidden></div>
+<div id="undo" class="upd undo" role="status" hidden><span></span><button class="btn btn-primary" data-a="run-undo-discard">Annuler</button></div>
 <div id="upd" class="upd" role="status" hidden><span>Nouvelle version de Fonte prête</span><button class="btn btn-primary" data-a="app-reload">Recharger</button></div>
 <script>/* ===== Base d'exercices =====
    X(id, nom, groupe, muscles principaux, secondaires, matériel, niveau 1-3, type r=répétitions t=temps, étapes, conseils, options)
@@ -2020,6 +2022,44 @@ function progress(id, lp) {
   if (easy && !big && T && (minR >= T + 3 || (minRir != null && minRir >= 3))) { res.next = loadStep(id, nx, 1); res.why = "up2"; }
   return res;
 }
+/* Garde-fou S1-a : la séance prévue vise un nombre de répétitions très différent de la dernière fois (écart ≥ 3,
+   ex. 5 × 5 à 100 kg puis 10 répétitions). Augmenter la charge de la dernière fois donnerait une charge irréalisable :
+   on la convertit par le 1RM estimé (Epley) avec une marge de prudence de 5 %, arrondie vers le bas au matériel.
+   Renvoie la charge convertie, ou null si la conversion ne s’applique pas (écart < 3, exercice sans charge, assistance, durée). */
+const CONV_GAP = 3, CONV_MARGIN = 0.05;
+/* Plus grande charge réellement disponible inférieure ou égale à kg (minimum du matériel respecté) */
+function floorLoad(id, kg, barre) {
+  const L = LOAD[id], k = L && L[0];
+  if (k === "d" || k === "k") { const list = k === "d" ? DB_KG : KB_KG, p = list.filter(x => x <= kg + 1e-9).pop(); return p != null ? p : list[0]; }
+  const st = chargeStep(EX_BY_ID[id]), v = Math.round(Math.floor(kg / st + 1e-9) * st * 100) / 100;
+  const min = { b: barre || 20, e: 10, s: 15, m: 5, c: 2.5 }[k] || 0;
+  return Math.max(min, v);
+}
+function convertLoad(id, lp, targetReps, barre) {
+  if (!lp || !Array.isArray(lp.sets) || !lp.sets.length || !(targetReps > 0)) return null;
+  const L = LOAD[id];
+  if (isAssist(id) || (L && (L[0] === "x" || (L[2] || "").indexOf("w") >= 0))) return null;
+  const sets = lp.sets.filter(s => s && s.kg > 0 && s.r > 0);
+  if (!sets.length) return null;
+  const ref = lp.target || Math.min.apply(null, sets.map(s => s.r));
+  if (Math.abs(targetReps - ref) < CONV_GAP) return null;
+  /* la série la plus lourde, avec le moins de répétitions faites à cette charge (estimation prudente) */
+  const kg = Math.max.apply(null, sets.map(s => s.kg)), r = Math.min.apply(null, sets.filter(s => s.kg === kg).map(s => s.r));
+  const rm = kg * (1 + Math.min(r, 15) / 30);
+  return floorLoad(id, rm / (1 + Math.min(targetReps, 15) / 30) * (1 - CONV_MARGIN), barre);
+}
+/* Rappel de sauvegarde (D1-a) : après 10 séances ou 14 jours depuis la dernière sauvegarde (au moins une séance depuis),
+   jamais pendant un report (« Me le rappeler dans 7 jours »). Sans aucune sauvegarde : dès 3 séances, comme avant.
+   Renvoie null ou { last, days, n } (n = séances faites depuis la dernière sauvegarde). */
+const BK_SESSIONS = 10, BK_DAYS = 14, BK_SNOOZE_DAYS = 7;
+function backupDueAt(hist, last, snooze, now) {
+  hist = Array.isArray(hist) ? hist : [];
+  if (now < (snooze || 0)) return null;
+  const n = hist.filter(h => h && (h.ts || 0) > (last || 0)).length;
+  if (!last) return hist.length >= 3 ? { last: 0, days: 0, n } : null;
+  const days = Math.floor((now - last) / 864e5);
+  return n >= BK_SESSIONS || (n >= 1 && days >= BK_DAYS) ? { last, days, n } : null;
+}
 /* Nombre de séances ratées d’affilée à la même charge, à enregistrer avec la nouvelle performance */
 function failCount(prev, sets, target) {
   const kg = Math.max.apply(null, sets.map(s => s.kg || 0));
@@ -3254,17 +3294,20 @@ function defaultItem(ex) {
   const it = { id: ex.id, series: Math.max(2, s - (ctx.lvl === 1 ? 1 : 0)), reps: 0, duree: 0, repos: adjRest(ctx, rest), charge: 0 };
   if (ex.t === "t") { it.duree = ex.dt || 30; if (ex.g === "cardio" && ex.dt >= 300) { it.series = 1; it.repos = 0; } if (ex.g === "mobilite" || ex.g === "etirements") { it.series = ex.pc ? 2 : 1; it.repos = 10; } }
   else it.reps = r;
-  const sg = suggest(ex.id); if (sg) it.charge = sg.next; else it.charge = estCharge(ex.id, it.reps || 12, S.profile);
+  const sg = suggest(ex.id), cv = convFor(ex.id, it.reps); if (cv != null) it.charge = cv; else if (sg) it.charge = sg.next; else it.charge = estCharge(ex.id, it.reps || 12, S.profile);
   if (ECH.has(ex.id) && iso && it.series > 1) it.echec = 1;
   return it;
 }
 /* Conseil de progression (voir progress() : double progression, ressenti, allègement après 3 échecs) */
 function suggest(id) { return progress(id, S.lastPerf[id]); }
-function perfLine(id) {
+/* Garde-fou S1-a : charge convertie quand la séance vise au moins 3 répétitions de plus ou de moins que la dernière fois (sinon null) */
+function convFor(id, reps) { return reps > 0 ? convertLoad(id, S.lastPerf[id], reps, S.profile.barre) : null; }
+function perfLine(id, reps) {
   const lp = S.lastPerf[id]; if (!lp || !lp.sets || !lp.sets.length) return "";
   const kg = Math.max.apply(null, lp.sets.map(s => s.kg || 0));
-  const sg = suggest(id);
+  const sg = suggest(id), cv = convFor(id, reps);
   let t = "Dernière fois : " + lp.sets.map(s => s.r).join("-") + " reps" + (kg || isAssist(id) ? " à " + kgTxt(id, kg) : "");
+  if (cv != null) return t + " → pour " + reps + " reps, charge recalculée : " + kgTxt(id, cv) + " (estimation prudente)";
   if (sg) t += {
     up: sg.up ? " → essaie " + kgTxt(id, sg.next) + (sg.reps ? " × " + sg.reps : "") : "",
     up2: " → c’était facile : essaie " + kgTxt(id, sg.next),
@@ -3282,6 +3325,8 @@ function applySuggestions(se) {
   se.items.forEach(it => {
     const lp = S.lastPerf[it.id], sg = suggest(it.id);
     if (sg && (!it.charge || (lp.ts || 0) > (se.upd || 0))) {
+      const cv = it.duree ? null : convFor(it.id, it.reps);
+      if (cv != null) { it.charge = cv; return; } /* S1-a : autre nombre de répétitions → charge convertie, pas augmentée */
       it.charge = sg.next;
       if (sg.reps && it.reps && !it.duree && (lp.base || lp.target) === (it.base || it.reps)) { it.base = it.base || it.reps; it.reps = sg.reps; }
     } else if (!it.charge) { const e = estCharge(it.id, it.reps || 12, S.profile); if (e) it.charge = e; }
@@ -3867,7 +3912,7 @@ function swapTo(newId) {
   const it = Object.assign({}, old, { id: newId, charge: 0, echec: ECH.has(newId) ? old.echec : 0 });
   delete it.base;
   if (ex.t === "t") { it.reps = 0; it.duree = it.duree || ex.dt || 30; } else { it.duree = 0; it.reps = it.reps || 10; }
-  const sg = suggest(newId); it.charge = sg ? sg.next : estCharge(newId, it.reps || 12, S.profile);
+  const sg = suggest(newId), cv = convFor(newId, it.reps); it.charge = cv != null ? cv : sg ? sg.next : estCharge(newId, it.reps || 12, S.profile);
   if (R.se.dl && it.charge) deloadSe({ items: [it], mode: R.se.mode });
   if (!R.log[i].length) R.se.items[i] = it;
   else {
@@ -4003,10 +4048,8 @@ const LS_BK = "fonte:backup", LS_BKS = "fonte:bksnooze";
 function lsNum(k) { try { return +(localStorage.getItem(k) || 0); } catch (e) { return 0; } }
 function markBackup() { try { localStorage.setItem(LS_BK, String(Date.now())); } catch (e) { } }
 function backupDue() {
-  if (S.historique.length < 3 || Sync.state === "live") return null;
-  const last = lsNum(LS_BK), days = last ? Math.floor((Date.now() - last) / 864e5) : 0;
-  if ((last && days < 30) || Date.now() < lsNum(LS_BKS)) return null;
-  return { last, days };
+  if (Sync.state === "live") return null;
+  return backupDueAt(S.historique, lsNum(LS_BK), lsNum(LS_BKS), Date.now());
 }
 /* Fichier de sauvegarde complet : profil, séances, historique, records, notes, mesures, agenda */
 function backupName() { return "fonte-sauvegarde-" + todayISO() + ".json"; }
@@ -4360,7 +4403,7 @@ const Sheet = {
   foot() { const t = this.top(); return t ? t.el.querySelector(".sheet-foot") : null; }
 };
 let toastT = null;
-function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600); }
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, msg.length > 90 ? 6000 : 2600); }
 function arm(el, label) {
   if (el.dataset.armed) return true;
   el.dataset.armed = "1"; const old = el.innerHTML; el.textContent = label || "Touche encore pour confirmer";
@@ -4408,9 +4451,10 @@ function viewAccueil() {
   let h = "";
   if (PWA && !INSTALLED && !UI.hideInstall) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;gap:12px;align-items:center"><svg aria-hidden="true" style="width:44px;height:44px;flex-shrink:0"><use href="#logo"/></svg><div class="row-main"><div class="h3">Installe Fonte</div><p class="small muted">Dans Safari, touche le bouton Partager (le carré avec une flèche), puis « Sur l’écran d’accueil ». Fonte s’ouvrira comme une appli, même sans réseau.</p></div></div><button class="btn" data-a="hide-install">J’ai compris</button></div></section>`;
   const bk = backupDue();
-  if (bk) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="row-main"><div class="h3">Sauvegarde du mois</div><p class="small muted">${bk.last ? "Ta dernière sauvegarde date de " + plural(bk.days, "jour") + "." : "Tu n’as encore jamais sauvegardé tes données."} Touche « Sauvegarder », puis « Enregistrer dans Fichiers » et choisis <b>iCloud Drive</b> : ton historique te suivra sur ton prochain iPhone.</p></div><div class="btn-row"><button class="btn btn-primary" data-a="bk-now">${icon("download")}Sauvegarder</button><button class="btn" data-a="bk-later">Plus tard</button></div></div></section>`;
+  if (bk) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="row-main"><div class="h3">Pense à sauvegarder</div><p class="small muted">${bk.last ? (bk.days ? "Ta dernière sauvegarde date de " + plural(bk.days, "jour") : "Depuis ta dernière sauvegarde") + (bk.n ? ", " + plural(bk.n, "séance") + " faite" + (bk.n > 1 ? "s" : "") + " depuis" : "") + "." : "Tu n’as encore jamais sauvegardé tes données."} Touche « Sauvegarder », puis « Enregistrer dans Fichiers » et choisis <b>iCloud Drive</b> : ton historique te suivra sur ton prochain iPhone.</p></div><div class="btn-row"><button class="btn btn-primary" data-a="bk-now">${icon("download")}Sauvegarder</button><button class="btn" data-a="bk-later">Me le rappeler dans 7 jours</button></div></div></section>`;
   const run = loadRun();
-  if (run) h += `<section><div class="card card-accent banner"><div class="row-main"><div class="eyebrow" style="color:inherit;opacity:.8">${run.done ? "Séance terminée, à enregistrer" : "Séance en cours"}</div><div class="row-title" style="font-size:17px">${esc(run.se.nom)}</div></div><button class="btn" data-a="run-resume" style="background:var(--accent-ink);color:var(--accent)">Reprendre</button></div></section>`;
+  if (run && run.stale) { const n = runSets(run); h += `<section><div class="card" id="run-stale" style="display:flex;flex-direction:column;gap:10px"><div class="row-main"><div class="eyebrow">Séance non terminée</div><div class="h3">Séance du ${esc(fmtDay(toISO(new Date(run.start || Date.now()))))} : ${esc(run.se.nom || "Séance")}</div><p class="small muted">${n ? plural(n, "série") + " déjà fait" + (n > 1 ? "es" : "e") + ". Tu peux l’enregistrer à sa date, avec ce qui a été fait, ou la supprimer." : "Aucune série n’a été faite."}</p></div><div class="btn-row">${n ? `<button class="btn btn-primary" data-a="run-stale-save">${icon("check")}Enregistrer ce qui a été fait</button>` : ""}<button class="btn" data-a="run-stale-del">Supprimer</button></div></div></section>`; }
+  else if (run) h += `<section><div class="card card-accent banner"><div class="row-main"><div class="eyebrow" style="color:inherit;opacity:.8">${run.done ? "Séance terminée, à enregistrer" : "Séance en cours"}</div><div class="row-title" style="font-size:17px">${esc(run.se.nom)}</div></div><button class="btn" data-a="run-resume" style="background:var(--accent-ink);color:var(--accent)">Reprendre</button></div></section>`;
   if (!p.sexe || !p.age || !p.taille || !p.poids) {
     h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;gap:14px;align-items:center">${figHTML(["pecs", "quadriceps", "dorsaux", "fessiers"], ["abdos", "epaules_ant", "ischios"], "sm")}<div class="row-main"><div class="h3">Ton programme sur mesure</div><p class="small muted">5 petites questions et Fonte te prépare un programme avec les bons exercices et les bons poids.</p></div></div><button class="btn btn-primary" data-a="onb-open">Répondre aux questions</button></div></section>`;
   }
@@ -4736,7 +4780,7 @@ function viewProfil() {
   </div></section>
   ${mesuresCard()}
   <section>${adaptCard()}</section>
-  <section><div class="sec-h"><h2>Données</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${statusHTML()}<p class="small muted">${PWA ? "Tout reste sur ce téléphone et fonctionne sans réseau. Fonte te propose une sauvegarde tous les 30 jours ; fais-en une aussi juste avant de changer de téléphone. " + backupAgo() + "." : "Tout est enregistré sur ce téléphone et fonctionne sans réseau une fois l’appli ouverte. Quand tu es connecté à ton compte Claude, ton profil, tes séances et ton historique sont aussi sauvegardés dans ton compte (privés, toi seul y as accès)."}</p><div class="btn-row"><button class="btn" data-a="data-export">${icon("download")}${PWA ? "Sauvegarder / transférer" : "Transférer mes données"}</button><button class="btn" data-a="data-import">Restaurer</button></div>${simple() ? "" : `<button class="btn" data-a="csv-export">${icon("download")}Exporter l’historique (tableur)</button>`}<div class="btn-row"><button class="btn" data-a="hist-clear">Effacer l’historique</button><button class="btn btn-danger" data-a="reset-all">Tout réinitialiser</button></div></div></section>
+  <section><div class="sec-h"><h2>Données</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${statusHTML()}<p class="small muted">${PWA ? "Tout reste sur ce téléphone et fonctionne sans réseau. Fonte te propose une sauvegarde toutes les 10 séances ou tous les 14 jours ; fais-en une aussi juste avant de changer de téléphone. " + backupAgo() + "." : "Tout est enregistré sur ce téléphone et fonctionne sans réseau une fois l’appli ouverte. Quand tu es connecté à ton compte Claude, ton profil, tes séances et ton historique sont aussi sauvegardés dans ton compte (privés, toi seul y as accès)."}</p><div class="btn-row"><button class="btn" data-a="data-export">${icon("download")}${PWA ? "Sauvegarder / transférer" : "Transférer mes données"}</button><button class="btn" data-a="data-import">Restaurer</button></div>${simple() ? "" : `<button class="btn" data-a="csv-export">${icon("download")}Exporter l’historique (tableur)</button>`}<div class="btn-row"><button class="btn" data-a="hist-clear">Effacer l’historique</button><button class="btn btn-danger" data-a="reset-all">Tout réinitialiser</button></div>${undoBtn()}</div></section>
   <section><div class="card" style="display:flex;gap:14px;align-items:center"><div class="brand"><svg aria-hidden="true" style="width:46px;height:46px"><use href="#logo"/></svg></div><div class="row-main"><b>Fonte</b><span class="small muted">${EX.length} exercices · ${TPL.length} séances types. Les estimations (calories, fréquence cardiaque) sont indicatives. En cas de douleur ou de souci de santé, demande l’avis d’un médecin.</span></div></div></section>`;
 }
 const VIEWS = { accueil: viewAccueil, exercices: viewExercices, seances: viewSeances, agenda: viewAgenda, profil: viewProfil };
@@ -4763,7 +4807,7 @@ function edItem(it, i) {
   f.push(it.duree > 0 ? edStp(i, "duree", it.duree, "Durée (s)", 5) : edStp(i, "reps", it.reps, "Reps", 1));
   if (!(e.g === "cardio" || e.g === "mobilite" || e.g === "etirements") && !(it.duree > 0 && !it.charge)) f.push(edStp(i, "charge", it.charge, isAssist(e.id) ? "Assist. kg" : (chargeLabel(e.id, 1) === "Kg / haltère" ? "Kg / haltère" : "Charge kg"), chargeStep(e)));
   f.push(edStp(i, "repos", it.repos, circ ? "Récup (s)" : "Repos (s)", circ ? 5 : 15));
-  const pl = perfLine(it.id);
+  const pl = perfLine(it.id, it.duree ? 0 : it.reps);
   return `<div class="ed-item"><div class="ed-head">${figHTML(e.p, e.s, "xs")}<div class="row-main" data-a="ex-open" data-id="${e.id}" role="button" tabindex="0"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}${it.parCote ? " · par côté" : ""}</div></div><div class="ed-tools"><button data-a="ed-move" data-i="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} aria-label="Monter">${icon("up")}</button><button data-a="ed-move" data-i="${i}" data-d="1" ${i === n - 1 ? "disabled" : ""} aria-label="Descendre">${icon("down")}</button><button data-a="ed-del" data-i="${i}" aria-label="Retirer">${icon("trash")}</button></div></div><div class="ed-grid ${f.length === 3 ? "c3" : ""}">${f.join("")}</div>${(ECH.has(e.id) || (!circ && i < n - 1)) && !circ ? `<div class="ed-flags">${ECH.has(e.id) ? `<button class="chip chip-sm" data-a="ed-echec" data-i="${i}" aria-pressed="${!!it.echec}">${icon("flame")}Dernière série à l’échec</button>` : ""}${i < n - 1 ? `<button class="chip chip-sm" data-a="ed-ss" data-i="${i}" aria-pressed="${!!it.ss}">${icon("link")}Superset avec le suivant</button>` : ""}</div>` : ""}${pl ? `<div class="small muted">${esc(pl)}</div>` : ""}</div>${linked(E.se, i) ? `<div class="ss-join">${icon("link")}<span>Enchaîné sans repos avec ${esc((EX_BY_ID[E.se.items[i + 1].id] || {}).n || "le suivant")}, repos après le dernier exercice du superset</span></div>` : ""}`;
 }
 function renderEditor() {
@@ -4814,10 +4858,38 @@ let R = null;
 const RING_C = 2 * Math.PI * 54;
 function saveRun() { try { if (R) localStorage.setItem(LS_RUN, JSON.stringify(R)); } catch (e) { } }
 function clearRun() { try { localStorage.removeItem(LS_RUN); } catch (e) { } }
+/* Séance commencée il y a plus de 12 h : plus proposée à la reprise, mais jamais ignorée en silence (D6) :
+   l’accueil propose de l’enregistrer à sa date ou de la supprimer. r.stale l’indique (non enregistré dans fonte:run). */
+const STALE_MS = 12 * 3600e3;
 function loadRun() {
-  try { const r = JSON.parse(localStorage.getItem(LS_RUN) || "null"); if (r && r.se && r.steps && Date.now() - r.start < 12 * 3600e3) return r; } catch (e) { }
+  try { const r = JSON.parse(localStorage.getItem(LS_RUN) || "null"); if (r && r.se && r.steps && Array.isArray(r.log)) { r.stale = !(Date.now() - (r.start || 0) < STALE_MS); return r; } } catch (e) { }
   return null;
 }
+const runSets = r => (r && Array.isArray(r.log) ? r.log.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0) : 0);
+/* « Ne pas enregistrer » (D2) : la séance supprimée est gardée 10 s dans fonte:run-trash pour « Annuler », même après rechargement */
+const LS_TRASH = "fonte:run-trash", UNDO_MS = 10e3;
+let undoT = null;
+function showUndo(msg, action, until) {
+  const b = $("#undo"); if (!b) return;
+  clearTimeout(undoT);
+  b.querySelector("span").textContent = msg; b.querySelector("button").dataset.a = action; b.hidden = false;
+  undoT = setTimeout(hideUndo, Math.max(0, until - Date.now()));
+}
+function hideUndo() { const b = $("#undo"); if (b) b.hidden = true; clearTimeout(undoT); }
+function trashRun(r) {
+  const run = clone(r); delete run.stale;
+  const at = Date.now();
+  try { localStorage.setItem(LS_TRASH, JSON.stringify({ at, run })); } catch (e) { }
+  TRASH = { at, run };
+  showUndo("Séance supprimée", "run-undo-discard", at + UNDO_MS);
+}
+let TRASH = null;
+function readTrash() {
+  let t = TRASH;
+  if (!t) try { t = JSON.parse(localStorage.getItem(LS_TRASH) || "null"); } catch (e) { t = null; }
+  return t && t.run && Date.now() - (t.at || 0) < UNDO_MS ? t : null;
+}
+function clearTrash() { TRASH = null; try { localStorage.removeItem(LS_TRASH); } catch (e) { } }
 let AC = null;
 function unlockAudio() { try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) { AC = null; } }
 function beep(f, d, v) {
@@ -4931,7 +5003,7 @@ function renderRunner() {
       body += `<div class="target"${showKg ? "" : ' style="grid-template-columns:1fr"'}><div class="big-stp"><span>${st.fail ? "Répétitions (max)" : "Répétitions"}</span><div class="v" id="run-r">${R.cur.r}</div><div class="ctl"><button data-a="run-adj" data-f="r" data-d="-1" aria-label="Une répétition de moins">−</button><button data-a="run-adj" data-f="r" data-d="1" aria-label="Une répétition de plus">+</button></div></div>${showKg ? `<div class="big-stp"><span>${chargeLabel(e.id)}</span><div class="v" id="run-kg">${fmtNum(R.cur.kg)}<small> kg</small></div><div class="ctl"><button data-a="run-adj" data-f="kg" data-d="${-step}" aria-label="Moins lourd">−</button><button data-a="run-adj" data-f="kg" data-d="${step}" aria-label="Plus lourd">+</button></div></div>` : ""}</div>`;
       if (e.m.indexOf("barre") >= 0 && showKg) body += `<div id="plates-w">${platesHTML(R.cur.kg)}</div>`;
       if (!st.fail && !st.cool && !simple()) body += `<div class="field"><div class="lbl">Répétitions encore possibles à la fin (facultatif) ${gl("reserve")}</div><div class="feel rir" role="group">${[0, 1, 2, 3].map(v => `<button data-a="run-rir" data-v="${v}" aria-pressed="${R.cur.rir === v}">${v === 3 ? "3 et +" : v}</button>`).join("")}</div></div>`;
-      const pl = perfLine(it.id); if (pl) body += `<div class="small muted">${esc(pl)}</div>`;
+      const pl = perfLine(it.id, it.duree ? 0 : it.reps); if (pl) body += `<div class="small muted">${esc(pl)}</div>`;
       if (!simple() || st.cool || st.warm) body += `<p class="small muted">${st.fail ? "Au moins " + it.reps + " répétitions, puis jusqu’à l’échec" : "Objectif : " + it.reps + " répétitions"}${it.charge || isAssist(e.id) ? (isAssist(e.id) ? " avec " : " à ") + kgTxt(e.id, it.charge || 0) : ""}. Ajuste avec − et + si tu en fais plus ou moins${showKg ? ", et change la charge si c’est trop facile ou trop dur" : ""}.</p>`;
       foot = `<button class="btn btn-primary btn-lg btn-block" data-a="run-next">${icon("check")}${chain ? "Enchaîne : " + esc(chain.n) : "Série terminée"}</button>`;
     }
@@ -4987,18 +5059,21 @@ function runNext() {
   R.idx++; enterStep();
 }
 function closeRunner() { R = null; $("#runner").hidden = true; $("#runner").innerHTML = ""; releaseWake(); clearRun(); lockPage(); render(); }
-function saveRunHistory() {
-  const sum = runSummary(), se = R.se;
-  const log = runLog(), pr = findRecords(S.historique, log).map(r => ({ id: r.id, k: r.k, v: r.v }));
+/* at : heure de la séance (séance non terminée de plus de 12 h enregistrée à sa date, D6) ; par défaut maintenant */
+function saveRunHistory(at) {
+  const sum = runSummary(), se = R.se, now = at || Date.now();
+  const log = runLog(), pr = findRecords(S.historique.filter(h => (h.ts || 0) < now), log).map(r => ({ id: r.id, k: r.k, v: r.v }));
   const ref = R.tplId ? { k: "t", id: R.tplId } : (R.srcId ? { k: "p", id: R.srcId } : null);
-  const today = todayISO();
-  S.historique.unshift({ id: rid(), date: today, ts: Date.now(), nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log, pr: pr.length ? pr : undefined, pj: R.pj != null ? R.pj : undefined, pk: R.pk || undefined, dl: se.dl ? 1 : undefined });
+  const today = toISO(new Date(now));
+  S.historique.unshift({ id: rid(), date: today, ts: now, nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log, pr: pr.length ? pr : undefined, pj: R.pj != null ? R.pj : undefined, pk: R.pk || undefined, dl: se.dl ? 1 : undefined });
   UI.progSkip = 0;
+  if (at) S.historique.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   S.historique = trimHist(S.historique);
   se.items.forEach((it, i) => {
     const reps = R.log[i].filter(x => x.r != null); if (!reps.length || se.dl || it.warm || it.cool) return; /* semaine allégée : les charges de référence ne baissent pas */
+    if (S.lastPerf[it.id] && (S.lastPerf[it.id].ts || 0) > now) return; /* séance ancienne : ne remplace pas une référence plus récente */
     const sets = reps.map(x => Object.assign({ r: x.r, kg: x.kg || 0 }, x.rir != null ? { rir: x.rir } : {}));
-    S.lastPerf[it.id] = { d: today, ts: Date.now(), sets, target: it.reps, base: it.base || it.reps, feel: R.feel || 0, fails: failCount(S.lastPerf[it.id], sets, it.reps) };
+    S.lastPerf[it.id] = { d: today, ts: now, sets, target: it.reps, base: it.base || it.reps, feel: R.feel || 0, fails: failCount(S.lastPerf[it.id], sets, it.reps) };
   });
   let ag = false;
   const ev = R.eventId ? S.agenda.find(e => e.id === R.eventId) : (ref ? S.agenda.find(e => e.date === today && !e.fait && e.ref && e.ref.k === ref.k && e.ref.id === ref.id) : null);
@@ -5086,6 +5161,35 @@ function importCode(raw) {
   return null;
 }
 
+/* ===== Copie de sécurité avant une opération qui remplace ou efface les données (D5) =====
+   fonte:undo = contenu exact de fonte:v1 juste avant l’opération ; fonte:undo-info = { at, reason }. Une seule copie (la plus récente).
+   Si la copie ne tient pas dans la mémoire du téléphone, l’opération est refusée (rien n’est modifié). */
+const LS_UNDO = "fonte:undo", LS_UNDO_INFO = "fonte:undo-info";
+const UNDO_REASONS = { restore: "avant la restauration", "hist-clear": "avant l’effacement de l’historique", "reset-all": "avant la réinitialisation", undo: "avant le retour en arrière" };
+const SNAP_FAIL = "Pas assez de place sur ce téléphone pour garder une copie de sécurité : rien n’a été modifié. Fais d’abord une sauvegarde fichier (Profil › Sauvegarder / transférer).";
+function snapshotLocal(reason) {
+  if (!saveLocal()) return false;
+  let raw = null; try { raw = localStorage.getItem(LS); } catch (e) { return false; }
+  if (raw == null) raw = JSON.stringify(S);
+  try { localStorage.setItem(LS_UNDO, raw); localStorage.setItem(LS_UNDO_INFO, JSON.stringify({ at: Date.now(), reason })); return true; }
+  catch (e) { try { localStorage.removeItem(LS_UNDO_INFO); } catch (e2) { } return false; }
+}
+function undoInfo() {
+  try { const i = JSON.parse(localStorage.getItem(LS_UNDO_INFO) || "null"); if (i && i.at && localStorage.getItem(LS_UNDO) != null) return i; } catch (e) { }
+  return null;
+}
+/* Revenir à l’état d’avant : l’état actuel devient à son tour la copie de sécurité (on peut revenir encore) */
+function undoRestore() {
+  let raw = null; try { raw = localStorage.getItem(LS_UNDO); } catch (e) { }
+  let o = null; try { o = JSON.parse(raw); } catch (e) { o = null; }
+  if (!o || typeof o !== "object") return "Aucune copie de sécurité utilisable.";
+  if (!snapshotLocal("undo")) return SNAP_FAIL;
+  /* la copie vient d’être remplacée par l’état actuel : on remet l’ancienne */
+  try { localStorage.setItem(LS, raw); } catch (e) { return SNAP_FAIL; }
+  S = loadState();
+  commit("pa");
+  return null;
+}
 function dataPayload() { return { v: 1, app: "fonte", at: Date.now(), profile: S.profile, mesSeances: S.mesSeances, historique: S.historique, lastPerf: S.lastPerf, notes: S.notes, mesures: S.mesures, deload: S.deload, agenda: S.agenda, imports: S.imports }; }
 function dataCode() { return "FONTEDATA1." + b64e(JSON.stringify(dataPayload())); }
 function restoreData(raw) {
@@ -5096,6 +5200,7 @@ function restoreData(raw) {
     o = m ? JSON.parse(b64d(m[1])) : JSON.parse(raw);
   } catch (e) { return "Ce fichier ou ce code n’est pas une sauvegarde Fonte complète."; }
   if (!o || typeof o !== "object" || !o.profile) return "Ce fichier ou ce code n’est pas une sauvegarde Fonte.";
+  if (!snapshotLocal("restore")) return SNAP_FAIL;
   S.profile = normProfile(o.profile);
   S.mesSeances = Array.isArray(o.mesSeances) ? o.mesSeances.filter(m => m && Array.isArray(m.items)) : [];
   S.historique = Array.isArray(o.historique) ? trimHist(o.historique.filter(h => h && h.id && h.date).sort((a, b) => (b.ts || 0) - (a.ts || 0))) : [];
@@ -5108,6 +5213,11 @@ function restoreData(raw) {
   S.imports = Array.isArray(o.imports) ? o.imports.filter(i => i && i.id).map(i => Object.assign(i, { events: cleanEvents(i.events) })) : [];
   commit("pa");
   return null;
+}
+function undoBtn() {
+  const i = undoInfo(); if (!i) return "";
+  const d = new Date(i.at);
+  return `<div style="display:flex;flex-direction:column;gap:6px"><button class="btn" data-a="undo-restore" id="undo-restore">${icon("refresh")}Revenir à l’état d’avant</button><p class="small muted">Copie de sécurité faite ${esc(UNDO_REASONS[i.reason] || "")} du ${esc(fmtDay(toISO(d)))} à ${pad(d.getHours())} h ${pad(d.getMinutes())}.</p></div>`;
 }
 function canShareFiles() { try { return !!(navigator.canShare && navigator.canShare({ files: [new File(["{}"], "t.json", { type: "application/json" })] })); } catch (e) { return false; } }
 
@@ -5235,8 +5345,37 @@ const A = {
   "run-end": () => { Sheet.closeAll(); finishRun(); },
   "run-feel": el => { R.feel = +el.dataset.v; renderRunner(); },
   "run-save": () => { const n = saveRunHistory(); closeRunner(); toast(n ? "Séance enregistrée · " + (n > 1 ? n + " nouveaux records" : "nouveau record") : "Séance enregistrée"); if (S.profile.bilanNew != null) setTimeout(() => openBilan(S.profile.bilanNew), 400); },
-  "run-discard": () => { Sheet.closeAll(); closeRunner(); },
-  "run-resume": () => { const r = loadRun(); if (!r) { render(); return; } if (r.se.items.some(it => !EX_BY_ID[it.id])) { clearRun(); render(); toast("Cette séance contenait un exercice qui n’existe plus."); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; lockPage(); renderRunner(); },
+  /* D2 : supprimer une séance contenant au moins une série demande confirmation, puis « Annuler » pendant 10 s */
+  "run-discard": () => {
+    const n = runSets(R);
+    if (!n) { Sheet.closeAll(); closeRunner(); return; }
+    Sheet.open({ key: "discard", title: "Supprimer cette séance ?", body: `<p class="muted">${plural(n, "série")} ${n > 1 ? "seront perdues" : "sera perdue"}. Tu pourras encore annuler pendant 10 secondes.</p>`, foot: `<button class="btn" data-a="sheet-close">Revenir</button><button class="btn btn-danger" data-a="run-discard-ok">Supprimer</button>` });
+  },
+  "run-discard-ok": () => { const r = R; Sheet.closeAll(); if (r) trashRun(r); closeRunner(); },
+  "run-undo-discard": () => {
+    const t = readTrash(); hideUndo();
+    if (!t) { toast("Trop tard : la séance a été supprimée."); return; }
+    if (R) { toast("Termine d’abord la séance en cours."); return; }
+    try { localStorage.setItem(LS_RUN, JSON.stringify(t.run)); } catch (e) { toast("Impossible de récupérer la séance."); return; }
+    clearTrash(); toast("Séance récupérée");
+    A["run-resume"]();
+  },
+  /* D6 : séance de plus de 12 h, enregistrée à sa date ou supprimée (avec confirmation et « Annuler ») */
+  "run-stale-save": () => {
+    const r = loadRun(); if (!r || !r.stale) { render(); return; }
+    if (r.se.items.some(it => !EX_BY_ID[it.id])) r.se.items.forEach((it, i) => { if (!EX_BY_ID[it.id]) r.log[i] = []; });
+    delete r.stale; R = r;
+    if (!R.endAt) R.endAt = R.start + Math.min(Date.now() - R.start, estDuree(R.se) * 1000); /* fin inconnue : durée prévue de la séance */
+    const n = saveRunHistory(R.start), d = R.start;
+    closeRunner(); toast("Séance du " + fmtDay(toISO(new Date(d))) + " enregistrée" + (n ? " · " + (n > 1 ? n + " records" : "1 record") : ""));
+  },
+  "run-stale-del": () => {
+    const r = loadRun(); if (!r) { render(); return; }
+    const n = runSets(r);
+    Sheet.open({ key: "discard", title: "Supprimer cette séance ?", body: `<p class="muted">${n ? plural(n, "série") + " " + (n > 1 ? "seront perdues" : "sera perdue") + ". " : ""}Tu pourras encore annuler pendant 10 secondes.</p>`, foot: `<button class="btn" data-a="sheet-close">Revenir</button><button class="btn btn-danger" data-a="run-stale-del-ok">Supprimer</button>` });
+  },
+  "run-stale-del-ok": () => { const r = loadRun(); Sheet.closeAll(); if (r) { trashRun(r); clearRun(); } render(); },
+  "run-resume": () => { const r = loadRun(); if (!r || r.stale) { render(); return; } delete r.stale; if (r.se.items.some(it => !EX_BY_ID[it.id])) { clearRun(); render(); toast("Cette séance contenait un exercice qui n’existe plus."); return; } R = r; unlockAudio(); wakeLock(); $("#runner").hidden = false; lockPage(); renderRunner(); },
   /* accueil */
   "cal-go": el => { UI.calSel = el.dataset.d; UI.calMonth = el.dataset.d.slice(0, 7); goTab("agenda"); },
   "timer-open": () => { unlockAudio(); openTimer(); },
@@ -5437,7 +5576,7 @@ const A = {
   "mes-del": el => { if (!arm(el, "Supprimer ?")) return; S.mesures = S.mesures.filter(x => x.id !== el.dataset.id); commit("p"); const b = Sheet.body(); if (b) { if (S.mesures.length) b.innerHTML = mesSheetBody(); else Sheet.close(); } render(); },
   "ch-m": el => { if (!CH) return; CH.mode = el.dataset.v; if (CH.ptsBy) CH.sel = Math.min(CH.ptsBy[CH.mode].length, 30) - 1; el.parentNode.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === el)); $("#ch").innerHTML = chartInner(); },
   "ch-pt": el => { if (!CH) return; CH.sel = +el.dataset.i; $("#ch").innerHTML = chartInner(); },
-  "bk-later": () => { try { localStorage.setItem(LS_BKS, String(Date.now() + 3 * 864e5)); } catch (e) { } render(); },
+  "bk-later": () => { try { localStorage.setItem(LS_BKS, String(Date.now() + BK_SNOOZE_DAYS * 864e5)); } catch (e) { } render(); toast("Rappel dans 7 jours"); },
   "bk-now": () => shareBackup(),
   "csv-export": () => {
     if (!S.historique.length) { toast("Pas encore de séance dans l’historique."); return; }
@@ -5494,8 +5633,14 @@ const A = {
   },
   "pf-obj-main": el => { const k = el.dataset.v, a = S.profile.objectifs.filter(x => x !== k); a.unshift(k); S.profile.objectifs = a; S.profile.objectif = k; commit("p"); syncPlan(); render(); toast("Objectif principal : " + OBJECTIFS[k].n); },
   "pf-toggle": el => { const f = el.dataset.f; S.profile[f] = !S.profile[f]; commit("p"); render(); },
-  "hist-clear": el => { if (!arm(el)) return; S.historique = []; S.lastPerf = {}; S.histDel = {}; S.histClear = Date.now(); commit("p"); render(); toast("Historique effacé"); },
-  "reset-all": el => { if (!arm(el)) return; const keep = { partners: S.partners }; S = Object.assign(clone(DEF), keep); S.histClear = Date.now(); commit("pa"); render(); toast("Application réinitialisée"); }
+  "hist-clear": el => { if (!arm(el)) return; if (!snapshotLocal("hist-clear")) { toast(SNAP_FAIL); return; } S.historique = []; S.lastPerf = {}; S.histDel = {}; S.histClear = Date.now(); commit("p"); render(); toast("Historique effacé"); },
+  "undo-restore": el => {
+    if (!arm(el, "Revenir à l’état d’avant ?")) return;
+    const err = undoRestore();
+    if (err) { toast(err); return; }
+    initProgress(); syncPlan(); render(); toast("Données d’avant rétablies");
+  },
+  "reset-all": el => { if (!arm(el)) return; if (!snapshotLocal("reset-all")) { toast(SNAP_FAIL); return; } const keep = { partners: S.partners }; S = Object.assign(clone(DEF), keep); S.histClear = Date.now(); commit("pa"); render(); toast("Application réinitialisée"); }
 };
 
 document.addEventListener("click", ev => {
@@ -5564,6 +5709,7 @@ const MISSED = requeue();
 if (MISSED) setTimeout(() => toast(MISSED > 1 ? MISSED + " séances manquées : le programme reprend là où tu t’étais arrêté" : "Séance manquée : tu la feras à ta prochaine séance, la suite est décalée"), 800);
 else if (BODY_UP) setTimeout(() => toast("Ton poids ne baisse plus depuis 3 semaines : 5 min de cardio en plus dans tes séances cardio"), 800);
 render();
+{ const t = readTrash(); if (t) showUndo("Séance supprimée", "run-undo-discard", t.at + UNDO_MS); else clearTrash(); }
 if (onbNeeded() && !loadRun()) openOnb();
 else if (S.profile.bilanNew != null && !loadRun()) setTimeout(() => openBilan(S.profile.bilanNew), 300);
 Sync.init();

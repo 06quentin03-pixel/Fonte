@@ -14,3 +14,16 @@ jobs:
           node-version: 22
       - run: node --check sw.js
       - run: node tests/run.js
+
+  # Tests navigateur (Chromium, écrans d'iPhone 13 et d'iPad simulés). Playwright est installé ici pour les tests seulement :
+  # rien n'est ajouté à l'appli.
+  navigateur:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --no-package-lock playwright@1.63.0
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/e2e/run.js

@@ -12,7 +12,7 @@ const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
 if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
 const ctx = vm.createContext({ console });
 /* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf"];
+const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf", "isAssist", "BK_SNOOZE_DAYS"];
 vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
 const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
 
@@ -529,6 +529,82 @@ test("icsExport : événements avec heure, rappel et texte échappé", () => {
 });
 test("icsExport : sans rappel", () => {
   assert.ok(G.icsExport([{ id: "e", date: "2026-03-02", heure: "08:00", titre: "x" }], { alarm: -1 }).indexOf("VALARM") < 0);
+});
+
+console.log("Garde-fou de charge (S1-a)");
+const sets5 = (n, r, kg) => Array.from({ length: n }, () => ({ r, kg }));
+test("convertLoad : cas de l'audit, 5 × 5 à 100 kg au squat puis 10 répétitions → 82,5 kg (et non 102,5)", () => {
+  const lp = { sets: sets5(5, 5, 100), target: 5, base: 5 };
+  assert.strictEqual(G.convertLoad("squat-barre", lp, 10, 20), 82.5);
+  assert.strictEqual(G.progress("squat-barre", lp).next, 102.5, "sans garde-fou : 102,5 kg");
+});
+test("convertLoad : moins de répétitions → charge plus lourde mais prudente (10 × 70 kg → 75 kg pour 5)", () => {
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 10, 70), target: 10 }, 5, 20), 75);
+});
+test("convertLoad : écart de moins de 3 répétitions, assistance, poids du corps, durée → pas de conversion", () => {
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 8, 80), target: 8 }, 10, 20), null);
+  assert.strictEqual(G.convertLoad("tractions-assistees", { sets: sets5(3, 5, 30), target: 5 }, 12, 20), null);
+  assert.strictEqual(G.convertLoad("pompes", { sets: sets5(3, 5, 0), target: 5 }, 15, 20), null);
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 5, 100), target: 5 }, 0, 20), null);
+  assert.strictEqual(G.convertLoad("squat-barre", null, 10, 20), null);
+});
+test("convertLoad : arrondi vers le bas au matériel (haltères du commerce, machines de 5 en 5, barre minimum)", () => {
+  const d = G.convertLoad("dc-halteres", { sets: sets5(3, 5, 30), target: 5 }, 12, 20);
+  assert.ok(G.DB_KG.indexOf(d) >= 0 && d <= 30 * (1 + 5 / 30) / (1 + 12 / 30) * 0.95, "haltère : " + d);
+  assert.strictEqual(G.convertLoad("presse-cuisses", { sets: sets5(3, 6, 150), target: 6 }, 12, 20) % 5, 0);
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 5, 20), target: 5 }, 15, 20), 20, "jamais sous la barre à vide");
+});
+test("convertLoad : prend la série la plus lourde, au plus petit nombre de répétitions réussies", () => {
+  const lp = { sets: [{ r: 5, kg: 100 }, { r: 3, kg: 100 }, { r: 8, kg: 90 }], target: 5 };
+  assert.strictEqual(G.convertLoad("squat-barre", lp, 10, 20), Math.floor(100 * 1.1 / (1 + 10 / 30) * 0.95 / 2.5) * 2.5);
+});
+test("convertLoad : tous les profils à 2 objectifs (niveaux, 1 à 6 jours, paliers 1 à 4, semaines A et B) → jamais au-dessus de la charge convertie + 1 cran", () => {
+  const objs = Object.keys(G.OBJECTIFS), weeks = ["2026-11-02", "2026-11-09"];
+  let combos = 0, pairs = 0;
+  objs.forEach(a => objs.forEach(b => { if (a === b) return;
+    ["debutant", "intermediaire", "avance"].forEach(niv => { for (let j = 1; j <= 6; j++) for (let ph = 1; ph <= 4; ph++) {
+      const p = Object.assign({}, P_H, { objectif: a, objectifs: [a, b], niveau: niv, jours: j, phase: ph, phaseDone: 0 });
+      const reps = {};
+      weeks.forEach(w => { const pr = G.programme(p); pr.ids.forEach((id, k) => {
+        const se = G.prescribe(G.TPL_BY_ID[G.weekVariant(id, w)], G.profFor(p, pr.objs[k]));
+        se.items.forEach(it => { if (it.reps > 0 && !it.duree && G.LOAD[it.id] && !G.isAssist(it.id)) (reps[it.id] = reps[it.id] || new Set()).add(it.reps); });
+      }); });
+      let hit = false;
+      Object.keys(reps).forEach(id => { const rs = [...reps[id]];
+        rs.forEach(r1 => rs.forEach(r2 => { if (Math.abs(r1 - r2) < 3) return;
+          const kg = G.estCharge(id, r1, p); if (!kg) return;
+          const lp = { sets: sets5(3, r1, kg), target: r1, base: r1 }, cv = G.convertLoad(id, lp, r2, p.barre);
+          const ideal = kg * (1 + Math.min(r1, 15) / 30) / (1 + Math.min(r2, 15) / 30);
+          const tag = a + "+" + b + " " + niv + " " + j + " j palier " + ph + " " + id + " " + r1 + "→" + r2 + " reps à " + kg + " kg : " + cv;
+          assert.ok(cv != null, tag);
+          assert.ok(cv <= Math.max(G.loadStep(id, ideal, 1), G.floorLoad(id, 0, p.barre)) + 1e-9, tag + " au-dessus de la charge convertie + 1 cran");
+          if (r2 > r1) assert.ok(cv <= G.progress(id, lp).next + 1e-9, tag + " plus lourd que sans garde-fou");
+          pairs++; hit = true;
+        }));
+      });
+      if (hit) combos++;
+    } });
+  }));
+  assert.ok(combos > 0 && pairs > 0);
+  console.log("        (" + combos + " combinaisons de profils et " + pairs + " cas de conversion vérifiés)");
+});
+
+console.log("Rappel de sauvegarde (D1-a)");
+test("backupDueAt : jamais sauvegardé → dès 3 séances", () => {
+  const now = Date.UTC(2026, 10, 6), h = n => Array.from({ length: n }, (_, i) => ({ id: "h" + i, ts: now - (i + 1) * 864e5 }));
+  assert.strictEqual(G.backupDueAt(h(2), 0, 0, now), null);
+  assert.ok(G.backupDueAt(h(3), 0, 0, now));
+});
+test("backupDueAt : 10 séances ou 14 jours depuis la dernière sauvegarde, report de 7 jours respecté", () => {
+  const now = Date.UTC(2026, 10, 6), D = 864e5, h = (n, from) => Array.from({ length: n }, (_, i) => ({ id: "h" + i, ts: from + (i + 1) * 3600e3 }));
+  assert.strictEqual(G.backupDueAt(h(9, now - 3 * D), now - 3 * D, 0, now), null, "9 séances en 3 jours");
+  assert.strictEqual(G.backupDueAt(h(10, now - 3 * D), now - 3 * D, 0, now).n, 10, "10 séances");
+  assert.strictEqual(G.backupDueAt(h(1, now - 14 * D), now - 14 * D, 0, now).days, 14, "14 jours et 1 séance");
+  assert.strictEqual(G.backupDueAt(h(1, now - 13 * D), now - 13 * D, 0, now), null, "13 jours");
+  assert.strictEqual(G.backupDueAt([], now - 40 * D, 0, now), null, "rien de nouveau depuis la sauvegarde");
+  assert.strictEqual(G.backupDueAt(h(12, now - 20 * D), now - 20 * D, now + 7 * D, now), null, "reporté");
+  assert.ok(G.backupDueAt(h(12, now - 20 * D), now - 20 * D, now - 1, now), "report terminé");
+  assert.strictEqual(G.BK_SNOOZE_DAYS, 7);
 });
 
 console.log("\n" + pass + " réussis, " + fail + " en échec");
