@@ -21,7 +21,7 @@ Tu n’as pas accès aux sessions précédentes : tout le contexte est dans les 
 - Format v2 et profils multiples en place (`js/engine-user.js` : `storeOpen`, `storeSave`, `migrate`, `MIGRATIONS[1]`, profils, copie de sécurité, `backupPayload` / `decodeBackup` / `applyBackup`) ; `fonte:v1` conservé comme copie de secours.
 - D3 : `rebuildRefs`, `rebuildProgress`, `refStep` dans `js/engine-training.js`.
 - Synchro actuelle : agenda partagé Firebase par **connexion anonyme de l’appareil** (`Cloud` dans `app.js`, `fonte:sync` commun), reliée au profil `owner` ; synchro « compte Claude » (`Sync`, mode artifact) pour le profil `owner` seulement.
-- Tests à relancer au début et noter : `node tests/run.js` (106 réussis attendus) et `node tests/e2e/run.js` (56 réussis attendus : 28 × iPhone 13 et iPad Pro 11 ; Playwright et Chromium sont déjà installés, `require('playwright')`, ne pas les réinstaller).
+- Tests à relancer au début et noter : `node tests/run.js` (106 réussis attendus) et `node tests/e2e/run.js` (58 réussis attendus : 29 × iPhone 13 et iPad Pro 11 ; Playwright et Chromium sont déjà installés, `require('playwright')`, ne pas les réinstaller).
 
 ## Objectif de la phase 3C : sauvegarde et synchro en ligne des données personnelles (D1, D7, D9)
 

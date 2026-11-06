@@ -55,6 +55,8 @@ Tests au début de la session (sur `main` `434b292`) : `node tests/run.js` → *
 - GitHub Actions : exécution n° 50 (commit `51eb44d`) **réussie**, tâches « tests » et « navigateur » (cette dernière comprend la mise à jour depuis `029e2da` et `434b292`).
 - Non testé (impossible ici) : Safari réel, vrais iPhone/iPad, vraie taille des données de vos téléphones → `docs/CHECKLIST_PHASE3B.md`.
 
+**Correction après la fin de 3B (bug signalé par le propriétaire)** : une séance du programme faite **hors du programme** (Séances › Séances types, « Refaire cette séance », séance ajoutée à la main dans l’agenda) ou faite juste avant un changement de programme n’était pas reconnue : l’accueil reproposait la même séance (ex. « Force : squat » deux fois de suite). Désormais (`lastProgDone` dans `app.js`), si la séance la plus récente vient d’une séance type présente dans le programme (ou de sa variante de semaine B), la suite du programme part de là ; sinon, rien ne change. Le programme lui-même n’est pas modifié (photographie identique). Test navigateur ajouté ; reproduit avant correction (« Force : squat » reproposé), vert après. `sw.js` : `VERSION` changée. Tests : `node tests/run.js` → **106 réussis, 0 en échec** ; `node tests/e2e/run.js` → **58 réussis, 0 en échec** (29 × 2 appareils).
+
 **Points ouverts notés pendant 3B** (non corrigés, hors périmètre) :
 - Questionnaire de départ : « Passer » ne garde pas le prénom tapé à la première étape (comportement d’origine).
 - La synchro Claude (mode artifact) fusionne encore `lastPerf` sans recalcul D3 après des suppressions reçues : à reprendre avec la synchro par séance (3C).

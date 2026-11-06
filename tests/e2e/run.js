@@ -474,6 +474,31 @@ test("D3 dans l'appli : supprimer une séance de l'historique recalcule la réf�
   await ctx.close();
 });
 
+/* ---------- Prochaine séance du programme ---------- */
+/* Bug signalé après 3B : une séance du programme lancée hors du programme (Séances types, « Refaire cette séance »)
+   n'était pas reconnue : l'accueil reproposait la même séance. */
+test("prochaine séance : « Force : squat » faite depuis les séances types → l'accueil propose la séance suivante du programme", async (b, srv, dev) => {
+  const prof = { prenom: "Test", sexe: "H", age: 30, taille: 180, poids: 80, niveau: "intermediaire", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple: false };
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: [] }), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "types" }) } });
+  assert.strictEqual((await page.textContent(".hero .hero-t")).trim(), "Force : squat");
+  await tab(page, "seances");
+  await page.click('[data-a="tpl-open"][data-id="force-squat"]');
+  await page.click('.sheet [data-a="tpl-start"]');
+  await page.click('[data-a="ed-go"]');
+  await page.waitForSelector("#runner:not([hidden])");
+  await page.click('#runner [data-a="run-next"]'); /* une série faite */
+  await page.click('#runner [data-a="run-quit"]'); await page.click('.sheet [data-a="run-end"]');
+  await page.click('#runner [data-a="run-save"]'); await page.waitForSelector("#toast:text('Séance enregistrée')");
+  /* le lendemain (séance déplacée de 2 jours en arrière) */
+  const k = await keyOf(page, "fonte:v1");
+  await page.evaluate(k => { const s = JSON.parse(localStorage.getItem(k)), d = new Date(Date.now() - 2 * 864e5); s.historique[0].ts = d.getTime(); s.historique[0].date = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); localStorage.setItem(k, JSON.stringify(s)); }, k);
+  await page.reload(); await page.waitForSelector("#hdr h1");
+  await tab(page, "accueil"); await page.waitForSelector(".hero .hero-t");
+  assert.strictEqual((await page.textContent(".hero .hero-t")).trim(), "Force : développé couché", "plus le squat une deuxième fois");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
 (async () => {
   const { chromium } = require("playwright");
   const browser = await chromium.launch();

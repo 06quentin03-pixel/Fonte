@@ -32,6 +32,11 @@ Cette mise à jour transforme le format de vos données (une seule fois). Fonte 
 13. ✅ Pendant une séance en cours, « Changer de profil » est refusé (« Une séance est en cours dans ce profil… »).
 14. Si tu veux garder l’iPad avec un seul profil, ce n’est pas grave : le profil ajouté reste simplement là (sa suppression n’existe pas encore, volontairement, pour ne rien perdre par erreur).
 
+## Correction du bug « même séance reproposée »
+
+15. Fais une séance du programme (par exemple « Force : squat »), même en la lançant depuis Séances › Séances types.
+    ✅ Le lendemain, l’accueil propose la séance **suivante** du programme (par exemple « Force : développé couché »), pas la même.
+
 ## Bon à savoir
 
 - Les profils sont **séparés mais pas protégés par un code** : toute personne qui utilise l’appareil peut les ouvrir.

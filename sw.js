@@ -5,7 +5,7 @@
    change-la seulement quand tu modifies ce fichier sw.js ou la liste SHELL.
    Les fichiers js/ sont aussi servis depuis le cache et mis à jour en arrière-plan ; l'avis « Nouvelle version » est donné
    par index.html : pour qu'une modification d'un fichier js/ soit proposée, change aussi VERSION (tout est alors retéléchargé ensemble). */
-const VERSION = "fonte-2026-11-06-profils";
+const VERSION = "fonte-2026-11-06-profils-2";
 const EXT = "fonte-ext";
 /* Tous les fichiers de l'appli : un fichier manquant ici casserait le fonctionnement hors ligne (vérifié par tests/run.js) */
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png",

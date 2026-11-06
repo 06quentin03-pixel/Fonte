@@ -165,11 +165,30 @@ const objNames = p => objList(p).map(k => OBJECTIFS[k].n);
 /* ================= Programme : prochaine séance ================= */
 /* Clé du programme : change quand le programme change (objectifs, jours, niveau…) */
 function progKey(pr) { return pr.ids.map((id, i) => id + ":" + pr.objs[i]).join(","); }
+/* Place dans le programme de la dernière séance du programme faite (null : aucune).
+   La séance la plus récente lancée depuis une séance type compte même si elle n’a pas été lancée depuis le programme
+   (Séances types, « Refaire cette séance », agenda ajouté à la main) ou si le programme a changé depuis (jours, objectif, niveau) :
+   si sa séance type (ou sa variante de semaine B) est dans le programme, la suite part de là. Sinon, comme avant :
+   la dernière séance lancée depuis ce programme. (Correction après 3B : le squat fait depuis les séances types était reproposé.) */
+function lastProgDone(pr, key) {
+  const n = pr.ids.length;
+  const h = S.historique.find(x => x && ((x.pk && x.pj != null) || (x.ref && x.ref.k === "t")));
+  if (h) {
+    if (h.pk === key && h.pj != null && h.pj < n) return h.pj;
+    const tid = h.ref && h.ref.k === "t" ? h.ref.id : null;
+    if (tid) {
+      const idx = pr.ids.map((id, i) => (id === tid || weekVariant(id, h.date) === tid ? i : -1)).filter(i => i >= 0);
+      if (idx.length) return idx.indexOf(h.pj) >= 0 ? h.pj : idx[0];
+    }
+  }
+  const last = S.historique.find(x => x.pk === key && x.pj != null && x.pj < n);
+  return last ? last.pj : null;
+}
 /* Prochaine séance du programme : celle qui suit la dernière faite (UI.progSkip pour en proposer une autre) */
 function nextProg() {
   const pr = programme(S.profile), key = progKey(pr), n = pr.ids.length;
-  const last = S.historique.find(h => h.pk === key && h.pj != null && h.pj < n);
-  const j = ((last ? last.pj + 1 : 0) + (UI.progSkip || 0)) % n;
+  const last = lastProgDone(pr, key);
+  const j = ((last != null ? last + 1 : 0) + (UI.progSkip || 0)) % n;
   const t = TPL_BY_ID[weekVariant(pr.ids[j], todayISO())], o = pr.objs[j], se = prescribe(t, profFor(S.profile, o));
   return { pr, key, j, n, t, o, se, done: S.historique.filter(h => h.pk === key && h.pj != null).length };
 }
@@ -436,8 +455,8 @@ function requeue() {
   S.agenda = S.agenda.filter(e => !(isProgEv(e) && !e.fait && e.date < t));
   const missed = n0 - S.agenda.length;
   const pr = programme(p), key = progKey(pr), n = pr.ids.length, multi = objList(p).length > 1;
-  const last = S.historique.find(h => h.pk === key && h.pj != null && h.pj < n);
-  const start = last ? (last.pj + 1) % n : 0;
+  const last = lastProgDone(pr, key);
+  const start = last != null ? (last + 1) % n : 0;
   let ch = missed > 0;
   S.agenda.filter(e => isProgEv(e) && !e.fait && e.date >= t).sort((a, b) => a.date === b.date ? byTime(a, b) : a.date.localeCompare(b.date)).forEach((e, k) => {
     const j = (start + k) % n, id = weekVariant(pr.ids[j], e.date);
