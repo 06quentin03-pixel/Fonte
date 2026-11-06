@@ -97,22 +97,38 @@ function defaultItem(ex) {
   else it.reps = r;
   const sg = suggest(ex.id, it.reps), cv = convFor(ex.id, it.reps), s8 = sg ? s8Load(ex.id, refOf(ex.id, it.reps), it.reps, sg, S.profile.barre) : null;
   if (cv != null) it.charge = cv; else if (s8 != null) it.charge = s8; else if (sg) it.charge = sg.next; else it.charge = estCharge(ex.id, it.reps || 12, S.profile);
-  if (ECH.has(ex.id) && iso && it.series > 1) it.echec = 1;
+  setRir(it, ex, iso ? "I" : "C", ctx.lvl, S.profile.phase); /* S5 : cible de répétitions en réserve */
   return it;
 }
 /* S1-b (3D) : référence de la même zone de répétitions (force ≤ 6, muscle 7–12, endurance ≥ 13), sinon la dernière performance (refFor) */
 function refOf(id, reps) { return refFor(S.refs, S.lastPerf, id, reps > 0 ? reps : 0); }
 /* Conseil de progression (voir progress() : double progression, ressenti, allègement après 3 échecs), pour reps répétitions visées */
-function suggest(id, reps) { return progress(id, refOf(id, reps)); }
+function suggest(id, reps) { return progress(id, refOf(id, reps), prevPerf(id)); }
+/* S6 : séance précédente de l’exercice (2 séances de suite en haut de la fourchette → version plus dure) */
+function prevPerf(id) { return histPerfs(S.historique, id, 2)[1] || null; }
+/* S6 : exercice chronométré de renforcement (gainage…), hors cardio, mobilité, étirements */
+const timedGain = (it, se) => { const e = EX_BY_ID[it.id]; return !!e && e.t === "t" && it.duree > 0 && !it.cool && !it.warm && se.mode !== "circuit" && ["cardio", "mobilite", "etirements"].indexOf(e.g) < 0; };
+/* S6 : conseil d’un exercice chronométré d’après les deux dernières séances ; dur = durée prévue (départ de la fourchette) */
+function timedSuggest(id, dur) {
+  const hp = histPerfs(S.historique, id, 2), last = hp[0];
+  if (!last || !last.sets.every(x => x && x.d > 0)) return null;
+  return Object.assign(progress(id, { sets: last.sets, target: dur, base: dur, feel: last.feel }, hp[1]) || {}, { lastSets: last.sets, ts: last.ts });
+}
 /* Garde-fou S1-a : charge convertie quand la séance vise au moins 3 répétitions de plus ou de moins que la référence (sinon null) */
 function convFor(id, reps) { return reps > 0 ? convertLoad(id, refOf(id, reps), reps, S.profile.barre) : null; }
-function perfLine(id, reps) {
+function perfLine(id, reps, dur) {
+  if (!(reps > 0) && dur > 0) { /* S6 : chronométré */
+    const t = timedSuggest(id, dur); if (!t || !t.lastSets) return "";
+    const head = "Dernière fois : " + t.lastSets.map(x => fmtSec(x.d)).join(" · ");
+    return head + ({ time: " → vise " + fmtSec(t.duree), top: " → haut de la fourchette (" + fmtSec(t.duree) + ") : encore une fois et tu passes à une version plus dure", harder: " → 2 fois au maximum : passe à « " + ((EX_BY_ID[t.harder] || {}).n || "") + " » (Remplacer l’exercice)" }[t.why] || "");
+  }
   const lp = refOf(id, reps); if (!lp || !lp.sets || !lp.sets.length) return "";
   const kg = Math.max.apply(null, lp.sets.map(s => s.kg || 0));
   const sg = suggest(id, reps), cv = convFor(id, reps), s8 = sg && reps > 0 ? s8Load(id, lp, reps, sg, S.profile.barre) : null;
   let t = (lp !== S.lastPerf[id] ? "Dernière fois en séries de " + refReps(lp) + " : " : "Dernière fois : ") + lp.sets.map(s => s.r).join("-") + " reps" + (kg || isAssist(id) ? " à " + kgTxt(id, kg) : "");
   if (cv != null) return t + " → pour " + reps + " reps, charge recalculée : " + kgTxt(id, cv) + " (estimation prudente)";
   if (s8 != null && s8 > sg.next) return t + " → pour " + reps + " reps (2 de moins), essaie " + kgTxt(id, s8);
+  if (sg && sg.bw) return t + ({ reps: " → vise " + sg.reps + " répétitions", top: " → haut de la fourchette (" + sg.reps + ") : encore une fois et tu passes à une version plus dure", harder: " → 2 fois au maximum : passe à « " + ((EX_BY_ID[sg.harder] || {}).n || "") + " » (Remplacer l’exercice)", hard: " → séance très dure : vise le même nombre" }[sg.why] || "");
   if (sg) t += {
     up: sg.up ? " → essaie " + kgTxt(id, sg.next) + (sg.reps ? " × " + sg.reps : "") : "",
     up2: " → c’était facile : essaie " + kgTxt(id, sg.next),
@@ -128,7 +144,12 @@ function perfLine(id, reps) {
    sinon celle déjà réglée, sinon l’estimation d’après le profil. Double progression : répétitions visées. */
 function applySuggestions(se) {
   se.items.forEach(it => {
-    const reps = it.duree ? 0 : it.reps, lp = refOf(it.id, reps), sg = lp ? progress(it.id, lp) : null;
+    if (timedGain(it, se)) { /* S6 : gainage chronométré, +5 à 10 s quand la durée a été tenue */
+      const t = timedSuggest(it.id, it.baseD || it.duree);
+      if (t && (t.why === "time" || t.why === "top") && t.duree > it.duree && (t.ts || 0) > (se.upd || 0)) { it.baseD = it.baseD || it.duree; it.duree = t.duree; }
+      return;
+    }
+    const reps = it.duree ? 0 : it.reps, lp = refOf(it.id, reps), sg = lp ? progress(it.id, lp, prevPerf(it.id)) : null;
     if (sg && (!it.charge || (lp.ts || 0) > (se.upd || 0))) {
       const cv = it.duree ? null : convFor(it.id, it.reps);
       if (cv != null) { it.charge = cv; return; } /* S1-a : autre nombre de répétitions → charge convertie, pas augmentée */
@@ -138,7 +159,7 @@ function applySuggestions(se) {
     } else if (!it.charge) { const e = estCharge(it.id, it.reps || 12, S.profile); if (e) it.charge = e; }
   });
   if (deloadActive() && !se.dl) { deloadSe(se); se.dl = 1; se.notes = (se.notes || []).concat(["Semaine allégée : moins de séries, charges à 85 %"]); }
-  else if (repriseActive() && !se.dl && !se.rp) { scaleCharges(se, 0.9); se.rp = 1; se.notes = (se.notes || []).concat(["Séance de reprise après une pause : charges à 90 % pour repartir en douceur"]); }
+  else if (repriseActive() && !se.dl && !se.rp) { scaleCharges(se, 0.9); se.items.forEach(it => { if (!it.cool && !it.warm) rirEasy(it); }); se.rp = 1; se.notes = (se.notes || []).concat(["Séance de reprise après une pause : charges à 90 % pour repartir en douceur"]); }
   return se;
 }
 function animHTML(id) {
@@ -206,10 +227,10 @@ const GLOSS = {
   rep: ["Répétition", "Un mouvement complet : par exemple descendre puis remonter une fois au squat."],
   repos: ["Repos", "La pause entre deux séries. Pendant la séance, le minuteur la compte pour toi et sonne à la fin."],
   charge: ["Charge", "Le poids que tu soulèves : barre, haltères ou machine. Fonte la calcule d’après ton poids et ton niveau, puis l’augmente quand tu progresses. Avec des haltères, c’est le poids de chaque haltère."],
-  echec: ["Jusqu’à l’échec", "Sur la dernière série, tu continues jusqu’à ne plus réussir un mouvement propre. Seulement sur des exercices sans danger : machines, poulies, poids du corps."],
+  echec: ["Jusqu’à l’échec", "Sur la dernière série, tu continues jusqu’à ne plus réussir un mouvement propre. Fonte ne le propose qu’au niveau avancé, et seulement sur des exercices sans danger : machines, poulies, poids du corps. Sinon, tu gardes des répétitions en réserve."],
   base: ["Exercices de base et d’isolation", "Un exercice de base fait travailler plusieurs muscles à la fois (squat, développé couché) : plus lourd, avec plus de repos. Un exercice d’isolation cible un seul muscle (curl pour les biceps) : plus léger."],
   superset: ["Supersérie", "Deux exercices enchaînés sans pause entre eux, puis la pause habituelle."],
-  reserve: ["Répétitions en réserve", "À la fin d’une série, le nombre de mouvements que tu aurais encore pu faire. 2 ou 3, c’est l’idéal. Ça aide Fonte à régler la charge de la séance suivante."],
+  reserve: ["Répétitions en réserve", "À la fin d’une série, le nombre de mouvements que tu aurais encore pu faire. Fonte te donne une cible : « garde 2 en réserve » veut dire que tu t’arrêtes quand tu sens que tu pourrais encore en faire 2 propres. Ça protège le geste et la récupération, et on progresse aussi bien qu’en allant jusqu’au bout. Plus tu as d’expérience, plus la cible se rapproche de 0."],
   echauf: ["Échauffement", "Quelques minutes de cardio doux et de mouvements pour préparer les muscles de la séance. Ça évite les blessures."],
   etir: ["Étirements", "En fin de séance, quelques positions tenues calmement pour détendre les muscles travaillés."],
   allege: ["Semaine allégée", "Après plusieurs semaines d’entraînement, une semaine plus légère (moins de séries, charges à 85 %) pour laisser le corps récupérer. On repart ensuite plus fort."],
@@ -401,16 +422,20 @@ function tickProgress() {
   if (r.phaseUp) S.profile.bilanNew = S.profile.phases.length - 1;
   return r;
 }
+/* S4 (3D) : proposition de passage de niveau (jamais automatique) */
+function levelCard() {
+  const s = levelSuggest(S.profile, S.historique, todayISO()); if (!s || !s.ok) return "";
+  return `<section><div class="card card-accent" id="lvl-card" style="display:flex;flex-direction:column;gap:10px"><div class="eyebrow" style="color:inherit;opacity:.85">Proposition</div><div class="h3">Tu pourrais passer au niveau ${esc(NIVEAUX[NIV_KEYS[s.to]].toLowerCase())}</div><ul class="bullets small">${s.checks.map(c => `<li>${esc(c.txt)}</li>`).join("")}</ul><p class="small">Ce qui change : des séances plus complètes (plus d’exercices, versions à la barre), et tu repars au palier 1. Tes charges restent les tiennes : Fonte part de ce que tu soulèves déjà.</p><div class="btn-row"><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="lvl-up" data-v="${s.to}">Passer au niveau ${esc(NIVEAUX[NIV_KEYS[s.to]].toLowerCase())}</button><button class="btn" style="background:transparent;color:inherit;border:1px solid currentColor" data-a="lvl-later">Plus tard</button></div></div></section>`;
+}
 function progressCard(home) {
   const p = S.profile, per = phasePer(p), done = Math.min(per, p.phaseDone || 0), ph = p.phase || 1, L = NIV_KEYS[p.niveau] || 1, left = per - done;
-  const nextLvl = LEVEL_UP_PHASES[L] ? LEVEL_UP_PHASES[L] - ph + 1 : 0;
   const bar = `<div class="pbar-l" role="img" aria-label="${done} séances sur ${per}"><b style="width:${Math.round(done / per * 100)}%"></b></div>`;
   if (home) return `<button class="card ph-mini" data-a="seg" data-v="prog"><div class="row-main"><div class="row-title">Palier ${ph} · ${esc(phaseName(ph))}</div>${bar}<div class="row-sub">${done} séance${done > 1 ? "s" : ""} sur ${per} · niveau ${NIVEAUX[L].toLowerCase()}</div></div>${icon("chev", "ic chev")}</button>`;
   const nx = phaseChanges(ph + 1, p.objectif)[0];
   return `<section><div class="sec-h"><h2>Ma progression</h2><span class="tag tag-p">${NIVEAUX[L]}</span></div><div class="card" style="display:flex;flex-direction:column;gap:10px">
     <div class="h3">Palier ${ph} · ${esc(phaseName(ph))}</div>${bar}
-    <p class="small">${done} séance${done > 1 ? "s" : ""} sur ${per} faite${done > 1 ? "s" : ""}. ${nextLvl === 1 && L < 3 ? `Encore ${plural(left, "séance")} et tu passes <b>au niveau ${NIVEAUX[L + 1].toLowerCase()}</b>.` : `Encore ${plural(left, "séance")} avant le palier ${ph + 1} : ${esc(nx.charAt(0).toLowerCase() + nx.slice(1))}`}</p>
-    <details class="fold-in"><summary>Comment ça marche</summary><ul class="bullets"><li>Un palier, c’est 4 semaines de séances (${per} séances pour toi). Seules les séances faites comptent : si tu fais une pause, le palier t’attend.</li><li>À chaque palier, le programme évolue : une série de plus, puis des exercices plus durs, puis plus lourd. Les poids, eux, augmentent séance après séance.</li>${L < 3 ? `<li>Après ${plural(LEVEL_UP_PHASES[L], "palier")} au niveau ${NIVEAUX[L].toLowerCase()} (environ ${LEVEL_UP_PHASES[L] * PHASE_WEEKS / 4} mois), tu passes automatiquement au niveau ${NIVEAUX[L + 1].toLowerCase()}${nextLvl > 1 ? ", dans " + plural(nextLvl, "palier") : ""}.</li>` : ""}<li>À la fin de chaque palier, un bilan te montre tes progrès.</li></ul></details>
+    <p class="small">${done} séance${done > 1 ? "s" : ""} sur ${per} faite${done > 1 ? "s" : ""}. Encore ${plural(left, "séance")} avant le palier ${ph + 1} : ${esc(nx.charAt(0).toLowerCase() + nx.slice(1))}</p>
+    <details class="fold-in"><summary>Comment ça marche</summary><ul class="bullets"><li>Un palier, c’est 4 semaines de séances (${per} séances pour toi). Seules les séances faites comptent : si tu fais une pause, le palier t’attend.</li><li>À chaque palier, le programme évolue : une série de plus, puis des exercices plus durs, puis plus lourd. Les poids, eux, augmentent séance après séance.</li>${L < 3 ? `<li>Le niveau ne change jamais tout seul : quand tu t’entraînes régulièrement depuis ${L === 1 ? "environ 6 mois" : "environ 2 ans"}, que tes charges montent moins vite et que tu as fini au moins ${plural(LEVEL_RULES[S.profile.niveau || "debutant"].phases, "palier")} à ce niveau, Fonte te propose de passer au niveau ${NIVEAUX[L + 1].toLowerCase()}. Tu peux aussi le changer toi-même dans ton profil.</li>` : ""}<li>À la fin de chaque palier, un bilan te montre tes progrès.</li></ul></details>
     ${(p.phases || []).length ? `<button class="btn" data-a="bilan-open">${icon("trophy")}Mes bilans (${p.phases.length})</button>` : ""}
   </div></section>`;
 }
@@ -489,6 +514,8 @@ function bodyCard(home) {
   const p = S.profile, items = [];
   if (goalReached(p)) items.push(`<div class="card card-accent" style="display:flex;flex-direction:column;gap:10px"><div class="h3">Objectif atteint : ${fmtNum(p.poids)} kg</div><p class="small">Bravo ! Tu as atteint ton poids visé (${fmtNum(p.poidsCible)} kg). On adapte ton programme ?</p><div class="btn-row">${p.objectif === "perte" ? `<button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="forme">Garder la forme</button><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="muscle">Prendre du muscle</button>` : `<button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="force">Gagner en force</button><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="goal-switch" data-v="forme">Garder la forme</button>`}</div><button class="link small" style="color:inherit" data-a="goal-keep">Garder mon objectif actuel</button></div>`);
   if (home) return items.length ? `<section>${items.join("")}</section>` : "";
+  /* S7 (3D) : le plateau se juge sur des moyennes ; pas assez de pesées → on invite à se peser plus souvent (sans ajouter de cardio) */
+  if (objList(p).some(k => k === "perte" || k === "tonus") && (p.cardioPlus || 0) < 15) { const pi = plateauInfo(mesPts("poids"), todayISO()); if (pi.few) items.push(`<div class="note" id="pesees">${icon("info")}<span><b>Pèse-toi 3 fois par semaine</b>, le matin à jeun : le poids varie d’un jour à l’autre, Fonte compare la moyenne de la semaine à celle d’il y a 3 semaines avant de conclure que ton poids ne baisse plus. <button class="link-in" data-a="mes-add">Ajouter une pesée</button></span></div>`); }
   if (p.cardioPlus) items.push(`<div class="note">${icon("flame")}<span><b>${p.cardioPlus} min de cardio en plus</b> dans tes séances cardio : ton poids ne baissait plus depuis 3 semaines. <button class="link-in" data-a="cardio-reset">Revenir à la normale</button></span></div>`);
   const stuck = Object.keys(S.lastPerf).filter(id => EX_BY_ID[id] && (S.lastPerf[id].fails || 0) >= 2);
   if (stuck.length >= 3 && !deloadActive()) items.push(`<div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="h3">Tes charges stagnent</div><p class="small muted">Sur ${plural(stuck.length, "exercice")} (${esc(stuck.slice(0, 3).map(id => EX_BY_ID[id].n.replace(/ \(.*\)$/, "").toLowerCase()).join(", "))}${stuck.length > 3 ? "…" : ""}). C’est normal de temps en temps : une semaine plus légère laisse le corps récupérer, et tu repars plus fort.</p><button class="btn btn-primary" data-a="dl-on">Alléger cette semaine</button></div>`);
@@ -930,7 +957,7 @@ function heSave() {
 /* Log d’une séance en cours, au format de l’historique */
 /* Journal d’une séance. Depuis le format v2 (3B), chaque série garde la cible de répétitions t, et l’exercice sa base b
    (répétitions prévues au départ, si différentes) : les références peuvent être recalculées depuis l’historique (D3). */
-function runLog() { return R.se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : it.warm ? { warm: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {}, typeof it.reps === "number" ? { t: it.reps } : {})) }, it.base && it.base !== it.reps ? { b: it.base } : {})).filter(x => x.sets.length); }
+function runLog() { return R.se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : it.warm ? { warm: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {}, typeof it.reps === "number" ? { t: it.reps } : {}, it.rir != null ? { rt: it.rir } : {})) }, it.base && it.base !== it.reps ? { b: it.base } : {})).filter(x => x.sets.length); }
 
 /* ================= Fichiers : partager, télécharger, copier ================= */
 let FX = null;
@@ -1638,6 +1665,7 @@ function viewAccueil() {
     h += `<section><div class="card" style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;gap:14px;align-items:center">${figHTML(["pecs", "quadriceps", "dorsaux", "fessiers"], ["abdos", "epaules_ant", "ischios"], "sm")}<div class="row-main"><div class="h3">Ton programme sur mesure</div><p class="small muted">5 petites questions et Fonte te prépare un programme avec les bons exercices et les bons poids.</p></div></div><button class="btn btn-primary" data-a="onb-open">Répondre aux questions</button></div></section>`;
   }
   h += bodyCard(true);
+  h += levelCard();
   h += missedCard();
   h += deloadCard();
   h += heroCard();
@@ -1806,7 +1834,7 @@ function chargeNote(se) {
   return `<div class="note">${icon("dumbbell")}<span>Charges ${hist ? "reprises de tes dernières séances ou " : ""}calculées d’après ton poids${S.profile.taille ? " et ta taille" : ""}. Tu pourras les changer avant de commencer et pendant la séance.</span></div>`;
 }
 function itemRows(se) {
-  return `<div class="list">${se.items.map(it => { const e = EX_BY_ID[it.id]; if (!e) return ""; return `<button class="row" data-a="ex-open" data-id="${e.id}">${figHTML(e.p, e.s, "xs")}<div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}</div></div><div class="presc">${simple() && se.mode !== "circuit" ? (it.series > 1 ? it.series + " séries" : "1 fois") + `<small>${it.duree ? fmtSec(it.duree) : "de " + it.reps + " mouv." + (it.parCote ? " / côté" : "")}</small>` : prescText(it, se.mode)}${it.charge || (isAssist(it.id) && it.charge === 0 && suggest(it.id, it.reps)) ? `<small>${isAssist(it.id) ? "assist. " : ""}${fmtNum(it.charge)} kg</small>` : ""}${se.mode !== "circuit" && it.repos && it.series > 1 ? `<small>${simple() ? "pause" : "repos"} ${fmtRest(it.repos)}</small>` : ""}${it.echec && se.mode !== "circuit" ? `<small class="f">${simple() ? "dernière : au max" : "dernière à l’échec"}</small>` : ""}${linked(se, se.items.indexOf(it)) ? `<small>superset ↓</small>` : ""}</div></button>`; }).join("")}</div>`;
+  return `<div class="list">${se.items.map(it => { const e = EX_BY_ID[it.id]; if (!e) return ""; return `<button class="row" data-a="ex-open" data-id="${e.id}">${figHTML(e.p, e.s, "xs")}<div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}</div></div><div class="presc">${simple() && se.mode !== "circuit" ? (it.series > 1 ? it.series + " séries" : "1 fois") + `<small>${it.duree ? fmtSec(it.duree) : "de " + it.reps + " mouv." + (it.parCote ? " / côté" : "")}</small>` : prescText(it, se.mode)}${it.charge || (isAssist(it.id) && it.charge === 0 && suggest(it.id, it.reps)) ? `<small>${isAssist(it.id) ? "assist. " : ""}${fmtNum(it.charge)} kg</small>` : ""}${se.mode !== "circuit" && it.repos && it.series > 1 ? `<small>${simple() ? "pause" : "repos"} ${fmtRest(it.repos)}</small>` : ""}${it.echec && se.mode !== "circuit" ? `<small class="f">${simple() ? "dernière : au max" : "dernière à l’échec"}</small>` : it.rir != null && se.mode !== "circuit" ? `<small>${simple() ? "garde " + it.rir + " en réserve" : "réserve " + it.rir + (it.rirLast != null ? " (dernière " + it.rirLast + ")" : "")}</small>` : ""}${linked(se, se.items.indexOf(it)) ? `<small>superset ↓</small>` : ""}</div></button>`; }).join("")}</div>`;
 }
 function openTpl(id, o, j) {
   const t = TPL_BY_ID[id]; if (!t) return;
@@ -2008,7 +2036,7 @@ function edItem(it, i) {
   f.push(it.duree > 0 ? edStp(i, "duree", it.duree, "Durée (s)", 5) : edStp(i, "reps", it.reps, "Reps", 1));
   if (!(e.g === "cardio" || e.g === "mobilite" || e.g === "etirements") && !(it.duree > 0 && !it.charge)) f.push(edStp(i, "charge", it.charge, isAssist(e.id) ? "Assist. kg" : (chargeLabel(e.id, 1) === "Kg / haltère" ? "Kg / haltère" : "Charge kg"), chargeStep(e)));
   f.push(edStp(i, "repos", it.repos, circ ? "Récup (s)" : "Repos (s)", circ ? 5 : 15));
-  const pl = perfLine(it.id, it.duree ? 0 : it.reps);
+  const pl = perfLine(it.id, it.duree ? 0 : it.reps, it.duree && timedGain(it, E.se) ? (it.baseD || it.duree) : 0);
   return `<div class="ed-item"><div class="ed-head">${figHTML(e.p, e.s, "xs")}<div class="row-main" data-a="ex-open" data-id="${e.id}" role="button" tabindex="0"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}${it.parCote ? " · par côté" : ""}</div></div><div class="ed-tools"><button data-a="ed-move" data-i="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} aria-label="Monter">${icon("up")}</button><button data-a="ed-move" data-i="${i}" data-d="1" ${i === n - 1 ? "disabled" : ""} aria-label="Descendre">${icon("down")}</button><button data-a="ed-del" data-i="${i}" aria-label="Retirer">${icon("trash")}</button></div></div><div class="ed-grid ${f.length === 3 ? "c3" : ""}">${f.join("")}</div>${(ECH.has(e.id) || (!circ && i < n - 1)) && !circ ? `<div class="ed-flags">${ECH.has(e.id) ? `<button class="chip chip-sm" data-a="ed-echec" data-i="${i}" aria-pressed="${!!it.echec}">${icon("flame")}Dernière série à l’échec</button>` : ""}${i < n - 1 ? `<button class="chip chip-sm" data-a="ed-ss" data-i="${i}" aria-pressed="${!!it.ss}">${icon("link")}Superset avec le suivant</button>` : ""}</div>` : ""}${pl ? `<div class="small muted">${esc(pl)}</div>` : ""}</div>${linked(E.se, i) ? `<div class="ss-join">${icon("link")}<span>Enchaîné sans repos avec ${esc((EX_BY_ID[E.se.items[i + 1].id] || {}).n || "le suivant")}, repos après le dernier exercice du superset</span></div>` : ""}`;
 }
 function renderEditor() {
@@ -2195,6 +2223,7 @@ function renderRunner() {
     if (st.fail) body += `<div class="note note-f">${icon("flame")}<span><b>Dernière série jusqu’à l’échec</b> ${gl("echec")} : continue jusqu’à ne plus réussir une répétition propre${it.duree > 0 ? ", puis touche « J’arrête »" : ", puis note ton total"}.</span></div>`;
     if (it.duree > 0) {
       body += ringHTML(false);
+      if (!st.cool && !st.warm && timedGain(it, se)) { const pl = perfLine(it.id, 0, it.baseD || it.duree); if (pl) body += `<p class="small muted" style="text-align:center">${esc(pl)}</p>`; }
       if (it.charge) body += `<p class="small muted" style="text-align:center">${chargeLabel(e.id) === "Par haltère" ? "Avec " + fmtNum(it.charge) + " kg dans chaque main" : "Charge : " + kgTxt(e.id, it.charge)}</p>`;
       if (R.t.up) { const el = upElapsed(); foot = R.t.running ? `<div class="run-nav"><button class="btn btn-lg" data-a="run-toggle" style="flex:1">${icon("pause")}Pause</button><button class="btn btn-primary btn-lg" data-a="run-next" style="flex:1.4">${icon("check")}J’arrête</button></div>` : `<div class="run-nav"><button class="btn btn-lg" data-a="run-next" style="flex:1">${icon("check")}${el > 0 ? "Terminé" : "Passer"}</button><button class="btn btn-primary btn-lg" data-a="run-toggle" style="flex:1.4">${icon("play")}${el > 0 ? "Reprendre" : "Démarrer"}</button></div>`; }
       else foot = `<div class="run-nav"><button class="btn btn-lg" data-a="run-next" style="flex:1">${icon("check")}Terminé</button><button class="btn btn-primary btn-lg" data-a="run-toggle" style="flex:1.4">${R.t.running ? icon("pause") + "Pause" : icon("play") + "Démarrer"}</button></div>`;
@@ -2203,7 +2232,11 @@ function renderRunner() {
       const step = chargeStep(e);
       body += `<div class="target"${showKg ? "" : ' style="grid-template-columns:1fr"'}><div class="big-stp"><span>${st.fail ? "Répétitions (max)" : "Répétitions"}</span><div class="v" id="run-r">${R.cur.r}</div><div class="ctl"><button data-a="run-adj" data-f="r" data-d="-1" aria-label="Une répétition de moins">−</button><button data-a="run-adj" data-f="r" data-d="1" aria-label="Une répétition de plus">+</button></div></div>${showKg ? `<div class="big-stp"><span>${chargeLabel(e.id)}</span><div class="v" id="run-kg">${fmtNum(R.cur.kg)}<small> kg</small></div><div class="ctl"><button data-a="run-adj" data-f="kg" data-d="${-step}" aria-label="Moins lourd">−</button><button data-a="run-adj" data-f="kg" data-d="${step}" aria-label="Plus lourd">+</button></div></div>` : ""}</div>`;
       if (e.m.indexOf("barre") >= 0 && showKg) body += `<div id="plates-w">${platesHTML(R.cur.kg)}</div>`;
-      if (!st.fail && !st.cool && !simple()) body += `<div class="field"><div class="lbl">Répétitions encore possibles à la fin (facultatif) ${gl("reserve")}</div><div class="feel rir" role="group">${[0, 1, 2, 3].map(v => `<button data-a="run-rir" data-v="${v}" aria-pressed="${R.cur.rir === v}">${v === 3 ? "3 et +" : v}</button>`).join("")}</div></div>`;
+      const rt = st.cool || st.warm ? null : (st.set === st.of && it.rirLast != null ? it.rirLast : it.rir);
+      if (rt != null && !st.fail) body += `<div class="note note-rir">${icon("info")}<span><b>Garde ${rt} répétition${rt > 1 ? "s" : ""} en réserve</b> ${gl("reserve")} : ${simple() ? `arrête-toi quand tu sens que tu pourrais encore en faire ${rt} propre${rt > 1 ? "s" : ""}, même si l’objectif n’est pas atteint` : `arrête la série quand il t’en reste ${rt} dans les bras (ou les jambes)`}.</span></div>`;
+      if (!st.fail && !st.cool && !st.warm && !simple()) body += `<div class="field"><div class="lbl">Répétitions encore possibles à la fin (facultatif) ${gl("reserve")}</div><div class="feel rir" role="group">${[0, 1, 2, 3].map(v => `<button data-a="run-rir" data-v="${v}" aria-pressed="${R.cur.rir === v}">${v === 3 ? "3 et +" : v}</button>`).join("")}</div></div>`;
+      /* S10 (3D) : en mode simple, la même question avec des mots simples, convertie en réserve approximative (3 / 1 / 0) */
+      if (!st.fail && !st.cool && !st.warm && simple()) body += `<div class="field"><div class="lbl">C’était… (facultatif)</div><div class="feel rir" role="group" aria-label="Ressenti de la série">${[[3, "Facile"], [1, "Juste"], [0, "Très dur"]].map(([v, l]) => `<button data-a="run-rir" data-v="${v}" aria-pressed="${R.cur.rir === v}">${l}</button>`).join("")}</div></div>`;
       const pl = perfLine(it.id, it.duree ? 0 : it.reps); if (pl) body += `<div class="small muted">${esc(pl)}</div>`;
       if (!simple() || st.cool || st.warm) body += `<p class="small muted">${st.fail ? "Au moins " + it.reps + " répétitions, puis jusqu’à l’échec" : "Objectif : " + it.reps + " répétitions"}${it.charge || isAssist(e.id) ? (isAssist(e.id) ? " avec " : " à ") + kgTxt(e.id, it.charge || 0) : ""}. Ajuste avec − et + si tu en fais plus ou moins${showKg ? ", et change la charge si c’est trop facile ou trop dur" : ""}.</p>`;
       foot = `<button class="btn btn-primary btn-lg btn-block" data-a="run-next">${icon("check")}${chain ? "Enchaîne : " + esc(chain.n) : "Série terminée"}</button>`;
@@ -2605,6 +2638,12 @@ const A = {
     heRefresh();
   },
   "he-save": () => heSave(),
+  "lvl-up": el => {
+    if (R) { toast("Termine d’abord la séance en cours."); return; }
+    const to = el.dataset.v; if (!NIV_KEYS[to]) return;
+    S.profile = levelAccept(S.profile, to, todayISO()); syncPlan(); commit("pa"); render(); toast("Niveau " + NIVEAUX[NIV_KEYS[to]].toLowerCase() + " : ton programme est mis à jour");
+  },
+  "lvl-later": () => { const s = levelSuggest(S.profile, S.historique, todayISO()); if (!s) return; S.profile.levelAsk = { niv: s.to, until: addDays(todayISO(), 28) }; commit("p"); render(); toast("C’est noté : Fonte te le reproposera dans 4 semaines"); },
   "prog-plan": () => { UI.seg = "prog"; saveUI(); goTab("seances"); },
   "plan-day": el => {
     const d = togglePlanDay(S.profile, +el.dataset.d);

@@ -542,6 +542,80 @@ test("D4 : ajouter une séance passée (exercice, séries) → historique, palie
   await ctx.close();
 });
 
+/* ---------- S5, S10, S4 (phase 3D, partie 2) ---------- */
+async function startTpl(page, id) {
+  await tab(page, "seances");
+  await page.click('[data-a="tpl-open"][data-id="' + id + '"]');
+  await page.click('.sheet [data-a="tpl-start"]');
+  if (await page.$('[data-a="ed-go"]')) await page.click('[data-a="ed-go"]');
+  await page.waitForSelector("#runner:not([hidden])");
+  if (await page.$('#runner [data-a="run-skipwarm"]')) await page.click('#runner [data-a="run-skipwarm"]');
+  await page.waitForSelector('#runner [data-a="run-next"]');
+}
+const debStorage = simple => ({ "fonte:v1": JSON.stringify({ v: 1, profile: { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau: "debutant", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple, phase: 1, phaseDone: 0, phases: [] }, historique: [] }), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "types" }) });
+test("S5 : débutante, la séance affiche « Garde 3 répétitions en réserve », jamais « jusqu’à l’échec »", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(false) });
+  await startTpl(page, "force-squat");
+  const note = await page.textContent("#runner .note-rir");
+  assert.ok(/Garde 3 répétitions en réserve/.test(note), note);
+  assert.strictEqual(await page.$("#runner .note-f"), null, "pas de note « échec »");
+  assert.ok(!/échec/i.test(await page.textContent("#runner .run-body")), "le mot échec n'apparaît pas");
+  assert.ok(await page.$('#runner [data-a="run-rir"][data-v="2"]'), "saisie de la réserve (mode normal)");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("S10 : en mode simple, « C’était facile / juste / très dur » devient la réserve (3 / 1 / 0) enregistrée avec la cible", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(true) });
+  await startTpl(page, "force-squat");
+  const lbl = await page.textContent("#runner .rir");
+  assert.ok(/Facile/.test(lbl) && /Juste/.test(lbl) && /Très dur/.test(lbl), lbl);
+  assert.ok(!/3 et \+/.test(lbl), "pas de chiffres en mode simple");
+  await page.click('#runner [data-a="run-rir"][data-v="0"]');
+  await page.click('#runner [data-a="run-next"]');
+  await page.click('#runner [data-a="run-quit"]'); await page.click('.sheet [data-a="run-end"]');
+  await page.click('#runner [data-a="run-save"]'); await page.waitForSelector("#toast:text('Séance enregistrée')");
+  const st = await state(page), set = st.historique[0].log.find(l => !l.warm && !l.cool).sets[0];
+  assert.strictEqual(set.rir, 0, "très dur = 0 en réserve"); assert.strictEqual(set.rt, 3, "cible de réserve enregistrée");
+  const id = st.historique[0].log.find(l => !l.warm && !l.cool).id;
+  assert.strictEqual(st.lastPerf[id].rirT, 3);
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+function lvlStorage() {
+  const hist = [], now = new Date(); now.setHours(12, 0, 0, 0);
+  const mon = new Date(now); mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7);
+  const iso = t => t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  for (let w = 30; w >= 1; w--) for (let k = 0; k < 3; k++) {
+    const t = new Date(mon); t.setDate(t.getDate() - 7 * w + k * 2); const n = (30 - w) * 3 + k, kg = Math.min(60, 30 + n * 2.5);
+    hist.unshift({ id: "h" + n, date: iso(t), ts: t.getTime(), nom: "Full body", kind: "muscu", duree: 3000, log: ["goblet-squat", "dc-halteres", "rowing-haltere"].map(id => ({ id, sets: [{ r: 10, kg }, { r: 10, kg }] })) });
+  }
+  const prof = { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau: "debutant", objectif: "muscle", objectifs: ["muscle"], jours: 3, onb: 1, simple: true, phase: 2, phaseDone: 4, phaseStart: hist[20].date,
+    phases: [1, 2, 3].map(n => ({ n, niv: "debutant", from: hist[90 - n * 24].date, to: hist[90 - n * 24 - 12].date })) };
+  return { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: hist }), "fonte:backup": String(Date.now()) };
+}
+test("S4 : passage de niveau proposé (jamais automatique) : « Plus tard » le reporte, « Passer » change le niveau en gardant les charges", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: lvlStorage() });
+  await tab(page, "accueil"); await page.waitForSelector("#lvl-card");
+  assert.ok(/niveau intermédiaire/.test(await page.textContent("#lvl-card")));
+  const A = await state(page); assert.strictEqual(A.profile.niveau, "debutant", "rien n'a changé tout seul");
+  await page.click('#lvl-card [data-a="lvl-later"]');
+  await page.waitForSelector("#toast:text('reproposera')");
+  assert.strictEqual(await page.$("#lvl-card"), null);
+  const B = await state(page); assert.strictEqual(B.profile.levelAsk.niv, "intermediaire"); assert.strictEqual(B.profile.niveau, "debutant");
+  /* 5 semaines plus tard (date du report dépassée) */
+  const k = await keyOf(page, "fonte:v1");
+  await page.evaluate(k => { const s = JSON.parse(localStorage.getItem(k)); s.profile.levelAsk.until = "2000-01-01"; localStorage.setItem(k, JSON.stringify(s)); }, k);
+  await page.reload(); await page.waitForSelector("#lvl-card");
+  await page.click('#lvl-card [data-a="lvl-up"]');
+  await page.waitForSelector("#toast:text('Niveau intermédiaire')");
+  const C = await state(page);
+  assert.strictEqual(C.profile.niveau, "intermediaire"); assert.strictEqual(C.profile.phase, 1); assert.strictEqual(C.profile.phaseDone, 0);
+  assert.deepStrictEqual(C.lastPerf, A.lastPerf, "charges réelles gardées"); assert.strictEqual(C.profile.phases[C.profile.phases.length - 1].man, 1);
+  assert.strictEqual(await page.$("#lvl-card"), null);
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
 /* ---------- Prochaine séance du programme ---------- */
 /* Bug signalé après 3B : une séance du programme lancée hors du programme (Séances types, « Refaire cette séance »)
    n'était pas reconnue : l'accueil reproposait la même séance. */

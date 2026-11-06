@@ -222,6 +222,36 @@ const ECH = new Set(["presse-pecs", "pec-deck", "presse-epaules", "reverse-pec-d
   "curl-halteres", "curl-marteau", "curl-barre", "curl-ez", "curl-incline", "curl-concentre", "curl-araignee", "curl-inverse", "elevations-laterales",
   "elevations-frontales", "oiseau", "elevations-y", "shrug-halteres", "shrug-barre", "kickback", "curl-poignets", "extension-poignets"]);
 
+/* S5 (phase 3D, décision 3) : cible de répétitions en réserve (RIR) au lieu de « jusqu’à l’échec », selon le niveau et le type d’exercice
+   (plan section 9.3, docs/REGLES_SPORTIVES.md). Types : l = grand mouvement libre (polyarticulaire à la barre, aux haltères, au kettlebell),
+   m = machine, poulie, élastique ou isolation, p = poids du corps, t = chronométré (une durée, jamais d’échec ni de réserve).
+   Renvoie { rir, rirLast?, echec? } (rirLast = cible de la dernière série si elle diffère ; echec = dernière série à l’échec, avancé seulement,
+   exercices de la liste ECH), ou null (chronométré). */
+const RIR_FREE = ["barre", "halteres", "kettlebell", "ez"], RIR_GUIDED = ["machine", "poulie", "smith", "elastique", "medecine"];
+function rirKind(ex, role) {
+  if (!ex || ex.t === "t") return "t";
+  if (ex.m.some(x => RIR_GUIDED.indexOf(x) >= 0)) return "m";
+  if (ex.m.some(x => RIR_FREE.indexOf(x) >= 0)) return role === "C" ? "l" : "m";
+  return "p";
+}
+function rirFor(ex, role, lvl, phase) {
+  const k = rirKind(ex, role); if (k === "t") return null;
+  const ph = Math.max(1, Math.floor(+phase || 1)), ech = !!ex && ECH.has(ex.id);
+  if (lvl <= 1) return { rir: k === "l" && ph < 2 ? 3 : 2 };
+  if (lvl === 2) return k === "l" ? (ph >= 4 ? { rir: 2, rirLast: 1 } : { rir: 2 }) : { rir: 1 };
+  if (k === "l") return { rir: 2, rirLast: 1 };
+  return ech ? { rir: 1, rirLast: 0, echec: 1 } : { rir: 1 };
+}
+/* Applique la cible à un exercice de séance (séries classiques). Chronométré : ni réserve ni échec. */
+function setRir(it, ex, role, lvl, phase) {
+  delete it.rir; delete it.rirLast; delete it.echec;
+  if (!(it.reps > 0) || it.duree > 0) return null;
+  const r = rirFor(ex, role, lvl, phase); if (!r) return null;
+  it.rir = r.rir; if (r.rirLast != null && r.rirLast !== r.rir) it.rirLast = r.rirLast; if (r.echec) it.echec = 1;
+  return r;
+}
+/* Semaine allégée, séance de reprise : 3 répétitions en réserve partout, pas d’échec */
+function rirEasy(it) { if (it.rir != null) it.rir = 3; delete it.rirLast; it.echec = 0; }
 const nearestOf = (list, v) => list.reduce((b, x) => Math.abs(x - v) < Math.abs(b - v) ? x : b, list[0]);
 /* Masse prise en compte : au-delà d’un IMC de 25, la moitié seulement du surplus compte (la force suit surtout la masse maigre) */
 function effMass(p) {
@@ -364,9 +394,6 @@ function prescribe(tpl, profile) {
         if (o.reps) it.reps = o.reps; else it.duree = o.d || ex.dt || 30;
       }
       if (ex.pc && role !== "M" && it.reps) it.parCote = 1;
-      if ((role === "C" || role === "I" || role === "G") && ECH.has(ex.id) && (role !== "C" || ["muscle", "tonus", "perte"].indexOf(profile && profile.objectif) >= 0)) {
-        it.echec = 1; notes.add("Dernière série jusqu’à l’échec sur les exercices sans risque");
-      }
       out.items.push(it); roles.push(role);
     });
     if (L === 1 && tpl.kind === "muscu" && out.items.length > 5) { out.items = out.items.slice(0, 5); roles.length = 5; notes.add("Séance raccourcie pour débuter"); }
@@ -375,6 +402,11 @@ function prescribe(tpl, profile) {
     if (plus && lastK >= 0 && ["perte", "tonus"].indexOf(profile.objectif) >= 0) { out.items[lastK].duree += plus * 60; notes.add(plus + " min de cardio en plus"); }
     addZones(out, tpl, ctx, notes, roles, profile);
     phaseAdjust(out, profile && profile.phase, ctx, notes, roles);
+    /* S5 : cible de répétitions en réserve, une fois l’exercice définitif (le palier 3 peut le remplacer par une version plus dure) */
+    let anyRir = false, anyFail = false;
+    out.items.forEach((it, k) => { const role = roles[k]; if (role !== "C" && role !== "I" && role !== "G") return; const r = setRir(it, EX_BY_ID[it.id], role, L, profile && profile.phase); if (r) { anyRir = true; if (r.echec) anyFail = true; } });
+    if (anyRir) notes.add(L === 1 ? "Aucune série jusqu’à l’échec : tu t’arrêtes en gardant des répétitions en réserve" : "Chaque série s’arrête en gardant des répétitions en réserve");
+    if (anyFail) notes.add("Dernière série jusqu’à l’échec sur les exercices sans risque");
     if (groupStations(out.items, roles)) notes.add("Exercices au banc ou à la poulie à la suite pour éviter les allers-retours");
   }
   out.notes = [...notes];
@@ -603,7 +635,6 @@ function addZones(out, tpl, ctx, notes, roles, profile) {
       if (role === "I") { const [s0, r, rest] = ctx.obj.I; it.series = Math.max(2, s0 + (L === 1 ? -1 : 0)); if (ex.t === "t") it.duree = [0, 30, 45, 60][L]; else it.reps = r; it.repos = adjRest(ctx, rest); }
       else { it.series = L === 1 ? 2 : 3; if (ex.t === "t") it.duree = Math.round((ex.dt || 45) * [0, 0.7, 1, 1.35][L] / 5) * 5; else it.reps = [0, 12, 15, 20][L]; it.repos = adjRest(ctx, ex.t === "t" ? 30 : 45); }
       if (ex.pc && it.reps) it.parCote = 1;
-      if (ECH.has(ex.id) && it.series > 1) it.echec = 1;
       out.items.push(it); roles.push(role); added++;
       notes.add("Zone prioritaire : " + ZONES[z][0].toLowerCase());
       break;
@@ -694,18 +725,22 @@ function e1rm(r, kg) { if (!kg || !r || r < 1) return 0; if (r === 1) return kg;
    lp = dernière performance { sets:[{r,kg,rir}], target, base (reps prévues au départ), feel (1 facile … 4 très dur), fails (séances ratées d’affilée) }
    rir = répétitions encore possibles à la fin de la série (0 à 3, 3 = 3 ou plus).
    Renvoie { last, next, up, reps, why } : why = "up" | "up2" | "reps" | "hold" | "limit" | "hard" | "deload". */
-function progress(id, lp) {
+function progress(id, lp, prev) {
   if (!lp || !Array.isArray(lp.sets) || !lp.sets.length) return null;
   const as = isAssist(id), kg = Math.max.apply(null, lp.sets.map(s => s.kg || 0));
-  if (!kg && !as) return null;
+  if (!kg && !as) return progressBW(id, lp, prev); /* S6 : poids du corps et exercices chronométrés */
   const T = lp.target || 0, base = lp.base || T, reps = lp.sets.map(s => s.r || 0), minR = Math.min.apply(null, reps);
   const res = { last: kg, next: kg, up: false, reps: 0, why: "hold" };
   if (minR < T) { if ((lp.fails || 0) >= 3) { res.next = deloadOf(id, kg); res.why = "deload"; if (base && base !== T) res.reps = base; } return res; }
   if (lp.feel === 4) { res.why = "hard"; return res; }
   const rirs = lp.sets.map(s => s.rir).filter(x => x != null), minRir = rirs.length ? Math.min.apply(null, rirs) : null;
-  /* toutes les séries réussies de justesse, sans aucune répétition en réserve : on consolide */
-  if (rirs.length === lp.sets.length && Math.max.apply(null, rirs) === 0 && minR <= T) { res.why = "limit"; return res; }
-  const easy = lp.feel === 1 || (minRir != null && minRir >= 3);
+  /* toutes les séries réussies de justesse, sans aucune répétition en réserve : on consolide.
+     S5 (3D) : avec une cible de réserve rirT de 2 ou plus (lp.rirT), aussi quand toutes les séries ont fini au moins 2 répétitions plus près
+     de l’échec que prévu (l’estimation est imprécise d’environ 1 répétition, Halperin 2022 : 2 d’écart, c’est vraiment plus dur que prévu). */
+  const maxRir = rirs.length ? Math.max.apply(null, rirs) : null, rt = lp.rirT;
+  if (rirs.length === lp.sets.length && minR <= T && (maxRir === 0 || (rt >= 2 && maxRir <= rt - 2))) { res.why = "limit"; return res; }
+  /* « 3 et + » en réserve n’est un signe de facilité que si la cible était 0 ou 1 */
+  const easy = lp.feel === 1 || (minRir != null && minRir >= 3 && !(rt >= 2));
   const dir = as ? -1 : 1, nx = loadStep(id, kg, dir);
   if (as) { res.next = nx; res.up = nx !== kg; res.why = "up"; return res; }
   /* Double progression : quand la marche de charge est grosse (haltères légers, kettlebells), d’abord 2 répétitions de plus */
@@ -715,6 +750,42 @@ function progress(id, lp) {
   if (base && base !== T) res.reps = base;
   if (easy && !big && T && (minR >= T + 3 || (minRir != null && minRir >= 3))) { res.next = loadStep(id, nx, 1); res.why = "up2"; }
   return res;
+}
+/* S6 (phase 3D) : progression au poids du corps (sans charge) et chronométrée (gainage…).
+   Double progression appliquée sans charge : quand toutes les séries atteignent la cible, +1 répétition (+2 si c’était facile),
+   ou +5 s (+10 s si facile), jusqu’au haut de la fourchette : cible de départ + 5 répétitions, ou durée de départ × 1,5.
+   Haut de la fourchette atteint 2 séances de suite (prev = séance précédente) : passer à la version plus dure (HARDER).
+   lp = { sets: [{ r } ou { d }], target (reps ou secondes), base, feel } ; renvoie le même objet que progress, avec bw: true,
+   why = "hold" | "hard" | "reps" (reps = répétitions à viser) | "time" (duree = secondes à viser) | "harder" (harder = exercice) | "top". */
+const BW_TOP_REPS = 5, BW_TOP_TIME = 1.5;
+function progressBW(id, lp, prev) {
+  const res = { last: 0, next: 0, up: false, reps: 0, why: "hold", bw: true };
+  const timed = lp.sets.every(s => s && s.d > 0 && !(s.r > 0)), T = lp.target || 0, base = lp.base || T;
+  const val = (x, t) => { const v = (x && Array.isArray(x.sets) ? x.sets : []).map(s => (t ? (s && s.d) : (s && s.r)) || 0); return v.length ? Math.min.apply(null, v) : 0; };
+  const cur = val(lp, timed); if (!T || cur < T) return res;
+  if (lp.feel === 4) { res.why = "hard"; return res; }
+  const rirs = lp.sets.map(s => s.rir).filter(x => x != null), easy = lp.feel === 1 || (rirs.length > 0 && Math.min.apply(null, rirs) >= 3);
+  const top = timed ? Math.round(base * BW_TOP_TIME / 5) * 5 : base + BW_TOP_REPS;
+  if (cur >= top) {
+    if (prev && val(prev, timed) >= top) { const h = HARDER[id]; if (h && EX_BY_ID[h]) { res.why = "harder"; res.harder = h; return res; } }
+    res.why = "top"; if (timed) res.duree = top; else res.reps = top; return res;
+  }
+  if (timed) { res.why = "time"; res.duree = Math.min(top, Math.round(cur / 5) * 5 + (easy ? 10 : 5)); }
+  else { res.why = "reps"; res.reps = Math.min(top, cur + (easy ? 2 : 1)); }
+  return res;
+}
+/* Dernières performances d’un exercice d’après l’historique (la plus récente d’abord) : { ts, sets, target, base, feel }.
+   Sert à S6 : séance précédente (2 séances de suite en haut de la fourchette) et exercices chronométrés (sans référence lastPerf). */
+function histPerfs(hist, id, n) {
+  const out = [];
+  (hist || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).some(h => {
+    if (!h || h.dl || !Array.isArray(h.log)) return false;
+    const l = h.log.find(x => x && x.id === id && !x.warm && !x.cool && Array.isArray(x.sets) && x.sets.length); if (!l) return false;
+    const ts = l.sets.find(s => s && "t" in s), rs = l.sets.filter(s => s && s.r != null);
+    out.push({ ts: h.ts, sets: l.sets.map(s => Object.assign({}, s)), target: ts ? ts.t : (rs.length ? Math.max.apply(null, rs.map(s => s.r)) : 0), base: l.b || 0, feel: h.ressenti || 0 });
+    return out.length >= (n || 2);
+  });
+  return out;
 }
 /* Garde-fou S1-a : la séance prévue vise un nombre de répétitions très différent de la dernière fois (écart ≥ 3,
    ex. 5 × 5 à 100 kg puis 10 répétitions). Augmenter la charge de la dernière fois donnerait une charge irréalisable :
@@ -906,14 +977,17 @@ function phaseAdjust(out, phase, ctx, notes, roles) {
   notes.add("Palier " + ph + " : " + phaseName(ph).toLowerCase());
   return out;
 }
-/* Une séance de plus faite : avance dans le palier, passe au palier suivant, et au niveau suivant (automatique) */
-function progressTick(p) {
+/* Une séance de plus faite : avance dans le palier, passe au palier suivant.
+   S4 (phase 3D, décision 4) : le niveau ne change plus jamais tout seul. Le passage est proposé (levelSuggest) et seulement fait
+   si la personne accepte (levelAccept). opts.up = niveau à prendre à ce changement de palier : sert uniquement à rejouer un passage
+   automatique d’avant 3D déjà enregistré dans les bilans (replayProgress). */
+function progressTick(p, opts) {
   p = p || {};
-  const per = phasePer(p), lvl = NIV_KEYS[p.niveau] || 1;
+  const per = phasePer(p);
   let phase = Math.max(1, p.phase || 1), done = (p.phaseDone || 0) + 1, niveau = p.niveau || "debutant", phaseUp = false, levelUp = false;
   if (done >= per) {
     done = 0; phase++; phaseUp = true;
-    if (LEVEL_UP_PHASES[lvl] && phase > LEVEL_UP_PHASES[lvl]) { niveau = lvl === 1 ? "intermediaire" : "avance"; phase = 1; levelUp = true; }
+    if (opts && opts.up && NIV_KEYS[opts.up] && opts.up !== niveau) { niveau = opts.up; phase = 1; levelUp = true; }
   }
   return { phase, phaseDone: done, niveau, phaseUp, levelUp, per };
 }
@@ -932,7 +1006,7 @@ function deloadSe(se) {
     if (se.mode !== "circuit" && it.series > 1) it.series = Math.max(1, Math.round(it.series * 0.6));
     if (it.charge > 0 && !isAssist(it.id)) { const e = EX_BY_ID[it.id], L = LOAD[it.id], t = it.charge * 0.85; it.charge = L && (L[0] === "d" || L[0] === "k") ? ((L[0] === "d" ? DB_KG : KB_KG).filter(x => x <= t + 1e-9).pop() || it.charge) : Math.max(0, Math.round(t / chargeStep(e)) * chargeStep(e)); }
     if (it.charge >= 0 && isAssist(it.id)) it.charge = loadStep(it.id, it.charge, 1);
-    it.echec = 0;
+    rirEasy(it);
   });
   if (se.mode === "circuit" && se.tours > 2) se.tours = se.tours - 1;
   return se;
@@ -961,6 +1035,7 @@ function refStep(lastPerf, refs, h, only) {
     const sets = rs.map(s => Object.assign({ r: s.r, kg: s.kg || 0 }, s.rir != null ? { rir: s.rir } : {}));
     const ts = rs.find(s => "t" in s), target = ts ? ts.t : Math.max.apply(null, sets.map(s => s.r || 0));
     const lp = { d: h.date, ts: h.ts, sets, target, base: l.b || target, feel: h.ressenti || 0, fails: failCount(lastPerf[l.id], sets, target) };
+    const rtS = rs.find(s => typeof s.rt === "number"); if (rtS) lp.rirT = rtS.rt; /* S5 : cible de réserve de la séance (depuis 3D) */
     lastPerf[l.id] = lp;
     (refs[l.id] = refs[l.id] || {})[zoneOf(target)] = lp;
   });
@@ -1010,7 +1085,8 @@ function replayProgress(historique, profile) {
   const q = JSON.parse(JSON.stringify(p));
   const list = (Array.isArray(historique) ? historique : []).filter(countable).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
   Object.assign(q, { phase: 1, phaseDone: 0, phases: [], niveau: ph0 && ph0.niv ? ph0.niv : (p.niveau || "debutant"), phaseStart: list.length ? list[0].date : p.phaseStart });
-  list.forEach(h => tickApply(q, progressTick(q), h.date));
+  /* un passage de niveau automatique d’avant 3D (bilan avec up, sans man) est rejoué au même changement de palier */
+  list.forEach(h => { const rec = Array.isArray(p.phases) ? p.phases[(q.phases || []).length] : null; tickApply(q, progressTick(q, rec && rec.up && !rec.man ? { up: rec.up } : null), h.date); });
   if (p.simple === undefined) delete q.simple; else q.simple = p.simple;
   if (q.bilanNew != null && !(q.phases && q.phases[q.bilanNew])) delete q.bilanNew;
   return JSON.parse(JSON.stringify(q));
