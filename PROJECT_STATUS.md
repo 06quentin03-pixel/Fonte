@@ -63,7 +63,7 @@ Tests au début de la session (sur `main` `d94a720`) : `node tests/run.js` → *
 - `node tests/run.js` → **143 réussis, 0 en échec** (127 d’avant, dont 2 adaptés + 16 nouveaux : S1-b ×2, S8 (dont toutes les combinaisons au palier 4), D10, S9, D4 ×4 (600 → 60 kg : référence, courbe, records, upd ; séance d’avant 3B ; date et séries ; séance ajoutée), S5 ×3 (empreinte, tableau sur toutes les combinaisons, semaine allégée), réserve dans `progress`, S6, S4, et en synchro : **séance corrigée sur un appareil → corrigée sur l’autre**, références, records et palier identiques, puis séance passée ajoutée sur l’autre appareil).
 - `node tests/e2e/run.js` → **76 réussis, 0 en échec** (38 tests × iPhone 13 et iPad Pro 11 : les 33 d’avant + D4 correction 600 → 60 kg, D4 séance passée + S9, S5 débutante, S10 mode simple, S4 Plus tard / Passer).
 - Règles Firestore avec l’émulateur Firebase (firebase-tools 15.35.0, Java 21) → **9 réussis, 0 en échec** (règles inchangées en 3D).
-- GitHub Actions : voir plus bas (vérifié après l’envoi).
+- GitHub Actions : exécution n° 60 (partie 1, `6003655`) et n° 61 (fin de session, `b923d78`) **réussies**, tâches « tests », « navigateur » et « regles ».
 - Non testé (impossible ici) : vrai Safari, vrais iPhone/iPad, vraie base Firebase → `docs/CHECKLIST_PHASE3D.md`.
 
 **Points ouverts notés pendant 3D** (non corrigés, hors périmètre ou à décider) :
