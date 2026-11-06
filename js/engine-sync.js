@@ -52,7 +52,7 @@ function csSection(st, k) {
 }
 function csEmpty(k, v) {
   if (v == null) return true;
-  if (k === "profile") return !(isObj(v) && (v.sexe || v.prenom || v.poids || v.age || v.onb || v.phase != null));
+  if (k === "profile") return !(isObj(v) && (v.sexe || v.prenom || v.poids || v.age || v.onb)); /* le palier seul (posé à la première ouverture) ne compte pas */
   if (k === "legacy") return !Object.keys(v.legacyRefs || {}).length;
   if (k === "clear") return !v.histClear && !Object.keys(v.histDel || {}).length;
   if (Array.isArray(v)) return !v.length;
@@ -111,7 +111,7 @@ function csTrashAdd(st, h, del) {
   st.corbeille = st.corbeille.slice(0, CS_TRASH_MAX);
 }
 function csTrashPrune(st, now) {
-  st.corbeille = (Array.isArray(st.corbeille) ? st.corbeille : []).filter(x => x && x.h && x.del > now - CS_TRASH_MS && (x.h.ts || 0) > (st.histClear || 0));
+  st.corbeille = (Array.isArray(st.corbeille) ? st.corbeille : []).filter(x => x && x.h && x.del > now - CS_TRASH_MS && Math.max(x.h.ts || 0, x.h.upd || 0) > (st.histClear || 0));
 }
 /* Remet une séance de la corbeille dans l’historique (elle repart en ligne comme modifiée maintenant) → la séance, ou null */
 function csTrashRestore(st, id, now) {
@@ -122,6 +122,16 @@ function csTrashRestore(st, id, now) {
   delete st.histDel[id];
   st.historique = trimHist(st.historique.concat([h]).sort((a, b) => (b.ts || 0) - (a.ts || 0)));
   return h;
+}
+
+/* « Revenir à l’état d’avant » (copie de sécurité D5) avec la sauvegarde en ligne : chaque séance de l’état remis st absente de l’état
+   actuel cur ou différente (supprimée, effacée ou modifiée depuis) devient la version la plus récente, pour revenir aussi sur les autres appareils. */
+function csRevive(st, cur, now) {
+  const have = {}; ((cur && cur.historique) || []).forEach(h => { if (h && h.id) have[h.id] = csSeSig(h); });
+  let n = 0;
+  (st.historique || []).forEach(h => { if (h && h.id && have[h.id] !== csSeSig(h)) { h.upd = now; delete st.histDel[h.id]; n++; } });
+  if (n) st.upd = now;
+  return n;
 }
 
 /* ---------- Références et palier après une fusion (D3) ---------- */
@@ -209,7 +219,10 @@ function csMerge(st0, meta0, remote, now) {
         return;
       }
       if (lsig === csSig(rv)) { m.sent[k] = lsig; m.ru[k] = ru; return; } /* déjà identique (vide des deux côtés, par exemple) */
-      const localCh = first ? !csEmpty(k, lv) : lsig !== m.sent[k];
+      /* premier lien d’un téléphone sans aucune séance (neuf, réinstallé) : le profil en ligne l’emporte, même si le questionnaire
+         vient d’être rempli ici (sinon le palier et les réglages du compte seraient remplacés par ceux d’un profil tout neuf) */
+      const fresh = first && k === "profile" && !(st0.historique || []).length && !csEmpty(k, rv);
+      const localCh = fresh ? false : first ? !csEmpty(k, lv) : lsig !== m.sent[k];
       const remoteCh = first ? !csEmpty(k, rv) : ru !== (m.ru[k] || 0);
       if (!remoteCh) { m.ru[k] = ru; return; }
       if (!localCh) {
@@ -229,8 +242,9 @@ function csMerge(st0, meta0, remote, now) {
   const clr = st.histClear || 0;
   let clearedGone = [];
   if (clr) { /* effacement complet reçu : les séances antérieures quittent l’historique (copie de sécurité faite par l’appli avant) */
-    clearedGone = st.historique.filter(h => (h.ts || 0) <= clr);
-    if (clearedGone.length) st.historique = st.historique.filter(h => (h.ts || 0) > clr);
+    /* une séance remise après l’effacement (upd plus récent, « Revenir à l’état d’avant ») n’est pas effacée */
+    clearedGone = st.historique.filter(h => Math.max(h.ts || 0, h.upd || 0) <= clr);
+    if (clearedGone.length) st.historique = st.historique.filter(h => Math.max(h.ts || 0, h.upd || 0) > clr);
     if (rep.cleared) { st.lastPerf = {}; st.refs = {}; Object.keys(st.legacyRefs || {}).forEach(id => { const lp = st.legacyRefs[id]; if (!lp || (lp.ts || dayMs(lp.d)) <= clr) { delete st.legacyRefs[id]; delete st.legacySrc[id]; } }); }
   }
   /* 3. Séances, une par une */
@@ -260,7 +274,7 @@ function csMerge(st0, meta0, remote, now) {
       return;
     }
     const h = d.h, rsig = csSeSig(h);
-    if ((h.ts || 0) <= clr) { m.seen[id] = rsig; return; } /* effacée par « Effacer l’historique » : ignorée */
+    if (Math.max(h.ts || 0, d.upd || h.upd || 0) <= clr) { m.seen[id] = rsig; return; } /* effacée par « Effacer l’historique » : ignorée */
     if (!local) {
       const ldel = st.histDel[id];
       if (ldel && ldel >= (d.upd || h.upd || 0)) { m.seen[id] = rsig; return; } /* supprimée ici après cette version : la suppression repartira */

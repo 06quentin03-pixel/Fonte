@@ -81,6 +81,15 @@ module.exports = function (atest, G, same) {
     assert.strictEqual(srv.n.ecritures, 9, "l’appareil réinstallé n’a rien renvoyé");
   });
 
+  atest("synchro : téléphone neuf dont le questionnaire a déjà été rempli → le profil en ligne (palier, réglages) l’emporte", async () => {
+    const srv = nouveau(), A = new Appareil(srv, "uA"); for (let i = 0; i < 3; i++) A.enregistrer(seance(T.now - (9 - i) * jour, 60));
+    await A.sync();
+    T.now += 5000;
+    const B = new Appareil(srv, "uA", { profile: { prenom: "Q", sexe: "H", age: 31, poids: 82, niveau: "debutant", objectif: "forme", onb: 1, phase: 1, phaseDone: 0 } }); B.st.upd = T.now;
+    await B.sync();
+    assert.strictEqual(pal(B), pal(A)); same(B.st.profile, A.st.profile);
+  });
+
   atest("synchro : deux appareils hors ligne ajoutent chacun une séance → les deux gardent les deux, palier compté une fois chacune", async () => {
     const srv = nouveau(), A = new Appareil(srv, "uA");
     A.enregistrer(seance(T.now - 5 * jour, 60)); await A.sync();
@@ -263,6 +272,19 @@ module.exports = function (atest, G, same) {
     assert.strictEqual(r.status, "ok"); assert.strictEqual(B.reps[0].bad, 1, "1 document ignoré");
     const h = B.st.historique.find(x => x.id === "v1x"); assert.ok(h, "séance v1 reçue"); assert.strictEqual(h.upd, ancienne.ts, "upd ajouté par migrate");
     assert.ok(srv.se.uA.casse, "le document abîmé n’est pas effacé");
+  });
+
+  atest("synchro : « Revenir à l’état d’avant » après une suppression ou un effacement reçus → les séances reviennent partout", async () => {
+    const srv = nouveau(), A = new Appareil(srv, "uA"); for (let i = 0; i < 4; i++) A.enregistrer(seance(T.now - (9 - i) * jour, 60 + i));
+    await A.sync(); const B = new Appareil(srv, "uA", { profile: {} }); await B.sync();
+    const copie = clone(B.st); /* copie de sécurité faite par l’appli avant d’appliquer la synchro */
+    T.now += 1000; A.supprimer(A.st.historique[0].id); T.now += 1000;
+    Object.assign(A.st, { historique: [], lastPerf: {}, refs: {}, histClear: T.now }); A.st.upd = T.now; await A.sync();
+    await B.sync(); assert.strictEqual(B.st.historique.length, 0);
+    T.now += 1000; const actuel = B.st; B.st = G.normState(copie); assert.strictEqual(G.csRevive(B.st, actuel, T.now), 4);
+    await B.sync(); await A.sync();
+    assert.strictEqual(B.st.historique.length, 4, "revenues sur B"); assert.strictEqual(A.st.historique.length, 4, "revenues sur A");
+    const C = new Appareil(srv, "uA", { profile: {} }); await C.sync(); assert.strictEqual(C.st.historique.length, 4, "et sur un nouvel appareil");
   });
 
   atest("synchro : les données d’un compte ne sont jamais envoyées dans celui d’un autre (faux serveur par compte)", async () => {

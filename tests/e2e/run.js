@@ -499,6 +499,108 @@ test("prochaine séance : « Force : squat » faite depuis les séances types �
   await ctx.close();
 });
 
+test("corbeille : une séance supprimée de l’historique se remet depuis Profil › Données › Corbeille (référence et palier revenus)", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: Object.assign(typ(), { "fonte:backup": String(Date.now()) }) });
+  await saveSeededRun(page);
+  const B = await state(page), h = B.historique[0];
+  await page.click('[data-a="hist-open"][data-id="' + h.id + '"]'); await twice(page, '[data-a="hist-del"]');
+  await page.waitForSelector("#toast:text('Supprimée de l’historique')");
+  await tab(page, "profil"); await page.click('[data-a="trash-open"]');
+  await page.click('.sheet [data-a="trash-restore"][data-id="' + h.id + '"]');
+  await page.waitForSelector("#toast:text('Séance remise')");
+  const C = await state(page);
+  assert.strictEqual(C.historique.length, B.historique.length); assert.ok(C.historique.some(x => x.id === h.id));
+  assert.ok(!C.histDel[h.id], "plus marquée supprimée"); assert.strictEqual(C.corbeille.length, 0);
+  assert.deepStrictEqual(C.lastPerf, B.lastPerf, "références revenues"); assert.deepStrictEqual([C.profile.phase, C.profile.phaseDone], [B.profile.phase, B.profile.phaseDone], "palier revenu");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
+/* ---------- Sauvegarde en ligne par compte (phase 3C), avec un faux Firebase (tests/e2e/faux-firebase.js) ---------- */
+const FF = require("./faux-firebase");
+/* données d’usage typique, ramenées à 20 séances (le premier envoi tient alors dans la limite d’écritures de la minute) */
+const typ20 = () => { const st = typ(), v = JSON.parse(st["fonte:v1"]); v.historique = v.historique.slice(0, 20); st["fonte:v1"] = JSON.stringify(v); st["fonte:backup"] = String(Date.now()); return st; };
+async function profil(page) { await tab(page, "profil"); }
+async function statut(page, re, ms) { await page.waitForFunction(r => { const e = document.querySelector("#ac-status"); return e && new RegExp(r).test(e.textContent); }, re.source, { timeout: ms || 15000 }); }
+test("sauvegarde en ligne : créer un compte relie le compte anonyme de l’appareil (agenda partagé conservé) et envoie tout le profil", async (b, srv, dev) => {
+  const fs = new FF.FauxServeur();
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, before: c => FF.installer(c, fs), storage: Object.assign(typ20(), { "fonte:sync": JSON.stringify({ cfg: FF.CFG, space: "espacedetest1234" }) }) });
+  await page.waitForFunction(() => true); await page.waitForTimeout(300);
+  assert.ok(fs.docs["espaces/espacedetest1234/agendas/anon1"], "agenda envoyé avec la connexion anonyme (comme avant 3C)");
+  await profil(page);
+  await page.click('[data-a="ac-open"][data-v="new"]');
+  await page.fill("#ac-email", "quentin@exemple.fr"); await page.fill("#ac-pw", "secret123");
+  await page.click("#ac-go");
+  await statut(page, /Sauvegardé en ligne/);
+  assert.strictEqual(fs.comptes["quentin@exemple.fr"].uid, "anon1", "même identifiant qu’avant : l’agenda partagé continue");
+  const s = await state(page);
+  assert.strictEqual(fs.seances("anon1").length, s.historique.length, "une séance = un document");
+  assert.ok(fs.docs["users/anon1"], "document du profil");
+  assert.strictEqual(JSON.parse(fs.docs["users/anon1"].profile).prenom, s.profile.prenom);
+  assert.ok(fs.docs["espaces/espacedetest1234/agendas/anon1"], "agenda partagé toujours là");
+  const meta = JSON.parse(await page.evaluate(() => { const P = JSON.parse(localStorage.getItem("fonte:profiles")); return localStorage.getItem("fonte:p:" + P.active + ":sync"); }));
+  assert.strictEqual(meta.email, "quentin@exemple.fr"); assert.ok(meta.last > 0);
+  assert.ok(!(await page.$('[data-a="bk-now"]')), "plus de rappel de sauvegarde fichier");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("sauvegarde en ligne : téléphone réinstallé (vide) → « J’ai déjà un compte Fonte » → tout revient (historique, profil, palier, références)", async (b, srv, dev) => {
+  const fs = new FF.FauxServeur();
+  const A = await openApp(b, srv.url, { device: dev, before: c => FF.installer(c, fs), storage: typ20() });
+  await profil(A.page); await A.page.click('[data-a="ac-open"][data-v="new"]');
+  await A.page.fill("#ac-code", FF.invitation("espacedetest1234"));
+  await A.page.fill("#ac-email", "lea@exemple.fr"); await A.page.fill("#ac-pw", "motdepasse");
+  await A.page.click("#ac-go"); await statut(A.page, /Sauvegardé en ligne/);
+  const avant = await state(A.page);
+  /* nouveau téléphone : rien sur l’appareil, le questionnaire de départ s’ouvre */
+  const B = await openApp(b, srv.url, { device: dev, before: c => FF.installer(c, fs) });
+  await B.page.waitForSelector("#onb:not([hidden])");
+  await B.page.click('[data-a="onb-account"]');
+  await B.page.fill("#ac-code", FF.invitation("espacedetest1234"));
+  await B.page.fill("#ac-email", "lea@exemple.fr"); await B.page.fill("#ac-pw", "faux-mdp"); await B.page.click("#ac-go");
+  await B.page.waitForFunction(() => { const e = document.querySelector("#ac-err"); return e && !e.hidden; });
+  assert.match(await B.page.textContent("#ac-err"), /incorrect/, "mauvais mot de passe : message clair");
+  await B.page.fill("#ac-pw", "motdepasse"); await B.page.click("#ac-go");
+  await B.page.waitForSelector("#toast:text('Connecté')");
+  await profil(B.page); await statut(B.page, /Sauvegardé en ligne/);
+  const apres = await state(B.page);
+  assert.deepStrictEqual(apres.historique.map(h => h.id), avant.historique.map(h => h.id), "historique revenu");
+  assert.deepStrictEqual(apres.historique, avant.historique, "séances identiques");
+  for (const f of ["prenom", "sexe", "poids", "niveau", "phase", "phaseDone", "objectif"]) assert.deepStrictEqual(apres.profile[f], avant.profile[f], "profil : " + f);
+  assert.deepStrictEqual(apres.lastPerf, avant.lastPerf, "références (charges proposées)");
+  assert.deepStrictEqual(apres.notes, avant.notes); assert.deepStrictEqual(apres.mesures, avant.mesures);
+  assert.ok(await B.page.$eval("#onb", e => e.hidden), "questionnaire fermé : le profil est revenu");
+  assert.deepStrictEqual(A.errors, []); assert.deepStrictEqual(B.errors, []);
+  await A.ctx.close(); await B.ctx.close();
+});
+test("sauvegarde en ligne : mode avion → « En attente du réseau », séance gardée ; retour du réseau → envoyée", async (b, srv, dev) => {
+  const fs = new FF.FauxServeur();
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, before: c => FF.installer(c, fs), storage: typ20() });
+  await profil(page); await page.click('[data-a="ac-open"][data-v="new"]');
+  await page.fill("#ac-code", FF.invitation("espacedetest1234"));
+  await page.fill("#ac-email", "q@exemple.fr"); await page.fill("#ac-pw", "secret123"); await page.click("#ac-go");
+  await statut(page, /Sauvegardé en ligne/);
+  const uid = fs.comptes["q@exemple.fr"].uid, n0 = fs.seances(uid).length;
+  /* séance terminée, enregistrée sans réseau */
+  const k = await keyOf(page, "fonte:run");
+  await page.evaluate(([k, r]) => localStorage.setItem(k, r), [k, doneRun()]);
+  await page.reload(); await page.waitForSelector("#view .card"); await tab(page, "accueil");
+  await ctx.setOffline(true);
+  await page.click('[data-a="run-resume"]'); await page.click('#runner [data-a="run-save"]');
+  await page.waitForSelector("#toast:text('Séance enregistrée')");
+  if (await page.$(".sheet")) await page.evaluate(() => document.querySelectorAll(".sheet-wrap").forEach(e => e.remove()));
+  await profil(page); await page.waitForTimeout(2500); await profil(page);
+  await statut(page, /En attente du réseau/);
+  const s = await state(page); assert.strictEqual(s.historique.length, 21, "séance gardée sur le téléphone");
+  assert.strictEqual(fs.seances(uid).length, n0, "rien n’est parti sans réseau");
+  await ctx.setOffline(false);
+  await statut(page, /Sauvegardé en ligne/);
+  assert.strictEqual(fs.seances(uid).length, n0 + 1, "séance envoyée au retour du réseau");
+  assert.ok(fs.seances(uid).some(d => d.id === s.historique[0].id));
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
 (async () => {
   const { chromium } = require("playwright");
   const browser = await chromium.launch();
