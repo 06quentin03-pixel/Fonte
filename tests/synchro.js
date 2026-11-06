@@ -287,6 +287,25 @@ module.exports = function (atest, G, same) {
     const C = new Appareil(srv, "uA", { profile: {} }); await C.sync(); assert.strictEqual(C.st.historique.length, 4, "et sur un nouvel appareil");
   });
 
+  atest("synchro : une rubrique trop grosse pour les règles n’est pas envoyée, le reste part, rien n’est effacé ailleurs", async () => {
+    const srv = nouveau(), A = new Appareil(srv, "uA"); A.enregistrer(seance(T.now - 3 * jour, 60));
+    A.st.imports = [{ id: "i1", nom: "Coach", events: [] }]; await A.sync();
+    const B = new Appareil(srv, "uA", { profile: {} }); await B.sync(); assert.strictEqual(B.st.imports.length, 1);
+    A.st.imports = [{ id: "i1", nom: "x".repeat(G.CS_SEC_MAX.imports), events: [] }]; A.st.notes = { "squat-barre": "nouvelle note" }; A.st.upd = T.now;
+    const r = await A.sync();
+    assert.strictEqual(r.status, "trop-gros"); same(r.big, ["imports"]);
+    assert.strictEqual(srv.users.uA.imports, "null"); assert.ok(srv.users.uA.notes.indexOf("nouvelle note") >= 0, "les autres rubriques sont parties");
+    await B.sync(); assert.strictEqual(B.st.imports.length, 1, "l’autre appareil garde ses agendas importés"); assert.strictEqual(B.st.notes["squat-barre"], "nouvelle note");
+    assert.ok(Object.values(srv.users.uA).every(v => typeof v !== "string" || v.length <= 300000));
+  });
+
+  atest("synchro : les tailles maximales du moteur sont celles des règles Firestore (RULES)", async () => {
+    const app = require("fs").readFileSync(require("path").join(__dirname, "..", "js", "app.js"), "utf8"), rules = app.match(/const RULES = `([\s\S]*?)`;/)[1];
+    Object.keys(G.CS_SEC_MAX).forEach(k => assert.ok(rules.indexOf("texte(request.resource.data, '" + k + "', " + G.CS_SEC_MAX[k] + ")") >= 0, "rubrique " + k));
+    assert.ok(rules.indexOf("texte(request.resource.data, 'j', 200000)") >= 0 && /CS_SE_MAX = 200000/.test(require("fs").readFileSync(require("path").join(__dirname, "..", "js", "engine-sync.js"), "utf8")), "séance");
+    same(G.CS_SECTIONS.slice().sort(), Object.keys(G.CS_SEC_MAX).sort());
+  });
+
   atest("synchro : les données d’un compte ne sont jamais envoyées dans celui d’un autre (faux serveur par compte)", async () => {
     const srv = nouveau(), A = new Appareil(srv, "uA"), C = new Appareil(srv, "uC");
     A.enregistrer(seance(T.now - 3 * jour, 60)); C.enregistrer(seance(T.now - 2 * jour, 40));

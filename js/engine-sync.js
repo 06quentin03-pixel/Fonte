@@ -19,6 +19,10 @@ const CS_USER_MAX = 800000, CS_SE_MAX = 200000; /* tailles maximales en caractè
 const CS_DEL_MAX = 300;                   /* séances supprimées dont on garde la trace (histDel), comme pruneDel */
 /* Rubriques du document users/{uid} (chacune enregistrée en texte JSON, avec sa date de modification u[rubrique]) */
 const CS_SECTIONS = ["profile", "notes", "mesures", "mesSeances", "deload", "imports", "agenda", "legacy", "clear"];
+/* Taille maximale de chaque rubrique (caractères), identique aux règles Firestore (RULES, app.js : vérifié par tests/run.js).
+   Une rubrique plus grosse n’est pas envoyée (les autres oui) : sinon Firebase refuserait tout le document. */
+const CS_SEC_MAX = { profile: 20000, notes: 100000, mesures: 200000, mesSeances: 300000, deload: 5000, imports: 200000, agenda: 200000, legacy: 300000, clear: 50000 };
+const CS_ID_OK = id => typeof id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(id); /* identifiant utilisable comme nom de document */
 
 /* ---------- Petits outils ---------- */
 const csSig = v => sigOf(JSON.stringify(v === undefined ? null : v));
@@ -329,7 +333,7 @@ function csPlan(st, meta, now) {
   if (m.blocked) return { ops, n: 0, blocked: m.blocked };
   (st.historique || []).forEach(h => {
     if (!h || !h.id) return; inHist[h.id] = 1;
-    if (m.skip[h.id]) return;
+    if (m.skip[h.id] || !CS_ID_OK(h.id)) return;
     const sig = csSeSig(h), seen = m.seen[h.id];
     if (seen === sig) return;
     if (h.c && seen && !csIsDel(seen)) { ops.push({ t: "mark", id: h.id, mark: sig }); return; } /* résumée ici : le détail reste en ligne */
@@ -345,19 +349,25 @@ function csPlan(st, meta, now) {
   });
   /* document du profil : seulement si une rubrique a changé */
   const marks = {}, u = Object.assign({}, m.ru || {}), data = { v: SCHEMA_VERSION, app: "fonte", upd: st.upd || 0, agUpd: st.agUpd || 0 };
-  let changed = false;
-  CS_SECTIONS.forEach(k => { const v = csSection(st, k), sig = csSig(v); data[k] = JSON.stringify(v === undefined ? null : v); if (sig !== m.sent[k]) { changed = true; u[k] = Math.max(now, (u[k] || 0) + 1); /* toujours plus récente que la précédente, même dans la même milliseconde */ } marks[k] = sig; });
+  let changed = false; const big = [];
+  CS_SECTIONS.forEach(k => {
+    const v = csSection(st, k), sig = csSig(v);
+    data[k] = JSON.stringify(v === undefined ? null : v);
+    if (data[k].length > CS_SEC_MAX[k]) { data[k] = "null"; big.push(k); } /* trop grosse : pas envoyée, ignorée par les autres appareils (rien n’est effacé) */
+    if (sig !== m.sent[k]) { changed = true; u[k] = Math.max(now, (u[k] || 0) + 1); /* toujours plus récente que la précédente, même dans la même milliseconde */ }
+    marks[k] = sig;
+  });
   data.u = u;
   if (changed) {
     if (JSON.stringify(data).length > CS_USER_MAX) return { ops, n: ops.filter(o => o.t !== "mark").length, tooBig: true };
-    ops.push({ t: "user", data, marks, u, expect: m.su || null }); /* envoyé seul, à condition que le document en ligne n’ait pas changé depuis la lecture */
+    ops.push({ t: "user", data, marks, u, expect: m.su || null, big }); /* envoyé seul, à condition que le document en ligne n’ait pas changé depuis la lecture */
   }
   /* effacements définitifs : séances supprimées depuis plus de 30 jours, séances antérieures à un effacement complet de plus de 30 jours */
   Object.keys(m.seen).forEach(id => {
     const s = m.seen[id], d = csDelAt(s);
     if (d && d < now - CS_TRASH_MS) ops.push({ t: "rm", id });
   });
-  return { ops, n: ops.filter(o => o.t !== "mark").length };
+  return { ops, n: ops.filter(o => o.t !== "mark").length, big };
 }
 
 /* ---------- Limiteur d’écritures ---------- */
@@ -396,7 +406,7 @@ async function csRun(o) {
   const now = o.now(), plan = csPlan(o.getState(), m, now);
   plan.ops.filter(x => x.t === "mark").forEach(x => { m.seen[x.id] = x.mark; });
   let ops = plan.ops.filter(x => x.t !== "mark");
-  let status = plan.tooBig ? "trop-gros" : "ok";
+  let status = plan.tooBig || (plan.big && plan.big.length) ? "trop-gros" : "ok";
   const allowed = csLimit(m, now);
   if (ops.length > allowed) {
     status = "limite";
@@ -426,7 +436,7 @@ async function csRun(o) {
     return { status: "erreur", error: e, rep, pending: csPending(o.getState(), m, o.now()) };
   }
   const pending = csPending(o.getState(), m, o.now());
-  if (status === "ok" && !pending) m.last = o.now();
+  if ((status === "ok" || (status === "trop-gros" && !plan.tooBig)) && !pending) m.last = o.now();
   o.saveMeta(m);
-  return { status, rep, pending };
+  return { status, rep, pending, big: plan.big || [] };
 }

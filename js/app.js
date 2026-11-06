@@ -1334,7 +1334,7 @@ const Acct = {
     if (r.status === "ok") this.set(this.pending ? "offline" : "ok");
     else if (r.status === "limite") { this.set("limite"); this.queue(65000); }
     else if (r.status === "plus-recent") this.set("plus-recent");
-    else if (r.status === "trop-gros") this.set("error", "Ton profil est trop gros pour la sauvegarde en ligne (séances perso, mesures…). Tes séances, elles, sont sauvegardées. Fais aussi une sauvegarde fichier.");
+    else if (r.status === "trop-gros") this.set("error", (r.big && r.big.length ? "Une partie de ton profil est trop grosse pour la sauvegarde en ligne (" + r.big.map(k => ({ profile: "profil", notes: "notes", mesures: "mesures", mesSeances: "séances perso", deload: "semaine allégée", imports: "agendas importés", agenda: "agenda", legacy: "anciennes références", clear: "suppressions" }[k] || k)).join(", ") + ") : elle reste sur ce téléphone." : "Ton profil est trop gros pour la sauvegarde en ligne.") + " Tes séances, elles, sont sauvegardées. Fais aussi une sauvegarde fichier.");
     else this.fail(r.error);
     if (this.again) { this.again = false; this.queue(500); }
   },
