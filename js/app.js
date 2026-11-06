@@ -1,6 +1,6 @@
 /* ===== Fonte · interface (app.js) =====
    Fichiers chargés dans l’ordre par de simples <script src> (index.html), sans outil de construction :
-   engine-pedago.js → engine-training.js → engine-analytics.js → engine-user.js → app.js.
+   engine-pedago.js → engine-training.js → engine-analytics.js → engine-user.js → engine-sync.js → app.js.
    Les déclarations de haut niveau sont partagées entre ces fichiers (comme lorsqu’ils formaient un seul index.html) :
    un fichier peut utiliser ce qu’un fichier précédent déclare. tools/assemble.js les recolle en un seul fichier (mode « artifact Claude »). */
 (function () {
@@ -1066,12 +1066,49 @@ function statusHTML() {
 
 /* ================= Synchro automatique (version installée, Firebase) ================= */
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+/* Règles Firestore (à coller dans la console Firebase, Firestore › Règles). Testées avec l’émulateur Firebase : tests/regles/run.js.
+   - données personnelles (users/{uid} et ses séances) : lues et écrites seulement par leur propriétaire, connecté avec un vrai compte
+     (e-mail + mot de passe) ; la connexion anonyme n’y a pas accès ; champs et tailles bornés ; heure du serveur obligatoire (srv) ;
+   - agenda partagé : lu par les comptes e-mail connectés qui connaissent l’espace, chacun n’écrit que son propre agenda (500 séances au plus) ;
+     un ancien agenda anonyme peut encore être retiré par son appareil ;
+   - tout le reste est refusé. */
 const RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function compte() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function moi(uid) { return compte() && request.auth.uid == uid; }
+    function texte(d, k, max) { return !(k in d) || (d[k] is string && d[k].size() <= max); }
+    match /users/{uid} {
+      allow read, delete: if moi(uid);
+      allow create, update: if moi(uid)
+        && request.resource.data.keys().hasOnly(['v', 'app', 'upd', 'agUpd', 'u', 'srv', 'profile', 'notes', 'mesures', 'mesSeances', 'deload', 'imports', 'agenda', 'legacy', 'clear'])
+        && request.resource.data.v is int && request.resource.data.srv == request.time
+        && (!('u' in request.resource.data) || request.resource.data.u is map)
+        && texte(request.resource.data, 'profile', 20000) && texte(request.resource.data, 'notes', 100000)
+        && texte(request.resource.data, 'mesures', 200000) && texte(request.resource.data, 'mesSeances', 300000)
+        && texte(request.resource.data, 'deload', 5000) && texte(request.resource.data, 'imports', 200000)
+        && texte(request.resource.data, 'agenda', 200000) && texte(request.resource.data, 'legacy', 300000)
+        && texte(request.resource.data, 'clear', 50000);
+      match /seances/{sid} {
+        allow read, delete: if moi(uid);
+        allow create, update: if moi(uid) && sid.size() <= 40
+          && request.resource.data.keys().hasOnly(['v', 'upd', 'del', 'j', 'srv'])
+          && request.resource.data.v is int && request.resource.data.upd is number
+          && request.resource.data.srv == request.time
+          && ('j' in request.resource.data || 'del' in request.resource.data)
+          && texte(request.resource.data, 'j', 200000)
+          && (!('del' in request.resource.data) || request.resource.data.del is number);
+      }
+    }
     match /espaces/{espace}/agendas/{membre} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == membre;
+      allow read: if compte();
+      allow create, update: if compte() && request.auth.uid == membre
+        && request.resource.data.keys().hasOnly(['v', 'upd', 'prenom', 'events'])
+        && request.resource.data.events is list && request.resource.data.events.size() <= 500
+        && (!('prenom' in request.resource.data) || (request.resource.data.prenom is string && request.resource.data.prenom.size() <= 40));
+      allow delete: if request.auth != null && request.auth.uid == membre;
     }
   }
 }`;

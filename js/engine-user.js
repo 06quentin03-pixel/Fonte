@@ -4,7 +4,7 @@
    Tout ce qui touche au stockage se teste en Node avec un faux localStorage (tests/run.js). Restent dans app.js : les messages à l’écran
    (toast), le rendu, et la synchronisation (compte Claude, Firebase : reprise en 3C).
    Fichiers chargés dans l’ordre par de simples <script src> (index.html), sans outil de construction :
-   engine-pedago.js → engine-training.js → engine-analytics.js → engine-user.js → app.js.
+   engine-pedago.js → engine-training.js → engine-analytics.js → engine-user.js → engine-sync.js → app.js.
    Les déclarations de haut niveau sont partagées entre ces fichiers (comme lorsqu’ils formaient un seul index.html) :
    un fichier peut utiliser ce qu’un fichier précédent déclare. tools/assemble.js les recolle en un seul fichier (mode « artifact Claude »). */
 
@@ -99,7 +99,7 @@ const DEF_PROFILE = { prenom: "", sexe: "", age: null, taille: null, poids: null
 /* Profil normalisé : objectifs = liste (le premier est le principal), objectif = le principal (anciennes versions) */
 function normProfile(pr) { const p = Object.assign(clone(DEF_PROFILE), pr || {}); if (!pr || !Array.isArray(pr.objectifs)) p.objectifs = [p.objectif]; p.objectifs = objList(p); p.objectif = p.objectifs[0]; return p; }
 /* État d’un profil (format v2). refs, legacyRefs, legacySrc : voir MIGRATIONS[1] et docs/FORMAT_DONNEES.md */
-const DEF = { v: 2, upd: 0, agUpd: 0, profile: DEF_PROFILE, mesSeances: [], historique: [], lastPerf: {}, refs: {}, legacyRefs: {}, legacySrc: {}, notes: {}, mesures: [], deload: {}, histDel: {}, histClear: 0, agenda: [], imports: [], partners: {}, hidden: {} };
+const DEF = { v: 2, upd: 0, agUpd: 0, profile: DEF_PROFILE, mesSeances: [], historique: [], lastPerf: {}, refs: {}, legacyRefs: {}, legacySrc: {}, notes: {}, mesures: [], deload: {}, histDel: {}, histClear: 0, corbeille: [], agenda: [], imports: [], partners: {}, hidden: {} };
 const isObj = o => !!o && typeof o === "object" && !Array.isArray(o);
 const dayMs = iso => { if (typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 0; const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).getTime(); };
 
@@ -161,7 +161,7 @@ function normState(s) {
   const st = Object.assign(clone(DEF), s && typeof s === "object" ? s : {});
   st.v = SCHEMA_VERSION;
   st.profile = normProfile(st.profile);
-  ["mesSeances", "historique", "agenda", "imports"].forEach(k => { if (!Array.isArray(st[k])) st[k] = []; });
+  ["mesSeances", "historique", "agenda", "imports", "corbeille"].forEach(k => { if (!Array.isArray(st[k])) st[k] = []; });
   if (!st.histDel || typeof st.histDel !== "object" || Array.isArray(st.histDel)) st.histDel = {};
   if (typeof st.histClear !== "number") st.histClear = 0;
   ["notes", "deload", "lastPerf", "refs", "legacyRefs", "legacySrc", "partners", "hidden"].forEach(k => { if (!isObj(st[k])) st[k] = {}; });
