@@ -2,10 +2,14 @@
    L'appli est servie depuis le cache (démarrage immédiat, même sans réseau) et la nouvelle version est téléchargée
    en arrière-plan : si elle a changé, la page affiche « Nouvelle version prête, Recharger ».
    Il n'est donc plus nécessaire de changer VERSION à chaque mise à jour de index.html :
-   change-la seulement quand tu modifies ce fichier sw.js ou la liste SHELL. */
-const VERSION = "fonte-2026-11-05-rouge";
+   change-la seulement quand tu modifies ce fichier sw.js ou la liste SHELL.
+   Les fichiers js/ sont aussi servis depuis le cache et mis à jour en arrière-plan ; l'avis « Nouvelle version » est donné
+   par index.html : pour qu'une modification d'un fichier js/ soit proposée, change aussi VERSION (tout est alors retéléchargé ensemble). */
+const VERSION = "fonte-2026-11-06-moteurs";
 const EXT = "fonte-ext";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
+/* Tous les fichiers de l'appli : un fichier manquant ici casserait le fonctionnement hors ligne (vérifié par tests/run.js) */
+const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png",
+  "./js/engine-pedago.js", "./js/engine-training.js", "./js/engine-analytics.js", "./js/engine-user.js", "./js/app.js"];
 let pending = false;
 
 self.addEventListener("install", e => {

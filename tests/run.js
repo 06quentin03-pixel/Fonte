@@ -1,20 +1,13 @@
 /* Tests des calculs de Fonte : node tests/run.js
-   Charge le script « Base d'exercices » de index.html (données + fonctions pures) sans navigateur. */
+   Charge les moteurs de calcul (js/engine-*.js : données + fonctions pures) sans navigateur. */
 "use strict";
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
-const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
-if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
-const ctx = vm.createContext({ console });
-/* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf"];
-vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
-const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
+/* Moteurs chargés depuis js/engine-*.js (phase 3A) : voir tests/charger.js */
+const G = require("./charger").charger();
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -529,6 +522,171 @@ test("icsExport : événements avec heure, rappel et texte échappé", () => {
 });
 test("icsExport : sans rappel", () => {
   assert.ok(G.icsExport([{ id: "e", date: "2026-03-02", heure: "08:00", titre: "x" }], { alarm: -1 }).indexOf("VALARM") < 0);
+});
+
+console.log("Garde-fou de charge (S1-a)");
+const sets5 = (n, r, kg) => Array.from({ length: n }, () => ({ r, kg }));
+test("convertLoad : cas de l'audit, 5 × 5 à 100 kg au squat puis 10 répétitions → 82,5 kg (et non 102,5)", () => {
+  const lp = { sets: sets5(5, 5, 100), target: 5, base: 5 };
+  assert.strictEqual(G.convertLoad("squat-barre", lp, 10, 20), 82.5);
+  assert.strictEqual(G.progress("squat-barre", lp).next, 102.5, "sans garde-fou : 102,5 kg");
+});
+test("convertLoad : moins de répétitions → charge plus lourde mais prudente (10 × 70 kg → 75 kg pour 5)", () => {
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 10, 70), target: 10 }, 5, 20), 75);
+});
+test("convertLoad : écart de moins de 3 répétitions, assistance, poids du corps, durée → pas de conversion", () => {
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 8, 80), target: 8 }, 10, 20), null);
+  assert.strictEqual(G.convertLoad("tractions-assistees", { sets: sets5(3, 5, 30), target: 5 }, 12, 20), null);
+  assert.strictEqual(G.convertLoad("pompes", { sets: sets5(3, 5, 0), target: 5 }, 15, 20), null);
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 5, 100), target: 5 }, 0, 20), null);
+  assert.strictEqual(G.convertLoad("squat-barre", null, 10, 20), null);
+});
+test("convertLoad : arrondi vers le bas au matériel (haltères du commerce, machines de 5 en 5, barre minimum)", () => {
+  const d = G.convertLoad("dc-halteres", { sets: sets5(3, 5, 30), target: 5 }, 12, 20);
+  assert.ok(G.DB_KG.indexOf(d) >= 0 && d <= 30 * (1 + 5 / 30) / (1 + 12 / 30) * 0.95, "haltère : " + d);
+  assert.strictEqual(G.convertLoad("presse-cuisses", { sets: sets5(3, 6, 150), target: 6 }, 12, 20) % 5, 0);
+  assert.strictEqual(G.convertLoad("squat-barre", { sets: sets5(3, 5, 20), target: 5 }, 15, 20), 20, "jamais sous la barre à vide");
+});
+test("convertLoad : prend la série la plus lourde, au plus petit nombre de répétitions réussies", () => {
+  const lp = { sets: [{ r: 5, kg: 100 }, { r: 3, kg: 100 }, { r: 8, kg: 90 }], target: 5 };
+  assert.strictEqual(G.convertLoad("squat-barre", lp, 10, 20), Math.floor(100 * 1.1 / (1 + 10 / 30) * 0.95 / 2.5) * 2.5);
+});
+test("convertLoad : tous les profils à 2 objectifs (niveaux, 1 à 6 jours, paliers 1 à 4, semaines A et B) → jamais au-dessus de la charge convertie + 1 cran", () => {
+  const objs = Object.keys(G.OBJECTIFS), weeks = ["2026-11-02", "2026-11-09"];
+  let combos = 0, pairs = 0;
+  objs.forEach(a => objs.forEach(b => { if (a === b) return;
+    ["debutant", "intermediaire", "avance"].forEach(niv => { for (let j = 1; j <= 6; j++) for (let ph = 1; ph <= 4; ph++) {
+      const p = Object.assign({}, P_H, { objectif: a, objectifs: [a, b], niveau: niv, jours: j, phase: ph, phaseDone: 0 });
+      const reps = {};
+      weeks.forEach(w => { const pr = G.programme(p); pr.ids.forEach((id, k) => {
+        const se = G.prescribe(G.TPL_BY_ID[G.weekVariant(id, w)], G.profFor(p, pr.objs[k]));
+        se.items.forEach(it => { if (it.reps > 0 && !it.duree && G.LOAD[it.id] && !G.isAssist(it.id)) (reps[it.id] = reps[it.id] || new Set()).add(it.reps); });
+      }); });
+      let hit = false;
+      Object.keys(reps).forEach(id => { const rs = [...reps[id]];
+        rs.forEach(r1 => rs.forEach(r2 => { if (Math.abs(r1 - r2) < 3) return;
+          const kg = G.estCharge(id, r1, p); if (!kg) return;
+          const lp = { sets: sets5(3, r1, kg), target: r1, base: r1 }, cv = G.convertLoad(id, lp, r2, p.barre);
+          const ideal = kg * (1 + Math.min(r1, 15) / 30) / (1 + Math.min(r2, 15) / 30);
+          const tag = a + "+" + b + " " + niv + " " + j + " j palier " + ph + " " + id + " " + r1 + "→" + r2 + " reps à " + kg + " kg : " + cv;
+          assert.ok(cv != null, tag);
+          assert.ok(cv <= Math.max(G.loadStep(id, ideal, 1), G.floorLoad(id, 0, p.barre)) + 1e-9, tag + " au-dessus de la charge convertie + 1 cran");
+          if (r2 > r1) assert.ok(cv <= G.progress(id, lp).next + 1e-9, tag + " plus lourd que sans garde-fou");
+          pairs++; hit = true;
+        }));
+      });
+      if (hit) combos++;
+    } });
+  }));
+  assert.ok(combos > 0 && pairs > 0);
+  console.log("        (" + combos + " combinaisons de profils et " + pairs + " cas de conversion vérifiés)");
+});
+
+console.log("Rappel de sauvegarde (D1-a)");
+test("backupDueAt : jamais sauvegardé → dès 3 séances", () => {
+  const now = Date.UTC(2026, 10, 6), h = n => Array.from({ length: n }, (_, i) => ({ id: "h" + i, ts: now - (i + 1) * 864e5 }));
+  assert.strictEqual(G.backupDueAt(h(2), 0, 0, now), null);
+  assert.ok(G.backupDueAt(h(3), 0, 0, now));
+});
+test("backupDueAt : 10 séances ou 14 jours depuis la dernière sauvegarde, report de 7 jours respecté", () => {
+  const now = Date.UTC(2026, 10, 6), D = 864e5, h = (n, from) => Array.from({ length: n }, (_, i) => ({ id: "h" + i, ts: from + (i + 1) * 3600e3 }));
+  assert.strictEqual(G.backupDueAt(h(9, now - 3 * D), now - 3 * D, 0, now), null, "9 séances en 3 jours");
+  assert.strictEqual(G.backupDueAt(h(10, now - 3 * D), now - 3 * D, 0, now).n, 10, "10 séances");
+  assert.strictEqual(G.backupDueAt(h(1, now - 14 * D), now - 14 * D, 0, now).days, 14, "14 jours et 1 séance");
+  assert.strictEqual(G.backupDueAt(h(1, now - 13 * D), now - 13 * D, 0, now), null, "13 jours");
+  assert.strictEqual(G.backupDueAt([], now - 40 * D, 0, now), null, "rien de nouveau depuis la sauvegarde");
+  assert.strictEqual(G.backupDueAt(h(12, now - 20 * D), now - 20 * D, now + 7 * D, now), null, "reporté");
+  assert.ok(G.backupDueAt(h(12, now - 20 * D), now - 20 * D, now - 1, now), "report terminé");
+  assert.strictEqual(G.BK_SNOOZE_DAYS, 7);
+});
+
+console.log("Photographie des programmes");
+test("programmes identiques à la photographie (objectifs × niveau × jours × palier × semaine A/B)", () => {
+  const ref = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "programmes.json"), "utf8"));
+  const cur = require("./photo-programmes").photo(G);
+  const keys = Object.keys(ref.programmes);
+  assert.strictEqual(Object.keys(cur.programmes).length, keys.length, "nombre de combinaisons");
+  keys.forEach(k => {
+    const a = ref.programmes[k], b = cur.programmes[k];
+    assert.ok(b, "combinaison absente : " + k);
+    same(b.ids, a.ids, k + " : séances"); same(b.objs, a.objs, k + " : objectifs"); same(b.offsets, a.offsets, k + " : jours");
+    a.seances.forEach((i, n) => assert.strictEqual(cur.seances[b.seances[n]], ref.seances[i], k + " : séance " + a.ids[n] + " modifiée"));
+  });
+  console.log("        (" + keys.length + " programmes, " + ref.seances.length + " séances différentes)");
+});
+
+console.log("Format des données et migration (D8)");
+/* localStorage simulé : un moteur chargé par jeu de données */
+function fakeStorage(init) {
+  const m = new Map(Object.entries(init || {}));
+  return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: k => { m.delete(k); }, _m: m };
+}
+const fixture = n => JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", n), "utf8"));
+function loadWith(storage) { const ls = fakeStorage(storage), U = require("./charger").charger({ localStorage: ls }); return { U, ls, st: U.loadState() }; }
+test("SCHEMA_VERSION = 1 ; migrate ne transforme pas une donnée v1 et ne modifie jamais l'objet reçu", () => {
+  assert.strictEqual(G.SCHEMA_VERSION, 1);
+  const o = { v: 1, profile: { prenom: "Zoé" }, historique: [{ id: "a", date: "2026-01-01" }] }, copy = JSON.stringify(o);
+  const m = G.migrate(o);
+  assert.strictEqual(m.from, 1); assert.strictEqual(m.error, undefined);
+  assert.strictEqual(JSON.stringify(m.data), copy); assert.strictEqual(JSON.stringify(o), copy);
+  assert.strictEqual(G.migrate({ profile: {} }).from, 1, "sans v : premières versions = v1");
+  assert.strictEqual(G.migrate(null).error, "illisible");
+  assert.strictEqual(G.migrate([1, 2]).error, "illisible");
+});
+test("migrate : un format plus récent que l'appli est refusé", () => {
+  const m = G.migrate({ v: 2, profiles: [] });
+  assert.strictEqual(m.error, "plus-recent"); assert.strictEqual(m.data, null); assert.strictEqual(m.from, 2);
+});
+test("loadState : chaque jeu de données v1 de référence se charge sans perte (séances, mesures, notes, références, profil)", () => {
+  ["v1-ancien-sans-objectifs.json", "v1-usage-typique.json", "v1-gros-historique.json", "v1-seance-en-cours.json"].forEach(f => {
+    const storage = fixture(f).storage, raw = JSON.parse(storage["fonte:v1"]), { st, U, ls } = loadWith(storage);
+    assert.strictEqual(U.STORE_BLOCK, null, f);
+    assert.strictEqual(st.historique.length, raw.historique.length, f + " : séances");
+    same(st.historique, raw.historique, f + " : historique identique");
+    same(st.lastPerf, raw.lastPerf || {}, f + " : références");
+    same(st.notes, raw.notes || {}, f + " : notes");
+    same(st.mesures, raw.mesures || [], f + " : mesures");
+    same(st.mesSeances, raw.mesSeances || [], f + " : séances perso");
+    Object.keys(raw.profile).forEach(k => same(st.profile[k], raw.profile[k], f + " : profil." + k));
+    assert.ok(Array.isArray(st.profile.objectifs) && st.profile.objectifs[0] === st.profile.objectif, f + " : objectifs");
+    assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"], f + " : rien d'écrit pendant la lecture");
+  });
+});
+test("loadState : premier lancement (vide) → état par défaut, rien d'écrit", () => {
+  const { st, U, ls } = loadWith(fixture("v1-vide.json").storage);
+  assert.strictEqual(U.STORE_BLOCK, null); assert.strictEqual(st.historique.length, 0); assert.strictEqual(ls._m.size, 0);
+});
+test("loadState : JSON abîmé → copie brute gardée dans fonte:v1-illisible, jamais écrasée ensuite", () => {
+  const storage = fixture("v1-json-abime.json").storage, { st, U, ls } = loadWith(storage);
+  assert.strictEqual(U.STORE_BLOCK.reason, "illisible");
+  assert.strictEqual(ls.getItem("fonte:v1-illisible"), storage["fonte:v1"]);
+  assert.strictEqual(st.historique.length, 0);
+  ls.setItem("fonte:v1", "{abîmé une deuxième fois"); U.loadState();
+  assert.strictEqual(ls.getItem("fonte:v1-illisible"), storage["fonte:v1"], "la première copie est conservée");
+});
+test("loadState : données d'un format plus récent → refusées, STORE_BLOCK posé, rien n'est écrasé", () => {
+  const newer = JSON.stringify({ v: 2, profiles: { list: [] } }), { st, U, ls } = loadWith({ "fonte:v1": newer });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(U.STORE_BLOCK)), { reason: "plus-recent", v: 2 });
+  assert.strictEqual(st.historique.length, 0);
+  assert.strictEqual(ls.getItem("fonte:v1"), newer);
+});
+test("sauvegarde FONTEDATA1. de référence : décodée puis migrée sans perte", () => {
+  const code = fixture("v1-sauvegarde-fontedata1.json").code, m = code.match(/FONTEDATA1\.([A-Za-z0-9_-]+)/);
+  const o = JSON.parse(Buffer.from(m[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")), r = G.migrate(o);
+  assert.strictEqual(r.error, undefined); assert.strictEqual(r.from, 1);
+  assert.strictEqual(r.data.historique.length, JSON.parse(fixture("v1-usage-typique.json").storage["fonte:v1"]).historique.length);
+});
+
+console.log("Fichiers de l'appli et hors ligne");
+test("sw.js : tous les fichiers chargés par index.html et tous les fichiers de js/ sont dans SHELL", () => {
+  const sw = fs.readFileSync(path.join(__dirname, "..", "sw.js"), "utf8"), html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const shell = JSON.parse(sw.match(/const SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => "./" + m[1]);
+  const files = fs.readdirSync(path.join(__dirname, "..", "js")).filter(f => f.endsWith(".js")).map(f => "./js/" + f);
+  assert.ok(srcs.length >= 5, "index.html charge les moteurs");
+  srcs.concat(files).forEach(f => assert.ok(shell.indexOf(f) >= 0, f + " absent de SHELL"));
+  same(srcs, ["./js/engine-pedago.js", "./js/engine-training.js", "./js/engine-analytics.js", "./js/engine-user.js", "./js/app.js"], "ordre de chargement");
+  assert.ok(/window\.FONTE_PWA = true/.test(html), "mode PWA conservé");
 });
 
 console.log("\n" + pass + " réussis, " + fail + " en échec");
