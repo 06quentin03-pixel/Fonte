@@ -63,6 +63,34 @@ module.exports = function (atest, G, same) {
     assert.strictEqual(srv.n.lectures - l0, 2, "plus tard : 1 lecture du profil + 1 pour la requête vide");
   });
 
+  atest("synchro : séance corrigée sur un appareil (D4, 600 → 60 kg) → corrigée sur l’autre, références et records recalculés", async () => {
+    const srv = nouveau(), A = new Appareil(srv, "uA");
+    const s1 = A.enregistrer(seance(T.now - 5 * jour, 60)), s2 = A.enregistrer(seance(T.now - 3 * jour, 600)), s3 = A.enregistrer(seance(T.now - 1 * jour, 65));
+    await A.sync();
+    const B = new Appareil(srv, "uA", { profile: {} }); await B.sync();
+    assert.strictEqual(B.st.lastPerf["squat-barre"].sets[0].kg, 65);
+    /* la séance la plus récente aussi est corrigée ailleurs : on regarde la référence à 600 en retirant d’abord la séance suivante de B */
+    T.now += 60000;
+    const e = clone(A.st.historique.find(h => h.id === s2.id)); e.log[0].sets.forEach(x => { x.kg = 60; }); e.log[1].sets.forEach(x => { x.kg = 30; });
+    const r = G.histSave(A.st, e, T.now); assert.ok(r.ok); A.st.upd = T.now;
+    assert.ok(r.changed.indexOf(s3.id) >= 0, "la séance suivante (65 kg) devient un record");
+    await A.sync();
+    T.now += 60000; await B.sync();
+    const b2 = B.st.historique.find(h => h.id === s2.id);
+    assert.strictEqual(b2.log[0].sets[0].kg, 60, "séance corrigée reçue"); assert.strictEqual(b2.ed, 1);
+    same(B.st.historique, A.st.historique, "historiques identiques (records compris)");
+    same(B.st.lastPerf, A.st.lastPerf, "références identiques"); same(B.st.refs, A.st.refs);
+    assert.strictEqual(pal(B), pal(A), "palier inchangé");
+    assert.ok(B.st.historique.find(h => h.id === s3.id).pr.some(p => p.id === "squat-barre"), "record de la séance suivante reçu");
+    /* et si B supprime la séance suivante, la référence revient à la séance corrigée (60), pas à 600 */
+    B.supprimer(s3.id); assert.strictEqual(B.st.lastPerf["squat-barre"].sets[0].kg, 60);
+    /* ajout d’une séance passée sur B → arrive sur A, palier compté des deux côtés */
+    T.now += 60000;
+    const add = G.histSave(B.st, { date: iso(T.now - 10 * jour), heure: "18:00", nom: "Sans l’appli", kind: "muscu", duree: 2400, log: [{ id: "squat-barre", sets: [{ r: 8, kg: 55 }] }] }, T.now);
+    B.st.upd = T.now; await B.sync(); T.now += 60000; await A.sync();
+    assert.ok(A.st.historique.some(h => h.id === add.entry.id), "séance ajoutée reçue"); assert.strictEqual(ids(A), ids(B)); assert.strictEqual(pal(A), pal(B));
+  });
+
   atest("synchro : appareil réinstallé (vide) → historique, profil, palier, notes, mesures, agenda, références : tout revient", async () => {
     const srv = nouveau(), A = new Appareil(srv, "uA");
     for (let i = 0; i < 8; i++) A.enregistrer(seance(T.now - (20 - i) * jour, 60 + i * 2.5));

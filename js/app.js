@@ -95,20 +95,24 @@ function defaultItem(ex) {
   const it = { id: ex.id, series: Math.max(2, s - (ctx.lvl === 1 ? 1 : 0)), reps: 0, duree: 0, repos: adjRest(ctx, rest), charge: 0 };
   if (ex.t === "t") { it.duree = ex.dt || 30; if (ex.g === "cardio" && ex.dt >= 300) { it.series = 1; it.repos = 0; } if (ex.g === "mobilite" || ex.g === "etirements") { it.series = ex.pc ? 2 : 1; it.repos = 10; } }
   else it.reps = r;
-  const sg = suggest(ex.id), cv = convFor(ex.id, it.reps); if (cv != null) it.charge = cv; else if (sg) it.charge = sg.next; else it.charge = estCharge(ex.id, it.reps || 12, S.profile);
+  const sg = suggest(ex.id, it.reps), cv = convFor(ex.id, it.reps), s8 = sg ? s8Load(ex.id, refOf(ex.id, it.reps), it.reps, sg, S.profile.barre) : null;
+  if (cv != null) it.charge = cv; else if (s8 != null) it.charge = s8; else if (sg) it.charge = sg.next; else it.charge = estCharge(ex.id, it.reps || 12, S.profile);
   if (ECH.has(ex.id) && iso && it.series > 1) it.echec = 1;
   return it;
 }
-/* Conseil de progression (voir progress() : double progression, ressenti, allègement après 3 échecs) */
-function suggest(id) { return progress(id, S.lastPerf[id]); }
-/* Garde-fou S1-a : charge convertie quand la séance vise au moins 3 répétitions de plus ou de moins que la dernière fois (sinon null) */
-function convFor(id, reps) { return reps > 0 ? convertLoad(id, S.lastPerf[id], reps, S.profile.barre) : null; }
+/* S1-b (3D) : référence de la même zone de répétitions (force ≤ 6, muscle 7–12, endurance ≥ 13), sinon la dernière performance (refFor) */
+function refOf(id, reps) { return refFor(S.refs, S.lastPerf, id, reps > 0 ? reps : 0); }
+/* Conseil de progression (voir progress() : double progression, ressenti, allègement après 3 échecs), pour reps répétitions visées */
+function suggest(id, reps) { return progress(id, refOf(id, reps)); }
+/* Garde-fou S1-a : charge convertie quand la séance vise au moins 3 répétitions de plus ou de moins que la référence (sinon null) */
+function convFor(id, reps) { return reps > 0 ? convertLoad(id, refOf(id, reps), reps, S.profile.barre) : null; }
 function perfLine(id, reps) {
-  const lp = S.lastPerf[id]; if (!lp || !lp.sets || !lp.sets.length) return "";
+  const lp = refOf(id, reps); if (!lp || !lp.sets || !lp.sets.length) return "";
   const kg = Math.max.apply(null, lp.sets.map(s => s.kg || 0));
-  const sg = suggest(id), cv = convFor(id, reps);
-  let t = "Dernière fois : " + lp.sets.map(s => s.r).join("-") + " reps" + (kg || isAssist(id) ? " à " + kgTxt(id, kg) : "");
+  const sg = suggest(id, reps), cv = convFor(id, reps), s8 = sg && reps > 0 ? s8Load(id, lp, reps, sg, S.profile.barre) : null;
+  let t = (lp !== S.lastPerf[id] ? "Dernière fois en séries de " + refReps(lp) + " : " : "Dernière fois : ") + lp.sets.map(s => s.r).join("-") + " reps" + (kg || isAssist(id) ? " à " + kgTxt(id, kg) : "");
   if (cv != null) return t + " → pour " + reps + " reps, charge recalculée : " + kgTxt(id, cv) + " (estimation prudente)";
+  if (s8 != null && s8 > sg.next) return t + " → pour " + reps + " reps (2 de moins), essaie " + kgTxt(id, s8);
   if (sg) t += {
     up: sg.up ? " → essaie " + kgTxt(id, sg.next) + (sg.reps ? " × " + sg.reps : "") : "",
     up2: " → c’était facile : essaie " + kgTxt(id, sg.next),
@@ -124,11 +128,12 @@ function perfLine(id, reps) {
    sinon celle déjà réglée, sinon l’estimation d’après le profil. Double progression : répétitions visées. */
 function applySuggestions(se) {
   se.items.forEach(it => {
-    const lp = S.lastPerf[it.id], sg = suggest(it.id);
+    const reps = it.duree ? 0 : it.reps, lp = refOf(it.id, reps), sg = lp ? progress(it.id, lp) : null;
     if (sg && (!it.charge || (lp.ts || 0) > (se.upd || 0))) {
       const cv = it.duree ? null : convFor(it.id, it.reps);
       if (cv != null) { it.charge = cv; return; } /* S1-a : autre nombre de répétitions → charge convertie, pas augmentée */
-      it.charge = sg.next;
+      const s8 = it.duree ? null : s8Load(it.id, lp, it.reps, sg, S.profile.barre); /* S8 : 1 ou 2 répétitions de moins (palier 4) */
+      it.charge = s8 != null ? s8 : sg.next;
       if (sg.reps && it.reps && !it.duree && (lp.base || lp.target) === (it.base || it.reps)) { it.base = it.base || it.reps; it.reps = sg.reps; }
     } else if (!it.charge) { const e = estCharge(it.id, it.reps || 12, S.profile); if (e) it.charge = e; }
   });
@@ -291,7 +296,7 @@ function progWhy(p, ss) {
     b.push(`« ${o.n} » : ${sc} séries de ${o.C[1]} mouvements sur les gros exercices (pause de ${fmtRest(adjRest(ctx, o.C[2]))}), ${si} séries de ${o.I[1]} sur les petits (pause de ${fmtRest(adjRest(ctx, o.I[2]))}), ${Math.round(o.cardio * [0, 0.7, 1, 1.25][L])} min de cardio quand la séance en prévoit.`);
   });
   if (p.poids) {
-    const hist = ss.some(x => x.se.items.some(it => suggest(it.id)));
+    const hist = ss.some(x => x.se.items.some(it => suggest(it.id, it.reps)));
     const ex = []; ss.forEach(x => x.se.items.forEach(it => { if (it.charge > 0 && LOAD[it.id] && ex.length < 3 && !ex.some(e => e[0] === it.id)) ex.push([it.id, it.charge]); }));
     b.push(`Poids calculés pour tes ${fmtNum(p.poids)} kg${p.taille ? " et ton " + p.taille + " cm" : ""}${hist ? ", puis ajustés d’après tes dernières séances" : ""}${ex.length ? " (par exemple " + ex.map(([id, kg]) => EX_BY_ID[id].n.replace(/ \(.*\)$/, "").toLowerCase() + " " + kgTxt(id, kg)).join(", ") + ")" : ""}. Tu peux toujours les changer.`);
   }
@@ -387,6 +392,8 @@ function afterHistDelete(gone) {
     ids.forEach(id => { if (rb.lastPerf[id]) S.lastPerf[id] = rb.lastPerf[id]; else delete S.lastPerf[id]; if (rb.refs[id]) S.refs[id] = rb.refs[id]; else delete S.refs[id]; });
   }
   if (countable(gone)) S.profile = rebuildProgress(S.historique, S.profile, gone);
+  /* records des séances suivantes recalculés (une séance à 600 kg supprimée n’est plus le record à battre) */
+  histRecords(S, ids, gone.ts || 0, Date.now());
 }
 /* Séance enregistrée : avance d’une séance ; renvoie vrai si un palier vient d’être terminé */
 function tickProgress() {
@@ -737,7 +744,7 @@ function swapTo(newId) {
   const it = Object.assign({}, old, { id: newId, charge: 0, echec: ECH.has(newId) ? old.echec : 0 });
   delete it.base;
   if (ex.t === "t") { it.reps = 0; it.duree = it.duree || ex.dt || 30; } else { it.duree = 0; it.reps = it.reps || 10; }
-  const sg = suggest(newId), cv = convFor(newId, it.reps); it.charge = cv != null ? cv : sg ? sg.next : estCharge(newId, it.reps || 12, S.profile);
+  const sg = suggest(newId, it.reps), cv = convFor(newId, it.reps); it.charge = cv != null ? cv : sg ? sg.next : estCharge(newId, it.reps || 12, S.profile);
   if (R.se.dl && it.charge) deloadSe({ items: [it], mode: R.se.mode });
   if (!R.log[i].length) R.se.items[i] = it;
   else {
@@ -777,7 +784,7 @@ function chartSVG(P, m, sel) {
   const sx = X(sel), sy = Y(ys[sel]), vt = m.f(ys[sel]);
   const anchor = sx > W - 50 ? "end" : sx < L + 30 ? "start" : "middle";
   const label = `<text class="val" x="${sx.toFixed(1)}" y="${Math.max(11, sy - 10).toFixed(1)}" text-anchor="${anchor}">${esc(vt)}</text>`;
-  const pts = P.map((p, i) => `<circle class="pt" cx="${X(i).toFixed(1)}" cy="${Y(ys[i]).toFixed(1)}" r="${i === sel ? 6 : 4}"/>`).join("");
+  const pts = P.map((p, i) => `<circle class="pt${m === TRACK.kg && p.rmR > 10 ? " pt-lo" : ""}" cx="${X(i).toFixed(1)}" cy="${Y(ys[i]).toFixed(1)}" r="${i === sel ? 6 : 4}"/>`).join("");
   const hits = P.map((p, i) => `<circle class="hit" data-a="ch-pt" data-i="${i}" cx="${X(i).toFixed(1)}" cy="${Y(ys[i]).toFixed(1)}" r="16"><title>${esc(fmtDayShort(p.date) + " : " + m.f(ys[i]))}</title></circle>`).join("");
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(m.lab)} : ${esc(P.map((p, i) => fmtDayShort(p.date) + " " + m.f(ys[i])).slice(-6).join(", "))}">${g}<line class="cross" x1="${sx.toFixed(1)}" x2="${sx.toFixed(1)}" y1="${T}" y2="${H - B}"/>${xl}${P.length > 1 ? `<path class="ln" d="${d}"/>` : ""}${pts}${label}${hits}</svg>`;
 }
@@ -791,7 +798,9 @@ let CH = null;
 function chartInner() {
   const P = (CH.ptsBy ? CH.ptsBy[CH.mode] : CH.pts).slice(-30), m = CH.mes ? MES_TRACK[CH.mode] : TRACK[CH.mode], p = P[CH.sel];
   const det = CH.kind === "kg" ? `charge max ${fmtNum(p.kg)} kg · 1RM ≈ ${fmtNum(Math.round(p.rm * 2) / 2)} kg` : m.f(m.v(p));
-  return chartSVG(P, m, CH.sel) + `<div class="ch-cap" aria-live="polite">${cap(fmtDayShort(p.date))} · ${esc(det)}</div>`;
+  /* S9 (3D) : 1RM estimé à partir d’une série de plus de 10 répétitions : estimation peu fiable (le calcul ne change pas) */
+  const lo = CH.kind === "kg" && CH.mode === "kg" && p.rmR > 10;
+  return chartSVG(P, m, CH.sel) + `<div class="ch-cap" aria-live="polite">${cap(fmtDayShort(p.date))} · ${esc(det)}</div>` + (lo ? `<div class="small muted ch-lo">1RM estimé à partir d’une série de ${p.rmR} répétitions : estimation peu fiable au-delà de 10 répétitions ${gl("rm")}.</div>` : "");
 }
 function trendTxt(P, m) {
   if (P.length < 2) return "";
@@ -844,6 +853,79 @@ function openProgress() {
     : `${recs.length ? `<div><div class="h3" style="margin-bottom:8px">Records des deux derniers mois</div><div class="list">${recs.map(recRow).join("")}</div></div>` : ""}
       <div><div class="h3" style="margin-bottom:8px">Par exercice</div><p class="small muted" style="margin-bottom:8px">Le 1RM estimé compare des séries différentes (5 × 80 kg ou 10 × 70 kg) : c’est la charge que tu pourrais soulever une fois.</p><div class="list">${rows.join("")}</div></div>`);
   Sheet.open({ key: "prog", title: "Progression", tall: true, body });
+}
+/* ================= D4 (3D) : modifier une séance enregistrée, ajouter une séance faite sans l’appli =================
+   HE = séance en cours de saisie { id? (absent : ajout), date, heure, duree (min), ressenti, nom, kind, ref, base, log }.
+   L’enregistrement passe par histSave (engine-user.js) : upd, références, palier, records, volume ; puis commit("p"). */
+let HE = null;
+const heTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+function heFromHist(x) {
+  return { id: x.id, date: x.date, heure: heTime(x.ts || fromISO(x.date).getTime()), duree: Math.round((x.duree || 3600) / 60), ressenti: x.ressenti || "", nom: x.nom, kind: x.kind || "muscu",
+    log: clone((x.log || []).filter(l => !l.warm && !l.cool && EX_BY_ID[l.id])) };
+}
+/* Journal pré-rempli d’après une séance (séries prévues, charges conseillées) : il ne reste qu’à corriger ce qui a été fait */
+function heLogOf(se) {
+  const tours = se.mode === "circuit" ? Math.max(1, se.tours || 1) : 0;
+  return se.items.filter(it => !it.warm && !it.cool && EX_BY_ID[it.id]).map(it => {
+    const n = tours || Math.max(1, it.series || 1), sets = [];
+    for (let k = 0; k < n; k++) sets.push(it.duree > 0 ? { d: it.duree } : Object.assign({ r: it.reps || 10, kg: it.charge || 0 }, it.reps ? { t: it.reps } : {}));
+    return { id: it.id, sets };
+  });
+}
+function heBases() {
+  const pr = programme(S.profile), seen = {}, out = [];
+  pr.ids.forEach((id, j) => { if (seen[id]) return; seen[id] = 1; out.push(["t:" + id + ":" + j, TPL_BY_ID[id].n + " (programme)"]); });
+  S.mesSeances.forEach(m => out.push(["p:" + m.id, m.nom + " (ma séance)"]));
+  TPL.filter(t => !seen[t.id] && t.kind !== "mob").forEach(t => out.push(["t:" + t.id, t.n]));
+  return out;
+}
+function heBase(v) {
+  if (!v) { HE.base = ""; return; }
+  const [k, id, j] = v.split(":");
+  let se = null, ref = null;
+  if (k === "t" && TPL_BY_ID[id]) { const pr = programme(S.profile); se = applySuggestions(prescribe(TPL_BY_ID[id], j != null ? profFor(S.profile, pr.objs[+j]) : S.profile)); ref = { k: "t", id }; }
+  if (k === "p") { const m = S.mesSeances.find(x => x.id === id); if (m) { se = applySuggestions(clone(m)); ref = { k: "p", id }; } }
+  if (!se) return;
+  Object.assign(HE, { base: v, nom: se.nom, kind: se.kind || "muscu", ref, log: heLogOf(se), duree: Math.round(estDuree(se) / 60) });
+}
+function heSetRow(i, j, s) {
+  const del = `<button class="btn btn-ghost" style="min-height:36px;padding:0 10px" data-a="he-set-del" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j + 1}">${icon("trash")}</button>`;
+  if (s.d != null && !(s.r > 0)) return `<div class="he-set"><span class="small muted">${j + 1}</span><label class="he-f"><input class="inp tnum" inputmode="numeric" data-he="${i}:${j}:d" value="${s.d}" aria-label="Durée en secondes, série ${j + 1}"><small>s</small></label>${del}</div>`;
+  const kg = !isAssist(HE.log[i].id) && LOAD[HE.log[i].id] || s.kg > 0 || isAssist(HE.log[i].id);
+  return `<div class="he-set"><span class="small muted">${j + 1}</span><label class="he-f"><input class="inp tnum" inputmode="numeric" data-he="${i}:${j}:r" value="${s.r == null ? "" : s.r}" aria-label="Répétitions, série ${j + 1}"><small>reps</small></label>${kg ? `<label class="he-f"><input class="inp tnum" inputmode="decimal" data-he="${i}:${j}:kg" value="${fmtNum(s.kg || 0)}" aria-label="${esc(chargeLabel(HE.log[i].id))} en kg, série ${j + 1}"><small>${isAssist(HE.log[i].id) ? "kg assist." : "kg"}</small></label>` : ""}${del}</div>`;
+}
+function heBody() {
+  const ex = HE.log.map((l, i) => { const e = EX_BY_ID[l.id]; return `<div class="card he-ex" style="display:flex;flex-direction:column;gap:8px"><div class="row-title" style="display:flex;justify-content:space-between;gap:8px;align-items:center"><span>${esc(e.n)}</span><button class="btn btn-ghost" style="min-height:32px" data-a="he-ex-del" data-i="${i}" aria-label="Retirer ${esc(e.n)}">${icon("x")}</button></div>${e.t !== "t" && LOAD[l.id] && LOAD[l.id][0] === "d" && (LOAD[l.id][2] || "").indexOf("S") < 0 ? `<div class="small muted">Charge par haltère</div>` : ""}${l.sets.map((s, j) => heSetRow(i, j, s)).join("")}<button class="btn" style="min-height:36px" data-a="he-set-add" data-i="${i}">${icon("plus")}Ajouter une série</button></div>`; }).join("");
+  const opts = EX.filter(e => e.g !== "etirements" && e.g !== "mobilite").slice().sort((a, b) => a.n.localeCompare(b.n)).map(e => `<option value="${e.id}">${esc(e.n)}</option>`).join("");
+  return `${HE.id ? "" : `<div class="field"><label for="he-base">Séance faite</label><select class="inp" id="he-base"><option value="">Séance libre (choisis les exercices)</option>${heBases().map(([v, l]) => `<option value="${esc(v)}" ${v === HE.base ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div><div class="field"><label for="he-nom">Nom</label><input class="inp" id="he-nom" maxlength="60" value="${esc(HE.nom || "")}"></div>`}
+    <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div class="field"><label for="he-date">Date</label><input class="inp" type="date" id="he-date" max="${todayISO()}" value="${HE.date}"></div><div class="field"><label for="he-heure">Heure</label><input class="inp" type="time" id="he-heure" value="${HE.heure}"></div><div class="field"><label for="he-duree">Durée (min)</label><input class="inp tnum" inputmode="numeric" id="he-duree" value="${HE.duree}"></div></div>
+    <div class="field"><label for="he-feel">Ressenti</label><select class="inp" id="he-feel"><option value="">Non noté</option>${["Facile", "Correct", "Dur", "Très dur"].map((l, k) => `<option value="${k + 1}" ${+HE.ressenti === k + 1 ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${ex || `<p class="small muted">Ajoute les exercices faits, puis leurs séries.</p>`}
+    <div class="field"><label for="he-add">Ajouter un exercice</label><div class="btn-row"><select class="inp" id="he-add" style="flex:1"><option value="">Choisir…</option>${opts}</select><button class="btn" data-a="he-ex-add">${icon("plus")}Ajouter</button></div></div>
+    ${HE.id ? `<p class="small muted">La charge proposée, les courbes et les records sont recalculés. Sur tes autres appareils, la séance corrigée arrive avec la sauvegarde en ligne.</p>` : `<p class="small muted">La séance compte pour ton palier, ta charge proposée, tes courbes et tes records, comme une séance faite avec Fonte.</p>`}`;
+}
+function heRefresh() { const b = Sheet.body(); if (b && HE) { const y = b.scrollTop; b.innerHTML = heBody(); b.scrollTop = y; } }
+function openHistEdit(x) {
+  if (R) { toast("Termine d’abord la séance en cours."); return; }
+  if (x && x.c) { toast("Séance ancienne résumée : seules les meilleures séries sont gardées, elle ne peut pas être modifiée."); return; }
+  HE = x ? heFromHist(x) : { date: todayISO(), heure: heTime(Date.now()), duree: 60, ressenti: "", nom: "Séance", kind: "muscu", ref: null, base: "", log: [] };
+  Sheet.closeAll();
+  Sheet.open({ key: "he", title: x ? "Modifier la séance" : "Ajouter une séance passée", tall: true, body: heBody(), onClose: () => { HE = null; if (PWA) Acct.queue(); },
+    foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="he-save">${icon("check")}Enregistrer</button>` });
+}
+function heSave() {
+  if (!HE) return;
+  const date = HE.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || date > todayISO()) { toast("Choisis une date passée (ou aujourd’hui)."); return; }
+  const r = histSave(S, { id: HE.id, date, heure: HE.heure, nom: HE.nom, kind: HE.kind, ref: HE.ref, duree: (num(HE.duree) || 60) * 60, ressenti: HE.ressenti, log: HE.log }, Date.now());
+  if (!r.ok) { toast({ vide: "Note au moins une série (répétitions ou durée).", resume: "Séance résumée : impossible de la modifier.", introuvable: "Séance introuvable.", date: "Date invalide." }[r.error] || "Impossible d’enregistrer."); return; }
+  HE = null; Sheet.closeAll();
+  if (r.same) { toast("Rien n’a changé"); return; }
+  let ag = false;
+  if (r.added && r.entry.ref) { const ev = S.agenda.find(e => e.date === r.entry.date && !e.fait && e.ref && e.ref.k === r.entry.ref.k && e.ref.id === r.entry.ref.id); if (ev) { ev.fait = true; ag = true; } }
+  if (r.added && requeue()) ag = true;
+  commit(ag ? "pa" : "p"); render();
+  toast(r.added ? "Séance ajoutée à l’historique" : "Séance corrigée : charge proposée, courbes et records recalculés");
 }
 /* Log d’une séance en cours, au format de l’historique */
 /* Journal d’une séance. Depuis le format v2 (3B), chaque série garde la cible de répétitions t, et l’exercice sa base b
@@ -1324,7 +1406,7 @@ const Acct = {
     if (!this.user || !this.ok()) return;
     if (this.busy) { this.again = true; return; }
     /* pas pendant une séance ou l’édition d’une séance : l’état n’est jamais remplacé sous les yeux ; ce sera fait juste après */
-    if (!$("#runner").hidden || !$("#editor").hidden) { this.queue(30000); return; }
+    if (!$("#runner").hidden || !$("#editor").hidden || HE) { this.queue(30000); return; }
     if (navigator.onLine === false) { this.pending = csPending(S, this.meta, Date.now()); this.set("offline"); return; }
     this.busy = true; if (this.state !== "ok") this.set("connecting");
     let r;
@@ -1598,8 +1680,9 @@ function histRow(x) {
   return `<button class="row" data-a="hist-open" data-id="${esc(x.id)}"><div class="row-main"><div class="row-title">${esc(x.nom)}${x.pr && x.pr.length ? ` <span class="tag tag-rec" style="vertical-align:1px">${icon("trophy")}${x.pr.length}</span>` : ""}</div><div class="row-sub">${cap(fmtDayShort(x.date))} · ${fmtDur(x.duree || 60)}${x.volume ? " · " + fmtNum(Math.round(x.volume)) + " kg" : ""}${x.kcal ? " · ≈ " + x.kcal + " kcal" : ""}</div></div>${icon("chev", "ic chev")}</button>`;
 }
 function histSection(n) {
-  if (!S.historique.length) return `<section><div class="sec-h"><h2>Dernières séances</h2></div><div class="card empty"><p>Tes séances terminées s’afficheront ici avec la durée, le volume soulevé et ton ressenti.</p></div></section>`;
-  return `<section><div class="sec-h"><h2>Dernières séances</h2>${S.historique.length > n ? `<button class="link" data-a="hist-all">Tout voir</button>` : ""}</div><div class="list">${S.historique.slice(0, n).map(histRow).join("")}</div></section>`;
+  const add = `<button class="btn btn-ghost" data-a="he-new" style="align-self:flex-start">${icon("plus")}Ajouter une séance passée</button>`;
+  if (!S.historique.length) return `<section><div class="sec-h"><h2>Dernières séances</h2></div><div class="card empty"><p>Tes séances terminées s’afficheront ici avec la durée, le volume soulevé et ton ressenti.</p></div>${add}</section>`;
+  return `<section><div class="sec-h"><h2>Dernières séances</h2>${S.historique.length > n ? `<button class="link" data-a="hist-all">Tout voir</button>` : ""}</div><div class="list">${S.historique.slice(0, n).map(histRow).join("")}</div>${add}</section>`;
 }
 
 /* ---------- Exercices ---------- */
@@ -1719,11 +1802,11 @@ function chargeNote(se) {
   const w = se.items.filter(it => LOAD[it.id]);
   if (!w.length) return "";
   if (!S.profile.poids) return `<div class="note">${icon("dumbbell")}<span>Renseigne ton poids et ta taille pour avoir les charges de départ de chaque exercice. <button style="color:var(--accent);font-weight:600" data-a="tab" data-t="profil">Mon profil</button></span></div>`;
-  const hist = w.some(it => suggest(it.id));
+  const hist = w.some(it => suggest(it.id, it.reps));
   return `<div class="note">${icon("dumbbell")}<span>Charges ${hist ? "reprises de tes dernières séances ou " : ""}calculées d’après ton poids${S.profile.taille ? " et ta taille" : ""}. Tu pourras les changer avant de commencer et pendant la séance.</span></div>`;
 }
 function itemRows(se) {
-  return `<div class="list">${se.items.map(it => { const e = EX_BY_ID[it.id]; if (!e) return ""; return `<button class="row" data-a="ex-open" data-id="${e.id}">${figHTML(e.p, e.s, "xs")}<div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}</div></div><div class="presc">${simple() && se.mode !== "circuit" ? (it.series > 1 ? it.series + " séries" : "1 fois") + `<small>${it.duree ? fmtSec(it.duree) : "de " + it.reps + " mouv." + (it.parCote ? " / côté" : "")}</small>` : prescText(it, se.mode)}${it.charge || (isAssist(it.id) && it.charge === 0 && suggest(it.id)) ? `<small>${isAssist(it.id) ? "assist. " : ""}${fmtNum(it.charge)} kg</small>` : ""}${se.mode !== "circuit" && it.repos && it.series > 1 ? `<small>${simple() ? "pause" : "repos"} ${fmtRest(it.repos)}</small>` : ""}${it.echec && se.mode !== "circuit" ? `<small class="f">${simple() ? "dernière : au max" : "dernière à l’échec"}</small>` : ""}${linked(se, se.items.indexOf(it)) ? `<small>superset ↓</small>` : ""}</div></button>`; }).join("")}</div>`;
+  return `<div class="list">${se.items.map(it => { const e = EX_BY_ID[it.id]; if (!e) return ""; return `<button class="row" data-a="ex-open" data-id="${e.id}">${figHTML(e.p, e.s, "xs")}<div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${e.p.map(m => MUSCLES[m]).join(", ")}</div></div><div class="presc">${simple() && se.mode !== "circuit" ? (it.series > 1 ? it.series + " séries" : "1 fois") + `<small>${it.duree ? fmtSec(it.duree) : "de " + it.reps + " mouv." + (it.parCote ? " / côté" : "")}</small>` : prescText(it, se.mode)}${it.charge || (isAssist(it.id) && it.charge === 0 && suggest(it.id, it.reps)) ? `<small>${isAssist(it.id) ? "assist. " : ""}${fmtNum(it.charge)} kg</small>` : ""}${se.mode !== "circuit" && it.repos && it.series > 1 ? `<small>${simple() ? "pause" : "repos"} ${fmtRest(it.repos)}</small>` : ""}${it.echec && se.mode !== "circuit" ? `<small class="f">${simple() ? "dernière : au max" : "dernière à l’échec"}</small>` : ""}${linked(se, se.items.indexOf(it)) ? `<small>superset ↓</small>` : ""}</div></button>`; }).join("")}</div>`;
 }
 function openTpl(id, o, j) {
   const t = TPL_BY_ID[id]; if (!t) return;
@@ -2162,8 +2245,10 @@ function laterLeft(i) {
 }
 function runSummary() {
   const duree = Math.round(((R.endAt || Date.now()) - R.start) / 1000);
-  let sets = 0, volume = 0;
-  R.log.forEach(l => l.forEach(x => { sets++; if (x.r && x.kg) volume += x.r * x.kg; }));
+  let sets = 0;
+  R.log.forEach(l => { sets += l.length; });
+  /* D10 (3D) : volume = répétitions × charge réellement soulevée (2 haltères comptés, assistance non comptée) */
+  const volume = logVolume(R.se.items.map((it, i) => ({ id: it.id, sets: R.log[i] })));
   return { duree, sets, volume, kcal: estKcal(R.se, S.profile, duree) };
 }
 function finishRun() { R.done = true; R.endAt = R.endAt || Date.now(); R.t = null; saveRun(); releaseWake(); renderRunner(); }
@@ -2498,6 +2583,7 @@ const A = {
     const body = `<div class="eyebrow">${cap(fmtDay(x.date))}</div><div class="sum"><div class="stat"><b>${fmtDur(x.duree || 60)}</b><span>durée</span></div><div class="stat"><b>${x.sets || 0}</b><span>séries</span></div><div class="stat"><b>${fmtNum(x.volume || 0)}<small style="font-size:17px"> kg</small></b><span>volume</span></div><div class="stat"><b>≈ ${x.kcal || 0}</b><span>kcal</span></div></div>${feel ? `<div class="status"><i></i><span>Ressenti : ${feel}</span></div>` : ""}
       ${x.c ? `<p class="small muted">Séance ancienne : seules tes meilleures séries sont conservées.</p>` : ""}
       <div class="list">${(x.log || []).map(l => { const e = EX_BY_ID[l.id]; if (!e) return ""; const rec = (x.pr || []).find(r => r.id === l.id); return `<button class="row" data-a="ex-open" data-id="${e.id}"><div class="row-main"><div class="row-title">${esc(e.n)}</div><div class="row-sub">${l.sets.map(s => s.d ? fmtSec(s.d) : s.r + (s.kg ? " × " + fmtNum(s.kg) + " kg" : "")).join(" · ")}</div>${rec ? `<div class="tags" style="margin-top:4px"><span class="tag tag-rec">${icon("trophy")}${esc(recText(rec.k, rec.v))}</span></div>` : ""}</div></button>`; }).join("")}</div>
+      ${x.c ? "" : `<button class="btn btn-block" data-a="he-open" data-id="${esc(x.id)}">${icon("edit")}Modifier (date, séries, charges, ressenti)</button>`}
       <button class="btn btn-danger btn-block" data-a="hist-del" data-id="${esc(x.id)}">${icon("trash")}Supprimer de l’historique</button>`;
     Sheet.open({ key: "hist", title: x.nom, body, foot: `<button class="btn btn-primary btn-lg" data-a="hist-redo" data-id="${esc(x.id)}">${icon("refresh")}Refaire cette séance</button>` });
   },
@@ -2507,7 +2593,18 @@ const A = {
     openEditor("prep", applySuggestions({ nom: x.nom, mode: "series", kind: x.kind || "muscu", items }), {});
   },
   "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; const gone = S.historique.find(h => h.id === id); S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); if (gone) { csTrashAdd(S, gone, S.histDel[id]); csTrashPrune(S, Date.now()); afterHistDelete(gone); } commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
-  "hist-all": () => Sheet.open({ key: "hall", title: "Historique", tall: true, body: `<div class="list">${S.historique.map(histRow).join("")}</div>` }),
+  "hist-all": () => Sheet.open({ key: "hall", title: "Historique", tall: true, body: `<div class="list">${S.historique.map(histRow).join("")}</div>`, foot: `<button class="btn btn-primary btn-lg" data-a="he-new">${icon("plus")}Ajouter une séance passée</button>` }),
+  "he-open": el => openHistEdit(S.historique.find(h => h.id === el.dataset.id)),
+  "he-new": () => openHistEdit(null),
+  "he-set-add": el => { if (!HE) return; const l = HE.log[+el.dataset.i]; if (!l) return; const last = l.sets[l.sets.length - 1]; l.sets.push(last ? clone(last) : (EX_BY_ID[l.id].t === "t" ? { d: 30 } : { r: 10, kg: 0 })); heRefresh(); },
+  "he-set-del": el => { if (!HE) return; const l = HE.log[+el.dataset.i]; if (!l) return; l.sets.splice(+el.dataset.j, 1); if (!l.sets.length) HE.log.splice(+el.dataset.i, 1); heRefresh(); },
+  "he-ex-del": el => { if (!HE) return; HE.log.splice(+el.dataset.i, 1); heRefresh(); },
+  "he-ex-add": () => {
+    if (!HE) return; const sel = $("#he-add"), e = sel && EX_BY_ID[sel.value]; if (!e) { toast("Choisis un exercice dans la liste."); return; }
+    const it = defaultItem(e); HE.log.push({ id: e.id, sets: [0, 1, 2].slice(0, Math.max(1, Math.min(3, it.series))).map(() => it.duree ? { d: it.duree } : Object.assign({ r: it.reps, kg: it.charge || 0 }, it.reps ? { t: it.reps } : {})) });
+    heRefresh();
+  },
+  "he-save": () => heSave(),
   "prog-plan": () => { UI.seg = "prog"; saveUI(); goTab("seances"); },
   "plan-day": el => {
     const d = togglePlanDay(S.profile, +el.dataset.d);
@@ -2835,6 +2932,8 @@ document.addEventListener("input", ev => {
     pfTimer = setTimeout(() => { if (f === "poids" && S.profile.poids) upsertMesure(todayISO(), { poids: S.profile.poids, tour: (S.mesures.find(x => x.date === todayISO()) || {}).tour || 0 }); commit(f === "prenom" ? "pa" : "p"); const a = $("#adapt"); if (a) a.outerHTML = adaptCard(); renderHeader(); }, 500);
     return;
   }
+  if (HE && t.dataset.he) { const [i, j, f] = t.dataset.he.split(":"), s = HE.log[+i] && HE.log[+i].sets[+j]; if (s) { s[f] = f === "kg" ? num(t.value) : Math.round(num(t.value)); } return; }
+  if (HE && ["he-date", "he-heure", "he-duree", "he-nom"].indexOf(t.id) >= 0) { HE[t.id.slice(3)] = t.value; return; }
   if (E && t.closest("#editor")) {
     if (t.dataset.ed) { E.se[t.dataset.ed] = t.value; return; }
     if (t.dataset.f) { const i = +t.dataset.i, f = t.dataset.f, v = num(t.value); if (i < 0) E.se[f] = v; else if (E.se.items[i]) E.se.items[i][f] = v; }
@@ -2852,6 +2951,9 @@ document.addEventListener("change", ev => {
     };
     r.readAsText(t.files[0]);
   }
+  if (HE && t.id === "he-feel") HE.ressenti = t.value;
+  if (HE && (t.id === "he-date" || t.id === "he-heure")) HE[t.id.slice(3)] = t.value;
+  if (HE && t.id === "he-base") { heBase(t.value); heRefresh(); }
   if (t.id === "fx-rappel") { try { localStorage.setItem(LS_RAPPEL, t.value); } catch (e) { } }
   if (t.id === "ae-ref") { const f = $("#ae-titre-f"); if (f) f.hidden = t.value !== "libre"; }
   if (t.id === "pl-heure" && t.value) {

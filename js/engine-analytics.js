@@ -5,7 +5,19 @@
    Les déclarations de haut niveau sont partagées entre ces fichiers (comme lorsqu’ils formaient un seul index.html) :
    un fichier peut utiliser ce qu’un fichier précédent déclare. tools/assemble.js les recolle en un seul fichier (mode « artifact Claude »). */
 
-/* Courbe d’un exercice : un point par séance, du plus ancien au plus récent */
+/* D10 (phase 3D) : charge réellement soulevée par répétition, à partir de la charge notée.
+   Exercice aux haltères (LOAD « d » sans l’option S, « par haltère ») : 2 haltères ; assistance (contrepoids) : ce n’est pas un poids
+   soulevé, 0 (comme les autres exercices au poids du corps, dont la charge notée est 0). */
+function loadMult(id) { const L = LOAD[id]; if (!L) return 1; if (L[0] === "a") return 0; if (L[0] === "d" && (L[2] || "").indexOf("S") < 0) return 2; return 1; }
+/* Volume d’une séance (journal au format de l’historique) : somme des répétitions × charge réellement soulevée.
+   Échauffement et étirements compris s’ils ont une charge (en pratique : non). */
+function logVolume(log) {
+  let v = 0;
+  (log || []).forEach(l => { if (!l || !Array.isArray(l.sets)) return; const m = loadMult(l.id); l.sets.forEach(s => { if (s && s.r > 0 && s.kg > 0) v += s.r * s.kg * m; }); });
+  return v;
+}
+/* Courbe d’un exercice : un point par séance, du plus ancien au plus récent.
+   rmR = répétitions de la série qui donne le 1RM estimé (S9 : au-delà de 10, l’estimation est peu fiable). */
 function exSeries(hist, id) {
   const by = {};
   (hist || []).forEach(h => {
@@ -15,10 +27,12 @@ function exSeries(hist, id) {
       const rs = l.sets.filter(s => s && s.r != null && s.r > 0), ds = l.sets.filter(s => s && s.d > 0);
       if (!rs.length && !ds.length) return;
       const k = h.id || h.date + h.ts;
-      const p = by[k] || (by[k] = { hid: h.id, date: h.date, ts: h.ts || 0, kg: 0, rm: 0, reps: 0, d: 0, as: 0, vol: 0 });
+      const p = by[k] || (by[k] = { hid: h.id, date: h.date, ts: h.ts || 0, kg: 0, rm: 0, rmR: 0, reps: 0, d: 0, as: 0, vol: 0 });
+      const mult = loadMult(id);
       rs.forEach(s => {
-        const kg = s.kg || 0;
-        p.kg = Math.max(p.kg, kg); p.rm = Math.max(p.rm, e1rm(s.r, kg)); p.reps = Math.max(p.reps, s.r); p.vol += s.r * kg;
+        const kg = s.kg || 0, rm = e1rm(s.r, kg);
+        if (rm > p.rm) { p.rm = rm; p.rmR = s.r; }
+        p.kg = Math.max(p.kg, kg); p.reps = Math.max(p.reps, s.r); p.vol += s.r * kg * mult;
         if (s.r >= 5 && (!p.as || kg < p.as)) p.as = kg || 0.001;
       });
       ds.forEach(s => { p.d = Math.max(p.d, s.d); });

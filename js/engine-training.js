@@ -742,6 +742,30 @@ function convertLoad(id, lp, targetReps, barre) {
   const rm = kg * (1 + Math.min(r, 15) / 30);
   return floorLoad(id, rm / (1 + Math.min(targetReps, 15) / 30) * (1 - CONV_MARGIN), barre);
 }
+/* S1-b (usage, phase 3D) : référence qui sert à la charge proposée pour un exercice visé à « reps » répétitions.
+   La référence de la même zone de répétitions (refs[id][zone], zones de zoneOf) si elle existe : le squat progresse ainsi
+   séparément à 5 et à 10 répétitions ; sinon la dernière performance (lastPerf), que convertLoad convertit si l’écart est grand.
+   Exercice en durée (reps = 0) : la dernière performance. */
+function refFor(refs, lastPerf, id, reps) {
+  const z = reps > 0 && refs && refs[id] ? refs[id][zoneOf(reps)] : null;
+  if (z && Array.isArray(z.sets) && z.sets.length) return z;
+  return (lastPerf && lastPerf[id]) || null;
+}
+/* S8 : la séance vise 1 ou 2 répétitions de moins que la référence (palier 4 : 10 → 8 sur les gros exercices).
+   La progression normale garderait la charge faite à 10 : trop légère pour 8. On convertit par le 1RM estimé (Epley),
+   sans marge (l’écart est petit, la cible de répétitions en réserve garde la prudence), arrondi vers le bas au matériel,
+   et jamais en dessous de la progression normale. Seulement si la dernière séance a été réussie (conseil « up »).
+   Renvoie la charge, ou null si la règle ne s’applique pas. */
+function s8Load(id, lp, reps, sg, barre) {
+  if (!lp || !sg || (sg.why !== "up" && sg.why !== "up2") || !(reps > 0) || isAssist(id)) return null;
+  const L = LOAD[id]; if (L && (L[0] === "x" || (L[2] || "").indexOf("w") >= 0)) return null;
+  const sets = (lp.sets || []).filter(s => s && s.kg > 0 && s.r > 0); if (!sets.length) return null;
+  const ref = lp.target || Math.min.apply(null, sets.map(s => s.r)), gap = ref - reps;
+  if (gap < 1 || gap >= CONV_GAP) return null;
+  const kg = Math.max.apply(null, sets.map(s => s.kg)), r = Math.min.apply(null, sets.filter(s => s.kg === kg).map(s => s.r));
+  const v = floorLoad(id, kg * (1 + Math.min(r, 15) / 30) / (1 + Math.min(reps, 15) / 30), barre);
+  return Math.max(sg.next, v);
+}
 /* Nombre de séances ratées d’affilée à la même charge, à enregistrer avec la nouvelle performance */
 function failCount(prev, sets, target) {
   const kg = Math.max.apply(null, sets.map(s => s.kg || 0));
@@ -960,7 +984,9 @@ function rebuildRefs(historique, legacyRefs, legacySrc) {
     let from = -Infinity;
     if (lp0 && Array.isArray(lp0.sets) && lp0.sets.length) {
       const sid = src[id], a = sid ? byId[sid] : null;
-      if (!sid || a) {
+      /* séance d’origine modifiée depuis (D4, marque ed) : la référence v1 ne correspond plus, on rejoue tout l’exercice */
+      const edDay = !sid && hist.some(h => h.ed && h.date === lp0.d && h.log.some(l => l && l.id === id)); /* origine inconnue, mais séance du même jour modifiée */
+      if ((!sid && !edDay) || (a && !a.ed)) {
         const t0 = lp0.ts || (lp0.d && /^\d{4}-\d{2}-\d{2}$/.test(lp0.d) ? new Date(+lp0.d.slice(0, 4), +lp0.d.slice(5, 7) - 1, +lp0.d.slice(8, 10) + 1).getTime() - 1 : 0);
         from = a ? (a.ts || 0) : t0;
         lp[id] = JSON.parse(JSON.stringify(lp0)); rf[id] = { [zoneOf(refReps(lp0))]: lp[id] };

@@ -471,3 +471,104 @@ function profileSetOwner(id) {
   if (lsSet(lsOf(), LS_PROFILES, JSON.stringify(P)) !== true) return false;
   STORE.P = P; return true;
 }
+
+/* ================= D4 (phase 3D) : modifier une séance enregistrée, ajouter une séance faite sans l’appli =================
+   Fonctions pures sur un état (aucun accès au stockage) : vérifiées par tests/run.js. L’appli appelle histSave puis commit("p").
+   Règles (docs/FORMAT_DONNEES.md, section 4.1) :
+   - toute modification met upd = maintenant sur la séance (c’est ce qui départage deux appareils) et la marque ed = 1 ;
+   - une séance ajoutée reçoit un identifiant rid(), ts = date et heure choisies, upd = maintenant ;
+   - références (rebuildRefs) recalculées pour les exercices touchés (avant et après la modification), palier compté pour une séance ajoutée,
+     records (pr) recalculés pour la séance et les suivantes qui contiennent ces exercices ; volume recalculé (D10). */
+const HE_MAX = { r: 999, kg: 1000, d: 36000, ex: 40, sets: 30 };
+/* Journal saisi → journal propre : séries valides seulement (répétitions ≥ 1 ou durée ≥ 1 s), exercices sans série retirés */
+function histCleanLog(log) {
+  const out = [];
+  (Array.isArray(log) ? log : []).slice(0, HE_MAX.ex).forEach(l => {
+    if (!l || typeof l.id !== "string" || !EX_BY_ID[l.id]) return;
+    const sets = [];
+    (Array.isArray(l.sets) ? l.sets : []).slice(0, HE_MAX.sets).forEach(s => {
+      if (!s) return;
+      if (s.d != null && !(s.r > 0)) { const d = Math.round(+s.d || 0); if (d >= 1) sets.push({ d: Math.min(HE_MAX.d, d) }); return; }
+      const r = Math.round(+s.r || 0); if (r < 1) return;
+      const o = { r: Math.min(HE_MAX.r, r), kg: Math.min(HE_MAX.kg, Math.max(0, Math.round((+s.kg || 0) * 100) / 100)) };
+      if (s.rir != null && s.rir !== "" && isFinite(+s.rir)) o.rir = Math.max(0, Math.min(3, Math.round(+s.rir)));
+      if (typeof s.t === "number") o.t = s.t;
+      if (typeof s.rt === "number") o.rt = s.rt;
+      sets.push(o);
+    });
+    if (!sets.length) return;
+    out.push(Object.assign(l.warm ? { warm: 1 } : l.cool ? { cool: 1 } : {}, { id: l.id, sets }, typeof l.b === "number" ? { b: l.b } : {}));
+  });
+  return out;
+}
+/* Heure (ms) d’une date AAAA-MM-JJ et d’une heure HH:MM (heure locale) */
+function histTs(date, heure) {
+  const [y, m, d] = date.split("-").map(Number), hm = /^\d{2}:\d{2}$/.test(heure || "") ? heure.split(":").map(Number) : [12, 0];
+  return new Date(y, m - 1, d, hm[0], hm[1]).getTime();
+}
+/* Records (pr) recalculés pour les exercices ids, dans les séances faites à partir de fromTs (comprise).
+   Les records des autres exercices ne bougent pas. Une séance dont les records changent reçoit upd (elle repartira en ligne).
+   Renvoie les identifiants des séances modifiées. */
+function histRecords(st, ids, fromTs, upd, selfId) {
+  const changed = [];
+  if (!ids.length) return changed;
+  const asc = st.historique.filter(h => h && Array.isArray(h.log)).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  asc.forEach((h, k) => {
+    if ((h.ts || 0) < fromTs || !h.log.some(l => l && ids.indexOf(l.id) >= 0)) return;
+    const prev = asc.slice(0, k).filter(x => (x.ts || 0) < (h.ts || 0));
+    const fresh = findRecords(prev, h.log.filter(l => l && ids.indexOf(l.id) >= 0)).map(r => ({ id: r.id, k: r.k, v: r.v }));
+    const pr = (Array.isArray(h.pr) ? h.pr : []).filter(r => r && ids.indexOf(r.id) < 0).concat(fresh);
+    if (JSON.stringify(pr) === JSON.stringify(Array.isArray(h.pr) ? h.pr : [])) return;
+    if (pr.length) h.pr = pr; else delete h.pr;
+    if (upd != null && h.id !== selfId) h.upd = Math.max(upd, (h.upd || 0) + 1);
+    changed.push(h.id);
+  });
+  return changed;
+}
+/* Références des exercices ids recalculées (rebuildRefs, D3) ; les autres exercices ne bougent pas */
+function histRefs(st, ids) {
+  if (!ids.length) return;
+  const rb = rebuildRefs(st.historique, st.legacyRefs, st.legacySrc);
+  ids.forEach(id => { if (rb.lastPerf[id]) st.lastPerf[id] = rb.lastPerf[id]; else delete st.lastPerf[id]; if (rb.refs[id]) st.refs[id] = rb.refs[id]; else delete st.refs[id]; });
+}
+/* Enregistre la séance saisie e = { id? (absent : séance ajoutée), date, heure?, nom?, kind?, ref?, duree? (s), ressenti?, log }
+   dans l’état st (modifié sur place). now = maintenant (ms).
+   Renvoie { ok, error?, same?, entry, added, changed: [identifiants des autres séances dont les records ont changé] }. */
+function histSave(st, e, now) {
+  if (!e || typeof e.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) return { ok: false, error: "date" };
+  const before = e.id ? st.historique.find(h => h && h.id === e.id) : null;
+  if (e.id && !before) return { ok: false, error: "introuvable" };
+  if (before && before.c) return { ok: false, error: "resume" };
+  const log = histCleanLog(e.log);
+  if (!log.some(l => !l.warm && !l.cool)) return { ok: false, error: "vide" };
+  const h = before ? clone(before) : { id: rid(), kind: e.kind || "muscu", nom: "Séance" };
+  if (!before) { if (e.ref && typeof e.ref === "object") h.ref = clone(e.ref); h.ajout = 1; }
+  if (typeof e.nom === "string" && e.nom.trim()) h.nom = e.nom.trim().slice(0, 60);
+  const oldTime = before ? new Date(before.ts || histTs(before.date)) : null;
+  const heure = e.heure || (oldTime ? String(oldTime.getHours()).padStart(2, "0") + ":" + String(oldTime.getMinutes()).padStart(2, "0") : "");
+  if (!before || e.date !== before.date || e.heure) h.ts = histTs(e.date, heure);
+  h.date = e.date;
+  h.log = log;
+  h.sets = log.reduce((n, l) => n + l.sets.length, 0);
+  h.volume = Math.round(logVolume(log));
+  const duree = e.duree != null ? Math.max(60, Math.min(6 * 3600, Math.round(+e.duree || 0))) : (h.duree || 3600);
+  if (!before || duree !== before.duree || !h.kcal) h.kcal = estKcal({ kind: h.kind }, st.profile, duree);
+  h.duree = duree;
+  h.ressenti = [1, 2, 3, 4].indexOf(+e.ressenti) >= 0 ? +e.ressenti : null;
+  /* ce que la personne peut modifier : si rien n’a changé, rien n’est réécrit (pas de upd, rien à renvoyer en ligne) */
+  const strip = x => JSON.stringify([x.date, x.ts, x.nom, histCleanLog(x.log), x.duree || 0, [1, 2, 3, 4].indexOf(+x.ressenti) >= 0 ? +x.ressenti : null]);
+  if (before && strip(before) === strip(h)) return { ok: true, same: true, entry: before, added: false, changed: [] };
+  h.upd = Math.max(now, before ? (before.upd || 0) + 1 : 0);
+  if (before) h.ed = 1;
+  st.historique = trimHist(st.historique.filter(x => x && x.id !== h.id).concat([h]).sort((a, b) => (b.ts || 0) - (a.ts || 0)));
+  const entry = st.historique.find(x => x.id === h.id) || h;
+  /* références des exercices touchés, avant et après */
+  const ids = [];
+  (before ? before.log : []).concat(log).forEach(l => { if (l && l.id && ids.indexOf(l.id) < 0) ids.push(l.id); });
+  histRefs(st, ids);
+  /* palier : une séance ajoutée compte comme une séance faite (même logique que la synchro, csAddProgress) */
+  if (!before) st.profile = csAddProgress(st.historique, st.profile, entry);
+  /* records : la séance et les suivantes */
+  const changed = histRecords(st, ids, Math.min(entry.ts || 0, before ? (before.ts || 0) : Infinity), h.upd, h.id).filter(id => id !== h.id);
+  return { ok: true, entry, added: !before, changed };
+}

@@ -474,6 +474,74 @@ test("D3 dans l'appli : supprimer une séance de l'historique recalcule la réf�
   await ctx.close();
 });
 
+/* ---------- D4 : modifier une séance, ajouter une séance passée ; S9 (phase 3D) ---------- */
+function d4Storage() {
+  const prof = { prenom: "Test", sexe: "H", age: 30, taille: 180, poids: 80, niveau: "intermediaire", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple: false, phase: 1, phaseDone: 3, phaseStart: "2026-01-01", phases: [] };
+  const d = k => { const t = new Date(Date.now() - k * DAY); t.setHours(18, 0, 0, 0); return t; };
+  const iso = t => t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  const se = (id, k, log) => ({ id, date: iso(d(k)), ts: d(k).getTime(), nom: "Force : squat", kind: "muscu", duree: 3000, volume: 0, sets: 2, ressenti: 2, log });
+  const sq = kg => ({ id: "squat-barre", sets: [{ r: 5, kg }, { r: 5, kg }] });
+  const historique = [se("x3", 2, [sq(600)]), se("x2", 4, [sq(95), { id: "curl-halteres", sets: [{ r: 15, kg: 10 }] }]), se("x1", 6, [sq(90)])];
+  historique[0].pr = [{ id: "squat-barre", k: "kg", v: 600 }];
+  const lastPerf = { "squat-barre": { d: historique[0].date, ts: historique[0].ts, sets: [{ r: 5, kg: 600 }, { r: 5, kg: 600 }], target: 5, base: 5, feel: 2, fails: 0 },
+    "curl-halteres": { d: historique[1].date, ts: historique[1].ts, sets: [{ r: 15, kg: 10 }], target: 15, base: 15, feel: 2, fails: 0 } };
+  return { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique, lastPerf }), "fonte:backup": String(Date.now()) };
+}
+test("D4 : corriger une séance (600 → 60 kg) corrige la charge proposée, la courbe et les records", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: d4Storage() });
+  const A = await state(page); assert.strictEqual(A.lastPerf["squat-barre"].sets[0].kg, 600);
+  await page.click('[data-a="hist-open"][data-id="x3"]');
+  await page.click('.sheet [data-a="he-open"]');
+  await page.waitForSelector('.sheet input[data-he="0:0:kg"]');
+  for (const j of [0, 1]) await page.fill('.sheet input[data-he="0:' + j + ':kg"]', "60");
+  await page.click('.sheet [data-a="he-save"]');
+  await page.waitForSelector("#toast:text('Séance corrigée')");
+  const B = await state(page), h = B.historique.find(x => x.id === "x3");
+  assert.strictEqual(h.log[0].sets[0].kg, 60); assert.strictEqual(h.ed, 1); assert.ok(h.upd >= Date.now() - 60000, "upd = maintenant");
+  assert.strictEqual(B.lastPerf["squat-barre"].sets[0].kg, 60, "référence corrigée"); assert.strictEqual(B.refs["squat-barre"].force.sets[0].kg, 60);
+  assert.ok(!(h.pr || []).length, "plus de record à 600 kg");
+  assert.strictEqual(B.legacyRefs["squat-barre"].sets[0].kg, 600, "copie v1 jamais modifiée");
+  assert.strictEqual(h.volume, 600, "volume recalculé");
+  assert.deepStrictEqual([B.profile.phase, B.profile.phaseDone], [A.profile.phase, A.profile.phaseDone], "palier inchangé");
+  /* courbe et records de la fiche de l'exercice */
+  await page.click('[data-a="ex-open"][data-id="squat-barre"]').catch(async () => { await tab(page, "exercices"); await page.fill("#ex-q", "squat barre"); await page.click('[data-a="ex-open"][data-id="squat-barre"]'); });
+  await page.waitForSelector(".sheet .tag-rec");
+  const tags = (await page.$$eval(".sheet .tag-rec", els => els.map(e => e.textContent))).join(" | ");
+  assert.ok(/Charge max 95 kg/.test(tags), "record de charge : 95 kg (" + tags + ")");
+  assert.ok(!/600/.test(await page.textContent(".sheet #ch")), "plus de 600 sur la courbe");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("D4 : ajouter une séance passée (exercice, séries) → historique, palier, référence ; S9 : mention du 1RM peu fiable", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: d4Storage() });
+  const A = await state(page);
+  await page.click('[data-a="he-new"]');
+  await page.waitForSelector(".sheet #he-date");
+  const t = new Date(Date.now() - 10 * DAY), iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  await page.fill(".sheet #he-date", iso);
+  await page.fill(".sheet #he-nom", "Séance au parc");
+  await page.selectOption(".sheet #he-add", "dc-barre"); await page.click('.sheet [data-a="he-ex-add"]');
+  await page.waitForSelector('.sheet input[data-he="0:0:r"]');
+  await page.fill('.sheet input[data-he="0:0:r"]', "8"); await page.fill('.sheet input[data-he="0:0:kg"]', "50");
+  await page.click('.sheet [data-a="he-set-del"][data-i="0"][data-j="2"]');
+  await page.click('.sheet [data-a="he-save"]');
+  await page.waitForSelector("#toast:text('Séance ajoutée')");
+  const B = await state(page), h = B.historique.find(x => x.nom === "Séance au parc");
+  assert.ok(h, "séance ajoutée"); assert.strictEqual(h.date, iso); assert.strictEqual(B.historique.length, A.historique.length + 1);
+  assert.strictEqual(h.log[0].sets.length, 2, "une série retirée"); assert.strictEqual(h.log[0].sets[0].r, 8); assert.strictEqual(h.log[0].sets[0].kg, 50);
+  assert.ok(h.upd >= Date.now() - 60000); assert.strictEqual(B.historique[B.historique.length - 1].id, h.id, "rangée à sa date");
+  assert.strictEqual(B.profile.phaseDone, A.profile.phaseDone + 1, "compte pour le palier");
+  assert.strictEqual(B.lastPerf["dc-barre"].sets[0].kg, 50, "référence créée");
+  /* S9 : curl 15 × 10 kg → le 1RM vient d'une série de plus de 10 répétitions */
+  await page.click('[data-a="hist-open"][data-id="x2"]'); await page.click('.sheet [data-a="ex-open"][data-id="curl-halteres"]');
+  await page.waitForSelector(".sheet .ch-lo");
+  assert.ok(/peu fiable au-delà de 10 répétitions/.test(await page.textContent(".sheet .ch-lo")));
+  await page.click('.sheet [data-a="ch-m"][data-v="kgmax"]');
+  assert.strictEqual(await page.$(".sheet .ch-lo"), null, "pas de mention pour la charge max");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
 /* ---------- Prochaine séance du programme ---------- */
 /* Bug signalé après 3B : une séance du programme lancée hors du programme (Séances types, « Refaire cette séance »)
    n'était pas reconnue : l'accueil reproposait la même séance. */
