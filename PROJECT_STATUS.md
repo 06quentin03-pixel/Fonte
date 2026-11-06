@@ -52,7 +52,7 @@ Tests au début de la session (sur `main` `434b292`) : `node tests/run.js` → *
 **Résultats des tests (fin de session, réellement exécutés)** :
 - `node tests/run.js` → **106 réussis, 0 en échec** (94 − 7 tests D8 de 3A remplacés + 19 nouveaux : migration de chaque jeu de données avec comparaison champ à champ, double lancement, copie de sécurité déplacée, premier lancement, JSON abîmé, profil illisible, format plus récent, mémoire pleine — résumé puis migration impossible —, vérification ratée, garde anti-retour, restauration de toutes les versions et aller-retour, profils séparés ; `refStep` identique à l’ancienne règle sur 300 essais ; D3 : cas des 600 kg, propriété sur 60 historiques générés, palier incohérent).
 - `node tests/e2e/run.js` → **56 réussis, 0 en échec** (28 tests × iPhone 13 et iPad Pro 11) : les 25 de 3A (adaptés comme ci-dessus), mise à jour depuis `029e2da` **et** `434b292` (données migrées intactes, `fonte:v1` conservé, hors ligne), isolation de 2 profils avec une séance dans chacun (historique, références, palier, agenda, copie de sécurité, séance en cours, changement refusé pendant une séance), D3 dans l’appli.
-- GitHub Actions : voir plus bas (« Vérification après envoi »).
+- GitHub Actions : exécution n° 50 (commit `51eb44d`) **réussie**, tâches « tests » et « navigateur » (cette dernière comprend la mise à jour depuis `029e2da` et `434b292`).
 - Non testé (impossible ici) : Safari réel, vrais iPhone/iPad, vraie taille des données de vos téléphones → `docs/CHECKLIST_PHASE3B.md`.
 
 **Points ouverts notés pendant 3B** (non corrigés, hors périmètre) :
