@@ -6,8 +6,8 @@
 "use strict";
 const assert = require("assert");
 const { serve, openApp, fixture, ROOT } = require("./outils");
-/* Ancienne version de référence (celle installée sur les téléphones avant la phase 3A) */
-const OLD_REV = process.env.FONTE_OLD_REV || "029e2da";
+/* Anciennes versions de référence : avant la phase 3A (fichier unique) et la phase 3A (moteurs séparés, format v1), en service sur les téléphones */
+const OLD_REVS = (process.env.FONTE_OLD_REV || "029e2da,434b292").split(",");
 
 const DEVICES = (process.env.FONTE_DEVICES || "iPhone 13,iPad Pro 11").split(",");
 const only = process.argv[2] || "";
@@ -23,7 +23,12 @@ function doneRun() {
   r.start = Date.now() - 20 * 60e3; r.endAt = Date.now() - 2 * 60e3; r.done = true; r.t = null;
   return JSON.stringify(r);
 }
-const ls = (page, k) => page.evaluate(k => localStorage.getItem(k), k);
+/* Depuis 3B (format v2), les données sont rangées par profil : fonte:v1 → fonte:p:<profil actif>, fonte:run → fonte:p:<profil>:run, etc.
+   Les tests de 3A lisent les mêmes informations à leur nouvelle place (adaptation imposée par le format, rien d'autre ne change). */
+const PK = { "fonte:v1": "", "fonte:run": "run", "fonte:run-trash": "run-trash", "fonte:undo": "undo", "fonte:undo-info": "undo-info", "fonte:backup": "backup", "fonte:bksnooze": "bksnooze" };
+const keyOf = (page, k) => page.evaluate(([k, s]) => { try { const P = JSON.parse(localStorage.getItem("fonte:profiles")); if (P && P.active && s != null) return "fonte:p:" + P.active + (s ? ":" + s : ""); } catch (e) { } return k; }, [k, PK[k]]);
+const ls = async (page, k) => page.evaluate(k => localStorage.getItem(k), await keyOf(page, k));
+const raw = (page, k) => page.evaluate(k => localStorage.getItem(k), k);
 const strip = raw => { const o = JSON.parse(raw); delete o.upd; delete o.agUpd; return JSON.stringify(o); };
 async function tab(page, t) { await page.click(`.tab[data-t="${t}"]`); await page.waitForTimeout(50); }
 /* Bouton à double toucher (arm) : deux touchers */
@@ -94,7 +99,8 @@ test("D2 : « Annuler » fonctionne encore après un rechargement dans les 10 s,
   await page.waitForSelector("#runner:not([hidden])");
   assert.ok(await ls(page, "fonte:run"));
   /* séance supprimée il y a 11 s : plus d'« Annuler » */
-  await page.evaluate(() => { const t = JSON.parse(localStorage.getItem("fonte:run")); localStorage.removeItem("fonte:run"); localStorage.setItem("fonte:run-trash", JSON.stringify({ at: Date.now() - 11e3, run: t })); });
+  const kr = await keyOf(page, "fonte:run"), kt = await keyOf(page, "fonte:run-trash");
+  await page.evaluate(([kr, kt]) => { const t = JSON.parse(localStorage.getItem(kr)); localStorage.removeItem(kr); localStorage.setItem(kt, JSON.stringify({ at: Date.now() - 11e3, run: t })); }, [kr, kt]);
   await page.reload(); await page.waitForSelector("#view .card");
   await page.waitForTimeout(100);
   assert.ok(await page.$eval("#undo", e => e.hidden), "pas de bandeau après 10 s");
@@ -165,7 +171,7 @@ test("D5 : copie impossible (mémoire pleine) → opération refusée, rien n'es
   const A = await ls(page, "fonte:v1");
   await page.evaluate(() => {
     const set = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (k, v) { if (k === "fonte:undo") { const e = new Error("plein"); e.name = "QuotaExceededError"; throw e; } return set.call(this, k, v); };
+    Storage.prototype.setItem = function (k, v) { if (k === "fonte:undo" || /^fonte:p:[a-z0-9]+:undo$/.test(k)) { const e = new Error("plein"); e.name = "QuotaExceededError"; throw e; } return set.call(this, k, v); };
   });
   await tab(page, "profil");
   await twice(page, '[data-a="hist-clear"]');
@@ -254,7 +260,7 @@ test("D1-a : « Sauvegarder » produit un fichier qui se restaure à l'identique
   await twice(o.page, '.sheet [data-a="data-restore"]');
   await o.page.waitForSelector("#toast:text('Données restaurées')");
   const B = JSON.parse(await ls(o.page, "fonte:v1"));
-  ["profile", "mesSeances", "historique", "lastPerf", "notes", "mesures", "deload", "agenda", "imports"].forEach(k => assert.deepStrictEqual(B[k], A[k], k));
+  ["profile", "mesSeances", "historique", "lastPerf", "refs", "legacyRefs", "legacySrc", "notes", "mesures", "deload", "agenda", "imports"].forEach(k => assert.deepStrictEqual(B[k], A[k], k));
   assert.deepStrictEqual(errors.concat(o.errors), []);
   await o.ctx.close(); await ctx.close();
 });
@@ -292,25 +298,34 @@ test("hors ligne : réseau coupé puis rechargement, l'appli s'ouvre et fonction
   await ctx.close();
 });
 
-test("mise à jour depuis l'ancienne version en cache (main, fichier unique) : nouvelle version avec moteurs, données intactes, puis hors ligne", async (b, srv, dev) => {
+const CUR_VERSION = require("fs").readFileSync(require("path").join(ROOT, "sw.js"), "utf8").match(/const VERSION = "([^"]+)"/)[1];
+OLD_REVS.forEach(OLD_REV => test("mise à jour depuis l'ancienne version en cache (" + OLD_REV + ") : nouvelle version, données migrées intactes, fonte:v1 conservé, puis hors ligne", async (b, srv, dev) => {
   const fs = require("fs"), os = require("os"), path = require("path"), { execSync } = require("child_process");
   const old = fs.mkdtempSync(path.join(os.tmpdir(), "fonte-ancienne-"));
-  ["index.html", "sw.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png"].forEach(f => {
-    fs.writeFileSync(path.join(old, f), execSync("git show " + OLD_REV + ":" + f, { cwd: ROOT, maxBuffer: 64 << 20 }));
-  });
+  const files = execSync("git ls-tree -r --name-only " + OLD_REV, { cwd: ROOT }).toString().split("\n").filter(f => /^(index\.html|sw\.js|manifest\.webmanifest|icon-[^/]+\.png|js\/[^/]+\.js)$/.test(f));
+  files.forEach(f => { fs.mkdirSync(path.dirname(path.join(old, f)), { recursive: true }); fs.writeFileSync(path.join(old, f), execSync("git show " + OLD_REV + ":" + f, { cwd: ROOT, maxBuffer: 64 << 20 })); });
+  const oldVersion = fs.readFileSync(path.join(old, "sw.js"), "utf8").match(/const VERSION = "([^"]+)"/)[1];
   const s2 = await serve(old);
   try {
     const st = typ(), n = JSON.parse(st["fonte:v1"]).historique.length;
     const { ctx, page, errors } = await openApp(b, s2.url, { device: dev, storage: st, sw: true });
     await swReady(page);
-    assert.strictEqual(await page.$('script[src="js/app.js"]'), null, "ancienne version (fichier unique) en service");
+    assert.strictEqual(await raw(page, "fonte:profiles"), null, "ancienne version (format v1) en service");
+    const v1 = await raw(page, "fonte:v1"), v1n = JSON.parse(v1).historique.length;
+    assert.strictEqual(v1n, n);
     s2.setRoot(ROOT); /* le serveur publie la nouvelle version */
-    await page.reload(); await page.waitForSelector("#view .card");
+    await page.reload(); await page.waitForSelector("#view .card, #onb:not([hidden])");
     await page.waitForFunction(() => navigator.serviceWorker.getRegistration().then(r => r && r.active && r.active.scriptURL && !r.installing && !r.waiting), null, { timeout: 15000 });
-    await page.waitForFunction(() => caches.keys().then(k => k.indexOf("fonte-2026-11-06-moteurs") >= 0 && k.indexOf("fonte-2026-11-05-rouge") < 0), null, { timeout: 15000 });
+    await page.waitForFunction(([cur, old]) => caches.keys().then(k => k.indexOf(cur) >= 0 && k.indexOf(old) < 0), [CUR_VERSION, oldVersion], { timeout: 15000 });
     await page.reload(); await page.waitForSelector("#view .card");
-    assert.ok(await page.$('script[src="js/app.js"]'), "nouvelle version (moteurs séparés) chargée");
-    assert.strictEqual(JSON.parse(await ls(page, "fonte:v1")).historique.length, n, "historique intact");
+    assert.ok(await page.$('script[src="js/app.js"]'), "nouvelle version chargée");
+    const P = JSON.parse(await raw(page, "fonte:profiles"));
+    assert.ok(P && P.v === 2 && P.list.length === 1, "profil 1 créé par la migration");
+    const s = JSON.parse(await ls(page, "fonte:v1"));
+    assert.strictEqual(s.v, 2); assert.strictEqual(s.historique.length, n, "historique intact");
+    assert.deepStrictEqual(s.lastPerf, s.legacyRefs, "références gardées");
+    assert.strictEqual(await raw(page, "fonte:v1"), v1, "fonte:v1 conservé tel quel (copie de secours)");
+    await tab(page, "profil"); assert.match(await page.textContent("#pf-card"), /Alex/);
     await ctx.setOffline(true);
     await page.reload(); await page.waitForSelector("#view .card");
     assert.ok(await page.$('script[src="js/app.js"]'), "hors ligne : nouvelle version servie depuis le cache");
@@ -319,7 +334,7 @@ test("mise à jour depuis l'ancienne version en cache (main, fichier unique) : n
     assert.deepStrictEqual(errors, []);
     await ctx.close();
   } finally { await s2.close(); fs.rmSync(old, { recursive: true, force: true }); }
-});
+}));
 test("fichier unique assemblé (tools/assemble.js) : s'ouvre sans erreur en mode artifact Claude et en mode PWA", async (b, srv, dev) => {
   const fs = require("fs"), os = require("os"), path = require("path"), { assemble } = require("../../tools/assemble");
   for (const pwa of [false, true]) {
@@ -338,13 +353,14 @@ test("fichier unique assemblé (tools/assemble.js) : s'ouvre sans erreur en mode
   }
 });
 test("D8 : données d'une version plus récente → « Mets Fonte à jour », rien n'est écrasé", async (b, srv, dev) => {
-  const newer = JSON.stringify({ v: 2, profiles: { active: "p1", list: [{ id: "p1", prenom: "Test" }] } });
+  const newer = JSON.stringify({ v: 3, profiles: { active: "p1", list: [{ id: "p1", prenom: "Test" }] } }); /* depuis 3B, l'appli lit la v2 : « plus récent » = v3 */
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": newer } });
   await page.waitForSelector("#store-block");
   assert.ok(await page.$eval("#onb", e => e.hidden), "pas de questionnaire d'accueil");
   await tab(page, "profil"); await tab(page, "accueil");
   await page.waitForTimeout(200);
-  assert.strictEqual(await ls(page, "fonte:v1"), newer, "données non modifiées");
+  assert.strictEqual(await raw(page, "fonte:v1"), newer, "données non modifiées");
+  assert.strictEqual(await raw(page, "fonte:profiles"), null, "rien n'est créé");
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });
@@ -353,11 +369,107 @@ test("D8 : une sauvegarde d'une version plus récente est refusée à la restaur
   const A = await ls(page, "fonte:v1");
   await tab(page, "profil");
   await page.click('[data-a="data-import"]');
-  await page.fill("#imp-data", JSON.stringify({ v: 2, app: "fonte", profile: { prenom: "Futur" }, historique: [] }));
+  await page.fill("#imp-data", JSON.stringify({ v: 3, app: "fonte", profile: { prenom: "Futur" }, historique: [] }));
   await twice(page, '.sheet [data-a="data-restore"]');
   await page.waitForSelector("#imp-derr:text('version plus récente')");
   assert.strictEqual(await ls(page, "fonte:v1"), A);
   assert.strictEqual(await ls(page, "fonte:undo"), null, "aucune copie inutile");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
+/* ---------- Profils (U4, 3B) ---------- */
+async function saveSeededRun(page) {
+  /* séance terminée déposée dans le profil actif, puis enregistrée depuis l'écran de fin, comme une vraie séance */
+  const k = await keyOf(page, "fonte:run");
+  await page.evaluate(([k, r]) => localStorage.setItem(k, r), [k, doneRun()]);
+  await page.reload(); await page.waitForSelector("#view .card");
+  await page.click('[data-a="run-resume"]');
+  await page.click('#runner [data-a="run-save"]');
+  await page.waitForSelector("#toast:text('Séance enregistrée')");
+  if (await page.$(".sheet")) await page.evaluate(() => document.querySelectorAll(".sheet-wrap").forEach(e => e.remove()));
+}
+const state = async page => JSON.parse(await ls(page, "fonte:v1"));
+test("profils : 2 profils, une séance dans chacun, rien ne se mélange (historique, records, muscles, références, palier, agenda, copie de sécurité, séance en cours)", async (b, srv, dev) => {
+  const st = Object.assign(typ(), { "fonte:backup": String(Date.now()) });
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: st });
+  const A0 = await state(page), p1 = JSON.parse(await raw(page, "fonte:profiles")).active;
+  /* ajouter un profil : le questionnaire de départ s'ouvre dans le nouveau profil */
+  await tab(page, "profil");
+  assert.match(await page.textContent("#pf-card"), /Alex/);
+  await page.click('#pf-card [data-a="prof-add"]');
+  await Promise.all([page.waitForNavigation(), page.click('[data-a="prof-add-ok"]')]);
+  await page.waitForSelector("#onb:not([hidden])");
+  const P = JSON.parse(await raw(page, "fonte:profiles")), p2 = P.active;
+  assert.ok(p2 !== p1 && P.list.length === 2, "deuxième profil actif");
+  await page.click('[data-a="onb-skip"]');
+  await page.waitForSelector("#onb", { state: "hidden" });
+  await tab(page, "profil");
+  await page.fill("#pf-prenom", "Camille"); await page.dispatchEvent("#pf-prenom", "change"); await page.waitForTimeout(1200);
+  await tab(page, "accueil");
+  assert.match(await page.textContent("#hdr"), /Camille/);
+  assert.strictEqual(await page.$('[data-a="hist-open"]'), null, "historique vide dans le nouveau profil");
+  /* une séance dans le profil 2 */
+  await saveSeededRun(page);
+  const B = await state(page);
+  assert.strictEqual(B.historique.length, 1, "profil 2 : une séance");
+  assert.ok(B.historique[0].log.every(l => l.sets.every(s => s.d || "t" in s)), "nouvelle séance : cible t enregistrée dans chaque série");
+  assert.strictEqual(B.profile.phaseDone, 1, "profil 2 : palier");
+  assert.ok(Object.keys(B.lastPerf).length > 0 && Object.keys(B.refs).length === Object.keys(B.lastPerf).length, "profil 2 : références");
+  assert.strictEqual(B.agenda.filter(e => A0.agenda.some(x => x.id === e.id)).length, 0, "agenda perso séparé");
+  /* copie de sécurité dans le profil 2 seulement */
+  await tab(page, "profil"); await twice(page, '[data-a="hist-clear"]'); await page.waitForTimeout(100);
+  assert.ok(await raw(page, "fonte:p:" + p2 + ":undo")); assert.strictEqual(await raw(page, "fonte:p:" + p1 + ":undo"), null);
+  await tab(page, "profil"); await twice(page, "#undo-restore"); await page.waitForTimeout(100);
+  assert.strictEqual((await state(page)).historique.length, 1);
+  /* retour au profil 1 */
+  await tab(page, "profil");
+  await page.click('[data-a="prof-open"]');
+  await Promise.all([page.waitForNavigation(), page.click('[data-a="prof-pick"][data-id="' + p1 + '"]')]);
+  await page.waitForSelector("#view .card");
+  await tab(page, "accueil");
+  assert.match(await page.textContent("#hdr"), /Alex/);
+  const A1 = await state(page);
+  assert.strictEqual(A1.historique.length, A0.historique.length, "profil 1 : historique intact, sans la séance du profil 2");
+  assert.ok(A1.historique.every(h => h.id !== B.historique[0].id));
+  assert.deepStrictEqual(A1.lastPerf, A0.lastPerf, "profil 1 : références inchangées");
+  assert.strictEqual(A1.profile.phaseDone, A0.profile.phaseDone, "profil 1 : palier inchangé");
+  assert.strictEqual(await ls(page, "fonte:undo"), null, "profil 1 : pas la copie de sécurité du profil 2");
+  /* une séance dans le profil 1 */
+  await saveSeededRun(page);
+  const A2 = await state(page);
+  assert.strictEqual(A2.historique.length, A0.historique.length + 1);
+  assert.strictEqual(JSON.parse(await raw(page, "fonte:p:" + p2)).historique.length, 1, "profil 2 non touché");
+  /* records et « Mes muscles » sont calculés à partir de l'historique du profil : l'accueil du profil 1 ne montre que ses séances */
+  await tab(page, "accueil");
+  const rows = await page.$$eval('[data-a="hist-open"]', els => els.map(e => e.dataset.id));
+  assert.ok(rows.indexOf(B.historique[0].id) < 0 && rows.indexOf(A2.historique[0].id) >= 0, "dernières séances du bon profil");
+  /* séance en cours : changement de profil refusé */
+  const r = JSON.parse(fixture("v1-seance-en-cours.json").storage["fonte:run"]); r.start = Date.now() - 60e3;
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [await keyOf(page, "fonte:run"), JSON.stringify(r)]);
+  await tab(page, "profil");
+  await page.click('[data-a="prof-open"]');
+  await page.click('[data-a="prof-pick"][data-id="' + p2 + '"]');
+  await page.waitForSelector("#toast:text('Une séance est en cours')");
+  assert.strictEqual(JSON.parse(await raw(page, "fonte:profiles")).active, p1, "toujours sur le profil 1");
+  assert.strictEqual(await raw(page, "fonte:p:" + p2 + ":run"), null, "la séance en cours reste dans son profil");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("D3 dans l'appli : supprimer une séance de l'historique recalcule la référence et le palier", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: Object.assign(typ(), { "fonte:backup": String(Date.now()) }) });
+  const A = await state(page);
+  await saveSeededRun(page);
+  const B = await state(page), h = B.historique[0], id = h.log.find(l => !l.warm && !l.cool && l.sets.some(s => s.r != null)).id;
+  assert.notDeepStrictEqual([B.profile.phase, B.profile.phaseDone], [A.profile.phase, A.profile.phaseDone], "la séance a fait avancer le palier");
+  assert.notDeepStrictEqual(B.lastPerf[id], A.lastPerf[id], "la séance a changé la référence");
+  await page.click('[data-a="hist-open"][data-id="' + h.id + '"]');
+  await twice(page, '[data-a="hist-del"]');
+  await page.waitForSelector("#toast:text('Supprimée de l’historique')");
+  const C = await state(page);
+  assert.strictEqual(C.historique.length, A.historique.length);
+  assert.deepStrictEqual(C.lastPerf[id], A.lastPerf[id], "référence de " + id + " revenue à celle d'avant la séance");
+  assert.deepStrictEqual([C.profile.phase, C.profile.phaseDone, C.profile.niveau], [A.profile.phase, A.profile.phaseDone, A.profile.niveau], "palier revenu à celui d'avant");
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });

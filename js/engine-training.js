@@ -913,3 +913,103 @@ function deloadSe(se) {
   if (se.mode === "circuit" && se.tours > 2) se.tours = se.tours - 1;
   return se;
 }
+
+/* ================= Références par zone et palier recalculés depuis l’historique (S1-b format, D3 — phase 3B) ================= */
+/* Séance qui compte pour le palier (la mobilité seule ne compte pas) */
+const countable = h => !!h && h.kind !== "mob";
+/* Zone de répétitions (S1-b) : force ≤ 6, muscle 7 à 12, endurance ≥ 13 ; cible inconnue ou nulle : muscle */
+const REF_ZONES = ["force", "muscle", "endurance"];
+function zoneOf(reps) { return !(reps > 0) ? "muscle" : reps <= 6 ? "force" : reps <= 12 ? "muscle" : "endurance"; }
+/* Répétitions visées d’une référence : sa cible, sinon la plus grande répétition faite */
+function refReps(lp) { if (!lp || !Array.isArray(lp.sets)) return 0; return lp.target || Math.max.apply(null, lp.sets.map(s => (s && s.r) || 0).concat([0])); }
+/* Applique une séance enregistrée (h, entrée de l’historique) aux références : dernière performance par exercice (lastPerf)
+   et par exercice et zone (refs). C’est exactement ce que fait l’enregistrement d’une séance (saveRunHistory) :
+   - semaine allégée (h.dl), échauffement et étirements : pas de référence ; séries sans répétitions (durée) : ignorées ;
+   - cible = t enregistré dans les séries (depuis 3B) ; séances plus anciennes, sans t : la plus grande répétition faite ;
+   - une référence plus récente n’est jamais remplacée par une séance plus ancienne.
+   only : ne traiter que cet exercice. Modifie lastPerf et refs. */
+function refStep(lastPerf, refs, h, only) {
+  if (!h || h.dl || !Array.isArray(h.log)) return;
+  h.log.forEach(l => {
+    if (!l || l.warm || l.cool || !Array.isArray(l.sets) || (only && l.id !== only)) return;
+    const rs = l.sets.filter(s => s && s.r != null); if (!rs.length) return;
+    if (lastPerf[l.id] && (lastPerf[l.id].ts || 0) > (h.ts || 0)) return;
+    const sets = rs.map(s => Object.assign({ r: s.r, kg: s.kg || 0 }, s.rir != null ? { rir: s.rir } : {}));
+    const ts = rs.find(s => "t" in s), target = ts ? ts.t : Math.max.apply(null, sets.map(s => s.r || 0));
+    const lp = { d: h.date, ts: h.ts, sets, target, base: l.b || target, feel: h.ressenti || 0, fails: failCount(lastPerf[l.id], sets, target) };
+    lastPerf[l.id] = lp;
+    (refs[l.id] = refs[l.id] || {})[zoneOf(target)] = lp;
+  });
+}
+/* D3 : références recalculées à partir de l’historique (après suppression d’une séance, plus tard après modification).
+   Point de départ de chaque exercice : la référence v1 conservée (legacyRefs), car les séances d’avant 3B n’ont pas la cible t ;
+   - si la séance d’origine de cette référence (legacySrc) est encore là : on part de la référence et on rejoue les séances suivantes ;
+   - si elle a été supprimée : la référence v1 est abandonnée, on rejoue toutes les séances de l’exercice ;
+   - origine inconnue (séance absente de l’historique) : on part de la référence et on rejoue les séances plus récentes.
+   Renvoie { lastPerf, refs } (nouveaux objets ; rien n’est modifié). */
+function rebuildRefs(historique, legacyRefs, legacySrc) {
+  const hist = (Array.isArray(historique) ? historique : []).filter(h => h && Array.isArray(h.log)).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const L = legacyRefs && typeof legacyRefs === "object" ? legacyRefs : {}, src = legacySrc && typeof legacySrc === "object" ? legacySrc : {};
+  const byId = {}, ids = [];
+  const addId = id => { if (ids.indexOf(id) < 0) ids.push(id); };
+  hist.forEach(h => { if (h.id) byId[h.id] = h; h.log.forEach(l => { if (l && l.id) addId(l.id); }); });
+  Object.keys(L).forEach(addId);
+  const lastPerf = {}, refs = {};
+  ids.forEach(id => {
+    const lp0 = L[id], lp = {}, rf = {};
+    let from = -Infinity;
+    if (lp0 && Array.isArray(lp0.sets) && lp0.sets.length) {
+      const sid = src[id], a = sid ? byId[sid] : null;
+      if (!sid || a) {
+        const t0 = lp0.ts || (lp0.d && /^\d{4}-\d{2}-\d{2}$/.test(lp0.d) ? new Date(+lp0.d.slice(0, 4), +lp0.d.slice(5, 7) - 1, +lp0.d.slice(8, 10) + 1).getTime() - 1 : 0);
+        from = a ? (a.ts || 0) : t0;
+        lp[id] = JSON.parse(JSON.stringify(lp0)); rf[id] = { [zoneOf(refReps(lp0))]: lp[id] };
+      }
+    }
+    hist.forEach(h => { if ((h.ts || 0) > from) refStep(lp, rf, h, id); });
+    if (lp[id]) { lastPerf[id] = lp[id]; refs[id] = rf[id]; }
+  });
+  return JSON.parse(JSON.stringify({ lastPerf, refs }));
+}
+/* Une séance de plus appliquée au profil p (palier, niveau, historique des paliers pour les bilans) : r = progressTick(p) */
+function tickApply(p, r, date) {
+  if (r.phaseUp) { p.phases = (p.phases || []).concat([{ n: p.phase || 1, niv: p.niveau, from: p.phaseStart || date, to: date, up: r.levelUp ? r.niveau : undefined }]).slice(-40); p.phaseStart = date; }
+  if (r.levelUp && p.simple == null && (NIV_KEYS[p.niveau] || 1) === 1) p.simple = true; /* le mode simple ne disparaît pas sans prévenir */
+  Object.assign(p, { phase: r.phase, phaseDone: r.phaseDone, niveau: r.niveau });
+}
+/* Palier rejoué depuis le début sur les séances qui comptent (même logique que la première ouverture, initProgress),
+   au niveau de départ (celui du premier palier enregistré, sinon le niveau actuel). */
+function replayProgress(historique, profile) {
+  const p = profile || {}, ph0 = Array.isArray(p.phases) && p.phases[0];
+  const q = JSON.parse(JSON.stringify(p));
+  const list = (Array.isArray(historique) ? historique : []).filter(countable).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  Object.assign(q, { phase: 1, phaseDone: 0, phases: [], niveau: ph0 && ph0.niv ? ph0.niv : (p.niveau || "debutant"), phaseStart: list.length ? list[0].date : p.phaseStart });
+  list.forEach(h => tickApply(q, progressTick(q), h.date));
+  if (p.simple === undefined) delete q.simple; else q.simple = p.simple;
+  if (q.bilanNew != null && !(q.phases && q.phases[q.bilanNew])) delete q.bilanNew;
+  return JSON.parse(JSON.stringify(q));
+}
+/* Une séance de moins (sans rejouer) : dernière séance du palier retirée, palier précédent rouvert si besoin */
+function untickProgress(profile) {
+  const q = JSON.parse(JSON.stringify(profile || {}));
+  if ((q.phaseDone || 0) > 0) q.phaseDone--;
+  else if (Array.isArray(q.phases) && q.phases.length) {
+    const last = q.phases.pop();
+    q.phase = last.n || 1; if (last.up) q.niveau = last.niv; q.phaseStart = last.from;
+    q.phaseDone = Math.max(0, phasePer(Object.assign({}, q, { niveau: last.niv })) - 1);
+  }
+  if (q.bilanNew != null && !(q.phases && q.phases[q.bilanNew])) delete q.bilanNew;
+  return q;
+}
+/* D3 : palier après la suppression de la séance removed (historique = séances restantes). Renvoie un nouveau profil.
+   Si le palier actuel correspond bien à l’historique (rejoué avec la séance), on rejoue sans elle : comme si elle n’avait jamais existé.
+   Sinon (jours changés en cours de route, niveau choisi à la main, ancienne suppression non décomptée…) on retire seulement
+   une séance au compteur, pour ne rien bouleverser. */
+function rebuildProgress(historique, profile, removed) {
+  const p = profile || {};
+  if (removed !== undefined && !countable(removed)) return JSON.parse(JSON.stringify(p));
+  if (removed === undefined) return replayProgress(historique, p);
+  const key = q => [q.phase || 1, q.phaseDone || 0, q.niveau || "debutant"].join("|");
+  const before = replayProgress((historique || []).concat([removed]), p);
+  return key(before) === key(p) ? replayProgress(historique, p) : untickProgress(p);
+}
