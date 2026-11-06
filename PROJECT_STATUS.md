@@ -10,8 +10,8 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 | 1 — Audit complet | ✅ Terminée le 5 nov. 2026 | `claude/audit-phase-1` | `docs/AUDIT_PHASE1.md`, `tools/analyse-volume.js`, `docs/PROMPT_PHASE2.md` |
 | 2 — Plan d’amélioration | ✅ Terminée le 5 nov. 2026 | `claude/plan-phase-2` (part de `claude/audit-phase-1`) | `docs/PLAN_PHASE2.md`, `docs/PROMPT_PHASE3A.md` |
 | 3A — Filet de sécurité (D2, D5, D6, D1-a, S1-a, tests navigateur) **puis** moteurs en fichiers séparés (A1, A3, D8 cadre) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) | `claude/phase-3a-securite-moteurs` (part de `claude/plan-phase-2`) | `js/engine-*.js`, `js/app.js`, `tests/e2e/`, `tests/fixtures/`, `tools/assemble.js`, `docs/CHECKLIST_PHASE3A.md`, `docs/PROMPT_PHASE3B.md` |
-| 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ⏳ À faire (nouvelle session) | — | voir `docs/PROMPT_PHASE3B.md` |
-| 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | À faire | — | — |
+| 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ✅ Terminée le 6 nov. 2026 (parties 1, 2 et 3) — **à vérifier sur les deux iPhone avant 3C** | `claude/phase-3b-format-profils` (part de `main` `434b292`) | `js/engine-user.js` (format v2, migration, profils), `js/engine-training.js` (D3), `docs/FORMAT_DONNEES.md`, `docs/CHECKLIST_PHASE3B.md`, `docs/PROMPT_PHASE3C.md` |
+| 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ⏳ À faire (nouvelle session, **après** la checklist 3B sur les deux iPhone) | — | voir `docs/PROMPT_PHASE3C.md` |
 | 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | À faire | — | — |
 | 3E — Expérience de séance, iPad (U1, U2, U3, U5) **puis**, si validé, programmes (S2/S3) | À faire | — | — |
 | 4 — Tests complets | À faire | — | — |
@@ -23,9 +23,45 @@ Le détail de chaque session (contenu, taille, critères « terminé », tests) 
 
 ## Version du code de l’appli
 
-- Version utilisée sur les téléphones : commit `029e2da` sur `main` (tant que la branche 3A n’est pas fusionnée).
-- Version de développement : branche `claude/phase-3a-securite-moteurs` (commits `aed42f5` partie 1, `77f5de1` partie 2, puis documentation).
+- Version utilisée sur les téléphones : `main` au commit `434b292` (phase 3A, fusionnée par la pull request n° 11, vérifiée sur iPhone : mise à jour reçue, données intactes, mode avion OK).
+- Version de développement : branche `claude/phase-3b-format-profils` (phase 3B), **pas encore fusionnée** : la fusion attend l’accord du propriétaire.
 - Attention : dans un clone, la branche locale `main` peut être périmée ; comparer avec `origin/main`. GitHub signale que le dépôt s’appelle désormais `06quentin03-pixel/Fonte` (l’ancienne adresse redirige).
+
+## Phase 3B — résumé (6 nov. 2026)
+
+Tests au début de la session (sur `main` `434b292`) : `node tests/run.js` → **94 réussis, 0 en échec** ; `node tests/e2e/run.js` → **50 réussis, 0 en échec**.
+
+**Partie 1 — format v2 et migration v1 → v2** (plan 7.2 à 7.4, suivi à la lettre) :
+- `SCHEMA_VERSION = 2`, `MIGRATIONS[1]` (fonction pure) : même contenu + `refs[exercice][zone]` (force ≤ 6, muscle 7–12, endurance ≥ 13, issues de `lastPerf` : format seulement, l’usage viendra en 3D), `legacyRefs` (copie intacte de `lastPerf`), `legacySrc` (séance d’origine de chaque référence), `upd` sur chaque séance. Les nouvelles séances enregistrent la cible `t` dans chaque série (et la base `b`).
+- Au démarrage (`storeOpen`) : `fonte:v1` lu sans être modifié → état v2 construit en mémoire → écrit dans `fonte:p:<id>` → **relu et comparé** (texte identique ; séances une à une, mesures, notes, références, séances perso, agenda, profil champ par champ) **avant** d’écrire `fonte:profiles`. Mémoire pleine : historique ancien résumé dans la copie puis nouvel essai ; sinon on reste en v1 (carte « Fais une sauvegarde », nouvel essai au lancement suivant), rien n’est effacé ni laissé à moitié. **`fonte:v1` conservé tel quel.** Garde anti-retour : si `fonte:v1` change après la migration, il est rejoué et fusionné (séances par identifiant, sans ressusciter celles supprimées). Format plus récent jamais écrasé. Séance en cours, séance supprimée récemment, dates de sauvegarde copiées dans le profil ; copie de sécurité D5 déplacée.
+- Ce dont la migration et les profils ont besoin a quitté `app.js` pour `engine-user.js`, testable en Node : enregistrement (`storeSave`, résumé si mémoire pleine), copie de sécurité (`storeSnapshot`), sauvegarde et restauration (`backupPayload`, `decodeBackup`, `applyBackup`, `cleanEvents`, `b64e/b64d`). Toute restauration (fichier, code `FONTEDATA1.`, synchro Claude) passe par `migrate`.
+- `docs/FORMAT_DONNEES.md` : formats v1 et v2, migration, recalcul D3.
+
+**Partie 2 — profils multiples (U4)** :
+- Profil › en haut : carte du profil ouvert, « Changer de profil », « Ajouter un profil » (profil vide + questionnaire de départ). Données du profil dans `fonte:p:<id>` (séance en cours `:run`, `:run-trash`, `:undo`, `:backup`, `:bksnooze`) ; réglages d’appareil communs (`fonte:ui`, `fonte:noinstall`, `fonte:rappel`, `fonte:sync`).
+- **Décision** : changer de profil **relance l’appli** sur l’autre profil (au lieu de tout recharger en mémoire) : c’est le moyen le plus sûr pour que rien d’un profil ne reste à l’écran ou en mémoire dans l’autre. Fonctionne hors ligne (l’appli est en cache). Interdit pendant une séance en cours (y compris une séance non terminée de plus de 12 h).
+- **Décision** : la synchro de l’appareil (agenda Firebase, connexion anonyme ; compte Claude en mode artifact) reste reliée à **un** profil (`owner`, le profil 1 migré, ou celui qui active la synchro). Les autres profils voient l’agenda de ce profil comme celui d’un partenaire et gardent leurs séances sur l’appareil. Sinon, deux profils auraient écrit dans le même document en ligne et se seraient mélangés. Chaque profil aura son compte en 3C.
+- Pas de suppression de profil (volontaire : rien ne peut être perdu par erreur ; à prévoir plus tard avec sauvegarde d’abord).
+
+**Partie 3 — D3** : `rebuildRefs(historique, legacyRefs, legacySrc)`, `rebuildProgress(historique, profil, séance)`, `refStep` (la même règle sert à l’enregistrement d’une séance et au recalcul) dans `engine-training.js`, appelés par « Supprimer de l’historique » (seuls les exercices de la séance supprimée sont recalculés). Palier : rejoué sans la séance si l’historique correspond au palier actuel ; sinon (jours changés, niveau choisi à la main, ancienne suppression) une seule séance retirée au compteur, pour ne rien bouleverser.
+
+**Commits** : les trois parties ont été faites ensemble dans un seul commit de code (puis un commit de documentation), et non un commit par partie comme demandé : elles partagent les mêmes fonctions (la migration calcule `legacySrc` pour D3 ; `refStep` sert à l’enregistrement et au recalcul ; les clés par profil servent à la migration). Les découper aurait produit des étapes intermédiaires jamais testées. Rien n’est resté à moitié.
+
+**Tests adaptés (imposé par le format)** : dans `tests/run.js`, les 7 tests D8 de 3A qui supposaient `SCHEMA_VERSION = 1` et une lecture sans écriture sont remplacés par la suite de migration (le format « plus récent » devient v3) ; dans `tests/e2e/run.js`, les tests lisent `fonte:v1`, `fonte:run`, `fonte:undo`… à leur nouvelle place (`fonte:p:<profil>…`), le test D8 utilise v3, et le test de mise à jour part maintenant de **`029e2da` et de `434b292`** (version en service). Rien d’autre n’a changé dans les tests existants.
+
+**Résultats des tests (fin de session, réellement exécutés)** :
+- `node tests/run.js` → **106 réussis, 0 en échec** (94 − 7 tests D8 de 3A remplacés + 19 nouveaux : migration de chaque jeu de données avec comparaison champ à champ, double lancement, copie de sécurité déplacée, premier lancement, JSON abîmé, profil illisible, format plus récent, mémoire pleine — résumé puis migration impossible —, vérification ratée, garde anti-retour, restauration de toutes les versions et aller-retour, profils séparés ; `refStep` identique à l’ancienne règle sur 300 essais ; D3 : cas des 600 kg, propriété sur 60 historiques générés, palier incohérent).
+- `node tests/e2e/run.js` → **56 réussis, 0 en échec** (28 tests × iPhone 13 et iPad Pro 11) : les 25 de 3A (adaptés comme ci-dessus), mise à jour depuis `029e2da` **et** `434b292` (données migrées intactes, `fonte:v1` conservé, hors ligne), isolation de 2 profils avec une séance dans chacun (historique, références, palier, agenda, copie de sécurité, séance en cours, changement refusé pendant une séance), D3 dans l’appli.
+- GitHub Actions : exécution n° 50 (commit `51eb44d`) **réussie**, tâches « tests » et « navigateur » (cette dernière comprend la mise à jour depuis `029e2da` et `434b292`).
+- Non testé (impossible ici) : Safari réel, vrais iPhone/iPad, vraie taille des données de vos téléphones → `docs/CHECKLIST_PHASE3B.md`.
+
+**Correction après la fin de 3B (bug signalé par le propriétaire)** : une séance du programme faite **hors du programme** (Séances › Séances types, « Refaire cette séance », séance ajoutée à la main dans l’agenda) ou faite juste avant un changement de programme n’était pas reconnue : l’accueil reproposait la même séance (ex. « Force : squat » deux fois de suite). Désormais (`lastProgDone` dans `app.js`), si la séance la plus récente vient d’une séance type présente dans le programme (ou de sa variante de semaine B), la suite du programme part de là ; sinon, rien ne change. Le programme lui-même n’est pas modifié (photographie identique). Test navigateur ajouté ; reproduit avant correction (« Force : squat » reproposé), vert après. `sw.js` : `VERSION` changée. Tests : `node tests/run.js` → **106 réussis, 0 en échec** ; `node tests/e2e/run.js` → **58 réussis, 0 en échec** (29 × 2 appareils).
+
+**Points ouverts notés pendant 3B** (non corrigés, hors périmètre) :
+- Questionnaire de départ : « Passer » ne garde pas le prénom tapé à la première étape (comportement d’origine).
+- La synchro Claude (mode artifact) fusionne encore `lastPerf` sans recalcul D3 après des suppressions reçues : à reprendre avec la synchro par séance (3C).
+- Mémoire : `fonte:v1` est gardé en plus du profil 1, la place utilisée double donc à peu près (≈ 80 Ko → 160 Ko pour 6 mois d’usage ; très loin de la limite). Le bouton « Libérer de la place » (avec sauvegarde d’abord) est à prévoir, au plus tôt après 2 mises à jour.
+- `rebuildProgress` compte les paliers avec le nombre de jours actuel ; si les jours ont changé, il retire seulement une séance au compteur (voir partie 3).
 
 ## Phase 3A — résumé (6 nov. 2026)
 
@@ -85,13 +121,14 @@ Décisions techniques : 4 moteurs en fichiers séparés sans outil de constructi
 
 ## Décisions en attente
 
-Aucune bloquante. À trancher plus tard : validation des propositions de programmes (fin de 3D) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
+Aucune bloquante. **Accord attendu : fusion de la branche 3B dans `main`.** À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; validation des propositions de programmes (fin de 3D) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
 
 ## Problèmes ouverts connus
 
-Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi).
+Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi). **Corrigés en 3B** : D8 (migration réelle v1 → v2), U4 (profils), S1-b (format : références par zone ; usage en 3D), D3.
 
 ## Prochaine étape
 
-1. Passer la checklist `docs/CHECKLIST_PHASE3A.md` : **sauvegarde fichier sur chaque iPhone d’abord**, puis fusion de la branche `claude/phase-3a-securite-moteurs` dans `main` (sur GitHub : Pull requests › New pull request › base `main` ← `claude/phase-3a-securite-moteurs` › Create › Merge), mise à jour sur les iPhone et vérification en mode avion.
-2. Refaire une sauvegarde fichier sur chaque iPhone, puis ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3B.md`.
+1. Le propriétaire lit ce résumé et donne (ou non) son accord pour fusionner `claude/phase-3b-format-profils` dans `main` (GitHub › Pull requests › New pull request › base `main` ← `claude/phase-3b-format-profils` › Create › Merge).
+2. **Avant la mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3B.md` sur **les deux iPhone** (données toutes là, mode avion) et sur l’iPad (2ᵉ profil, une séance dans chaque, rien ne se mélange).
+3. Seulement ensuite, ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3C.md`.

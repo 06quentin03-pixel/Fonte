@@ -14,7 +14,6 @@
 /* ================= Utilitaires ================= */
 const $ = (s, r = document) => r.querySelector(s);
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const rid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 const pad = n => String(n).padStart(2, "0");
 const num = v => { const n = parseFloat(String(v).replace(",", ".").replace(/\s/g, "")); return isFinite(n) ? n : 0; };
 const fmtNum = n => String(Math.round(n * 100) / 100).replace(".", ",");
@@ -42,20 +41,16 @@ const PWA = !!window.FONTE_PWA;
 const INSTALLED = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
 
 /* ================= État ================= */
-let S = loadState();
+/* Démarrage du stockage (engine-user.js) : profil actif, migration de fonte:v1 vers le format v2 au premier lancement de la version 3B */
+let S = storeOpen((() => { try { return window.localStorage; } catch (e) { return null; } })(), Date.now());
 /* Stockage plein : on résume davantage l’historique ancien plutôt que de tout perdre au prochain lancement */
 let quotaWarned = false;
 function saveLocal() {
   if (STORE_BLOCK && STORE_BLOCK.reason === "plus-recent") return false; /* D8 : données d’une version plus récente, jamais écrasées */
-  for (let full = HIST_FULL; ; full = Math.floor(full / 2)) {
-    try { localStorage.setItem(LS, JSON.stringify(S)); return true; }
-    catch (e) {
-      const quota = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
-      if (!quota || full < 10) { if (quota && !quotaWarned) { quotaWarned = true; setTimeout(() => toast("Mémoire du téléphone pleine : fais une sauvegarde depuis Profil."), 0); } return false; }
-      S.historique = trimHist(S.historique, full);
-      if (!quotaWarned) { quotaWarned = true; setTimeout(() => toast("Stockage presque plein : le détail des séances les plus anciennes a été résumé."), 0); }
-    }
-  }
+  const r = storeSave(S);
+  if (r.trimmed && !quotaWarned) { quotaWarned = true; setTimeout(() => toast("Stockage presque plein : le détail des séances les plus anciennes a été résumé."), 0); }
+  if (!r.ok && r.quota && !quotaWarned) { quotaWarned = true; setTimeout(() => toast("Mémoire du téléphone pleine : fais une sauvegarde depuis Profil."), 0); }
+  return !!r.ok;
 }
 function commit(kinds) {
   const now = Date.now();
@@ -170,11 +165,30 @@ const objNames = p => objList(p).map(k => OBJECTIFS[k].n);
 /* ================= Programme : prochaine séance ================= */
 /* Clé du programme : change quand le programme change (objectifs, jours, niveau…) */
 function progKey(pr) { return pr.ids.map((id, i) => id + ":" + pr.objs[i]).join(","); }
+/* Place dans le programme de la dernière séance du programme faite (null : aucune).
+   La séance la plus récente lancée depuis une séance type compte même si elle n’a pas été lancée depuis le programme
+   (Séances types, « Refaire cette séance », agenda ajouté à la main) ou si le programme a changé depuis (jours, objectif, niveau) :
+   si sa séance type (ou sa variante de semaine B) est dans le programme, la suite part de là. Sinon, comme avant :
+   la dernière séance lancée depuis ce programme. (Correction après 3B : le squat fait depuis les séances types était reproposé.) */
+function lastProgDone(pr, key) {
+  const n = pr.ids.length;
+  const h = S.historique.find(x => x && ((x.pk && x.pj != null) || (x.ref && x.ref.k === "t")));
+  if (h) {
+    if (h.pk === key && h.pj != null && h.pj < n) return h.pj;
+    const tid = h.ref && h.ref.k === "t" ? h.ref.id : null;
+    if (tid) {
+      const idx = pr.ids.map((id, i) => (id === tid || weekVariant(id, h.date) === tid ? i : -1)).filter(i => i >= 0);
+      if (idx.length) return idx.indexOf(h.pj) >= 0 ? h.pj : idx[0];
+    }
+  }
+  const last = S.historique.find(x => x.pk === key && x.pj != null && x.pj < n);
+  return last ? last.pj : null;
+}
 /* Prochaine séance du programme : celle qui suit la dernière faite (UI.progSkip pour en proposer une autre) */
 function nextProg() {
   const pr = programme(S.profile), key = progKey(pr), n = pr.ids.length;
-  const last = S.historique.find(h => h.pk === key && h.pj != null && h.pj < n);
-  const j = ((last ? last.pj + 1 : 0) + (UI.progSkip || 0)) % n;
+  const last = lastProgDone(pr, key);
+  const j = ((last != null ? last + 1 : 0) + (UI.progSkip || 0)) % n;
   const t = TPL_BY_ID[weekVariant(pr.ids[j], todayISO())], o = pr.objs[j], se = prescribe(t, profFor(S.profile, o));
   return { pr, key, j, n, t, o, se, done: S.historique.filter(h => h.pk === key && h.pj != null).length };
 }
@@ -350,14 +364,9 @@ function openPlanMonth() {
 }
 
 /* ================= Progression : paliers, niveau, bilans ================= */
-const countable = h => !!h && h.kind !== "mob";
+/* countable (séance qui compte pour le palier) et tickApply : dans engine-training.js (utilisés aussi par le recalcul D3) */
 /* Applique une séance de plus au profil : palier, niveau ; garde l’historique des paliers pour les bilans */
-function applyTick(r, date) {
-  const p = S.profile;
-  if (r.phaseUp) { p.phases = (p.phases || []).concat([{ n: p.phase || 1, niv: p.niveau, from: p.phaseStart || date, to: date, up: r.levelUp ? r.niveau : undefined }]).slice(-40); p.phaseStart = date; }
-  if (r.levelUp && p.simple == null && (NIV_KEYS[p.niveau] || 1) === 1) p.simple = true; /* le mode simple ne disparaît pas sans prévenir */
-  Object.assign(p, { phase: r.phase, phaseDone: r.phaseDone, niveau: r.niveau });
-}
+function applyTick(r, date) { tickApply(S.profile, r, date); }
 /* Première ouverture de cette version : les séances déjà faites comptent */
 function initProgress() {
   const p = S.profile; if (p.phase != null) return;
@@ -367,6 +376,16 @@ function initProgress() {
   hist.forEach(h => { const r = progressTick(p); if (r.levelUp) up = true; applyTick(r, h.date); });
   if (up) p.bilanNew = (p.phases || []).length - 1;
   commit("p");
+}
+/* D3 : une séance supprimée de l’historique. Les références des exercices de cette séance et le palier reviennent à ce qu’ils
+   seraient sans elle (rebuildRefs, rebuildProgress : engine-training.js). Les autres exercices ne sont pas touchés. */
+function afterHistDelete(gone) {
+  const ids = (gone.log || []).map(l => l && l.id).filter(Boolean);
+  if (ids.length) {
+    const rb = rebuildRefs(S.historique, S.legacyRefs, S.legacySrc);
+    ids.forEach(id => { if (rb.lastPerf[id]) S.lastPerf[id] = rb.lastPerf[id]; else delete S.lastPerf[id]; if (rb.refs[id]) S.refs[id] = rb.refs[id]; else delete S.refs[id]; });
+  }
+  if (countable(gone)) S.profile = rebuildProgress(S.historique, S.profile, gone);
 }
 /* Séance enregistrée : avance d’une séance ; renvoie vrai si un palier vient d’être terminé */
 function tickProgress() {
@@ -436,8 +455,8 @@ function requeue() {
   S.agenda = S.agenda.filter(e => !(isProgEv(e) && !e.fait && e.date < t));
   const missed = n0 - S.agenda.length;
   const pr = programme(p), key = progKey(pr), n = pr.ids.length, multi = objList(p).length > 1;
-  const last = S.historique.find(h => h.pk === key && h.pj != null && h.pj < n);
-  const start = last ? (last.pj + 1) % n : 0;
+  const last = lastProgDone(pr, key);
+  const start = last != null ? (last + 1) % n : 0;
   let ch = missed > 0;
   S.agenda.filter(e => isProgEv(e) && !e.fait && e.date >= t).sort((a, b) => a.date === b.date ? byTime(a, b) : a.date.localeCompare(b.date)).forEach((e, k) => {
     const j = (start + k) % n, id = weekVariant(pr.ids[j], e.date);
@@ -826,7 +845,9 @@ function openProgress() {
   Sheet.open({ key: "prog", title: "Progression", tall: true, body });
 }
 /* Log d’une séance en cours, au format de l’historique */
-function runLog() { return R.se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : it.warm ? { warm: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {})) })).filter(x => x.sets.length); }
+/* Journal d’une séance. Depuis le format v2 (3B), chaque série garde la cible de répétitions t, et l’exercice sa base b
+   (répétitions prévues au départ, si différentes) : les références peuvent être recalculées depuis l’historique (D3). */
+function runLog() { return R.se.items.map((it, i) => Object.assign(it.cool ? { cool: 1 } : it.warm ? { warm: 1 } : {}, { id: it.id, sets: R.log[i].map(x => x.d ? { d: x.d } : Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {}, typeof it.reps === "number" ? { t: it.reps } : {})) }, it.base && it.base !== it.reps ? { b: it.base } : {})).filter(x => x.sets.length); }
 
 /* ================= Fichiers : partager, télécharger, copier ================= */
 let FX = null;
@@ -849,9 +870,10 @@ function openIcs(events, title) {
 }
 
 /* ================= Sauvegarde : rappel ================= */
-const LS_BK = "fonte:backup", LS_BKS = "fonte:bksnooze";
-function lsNum(k) { try { return +(localStorage.getItem(k) || 0); } catch (e) { return 0; } }
-function markBackup() { try { localStorage.setItem(LS_BK, String(Date.now())); } catch (e) { } }
+/* Dates de sauvegarde et de report du rappel : propres à chaque profil (une sauvegarde contient un profil) */
+const LS_BK = "backup", LS_BKS = "bksnooze";
+function lsNum(k) { try { return +(localStorage.getItem(storeKey(k)) || 0); } catch (e) { return 0; } }
+function markBackup() { try { localStorage.setItem(storeKey(LS_BK), String(Date.now())); } catch (e) { } }
 function backupDue() {
   if (Sync.state === "live") return null;
   return backupDueAt(S.historique, lsNum(LS_BK), lsNum(LS_BKS), Date.now());
@@ -864,7 +886,7 @@ function shareBackup() {
   let f = null;
   try { f = backupFile(); } catch (e) { toast("Sauvegarde impossible ici : copie plutôt le code."); return; }
   let can = false; try { can = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch (e) { }
-  const done = msg => { markBackup(); try { localStorage.removeItem(LS_BKS); } catch (e) { } Sheet.closeAll(); render(); toast(msg); };
+  const done = msg => { markBackup(); try { localStorage.removeItem(storeKey(LS_BKS)); } catch (e) { } Sheet.closeAll(); render(); toast(msg); };
   if (can) { navigator.share({ files: [f], title: "Sauvegarde Fonte" }).then(() => done("Sauvegarde enregistrée"), () => { }); return; }
   try {
     const url = URL.createObjectURL(f), a = document.createElement("a");
@@ -895,17 +917,7 @@ function people() {
 }
 const isVisible = p => !S.hidden[p.key];
 const byTime = (a, b) => (a.heure || "99").localeCompare(b.heure || "99");
-function cleanEvents(arr) {
-  if (!Array.isArray(arr)) return [];
-  const out = [];
-  arr.slice(0, 600).forEach(e => {
-    if (!e || typeof e !== "object" || typeof e.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) return;
-    const ref = e.ref && typeof e.ref === "object" && (e.ref.k === "t" || e.ref.k === "p") && typeof e.ref.id === "string" ? Object.assign({ k: e.ref.k, id: e.ref.id.slice(0, 60) }, OBJECTIFS[e.ref.o] ? { o: e.ref.o } : {}, Number.isInteger(e.ref.j) && e.ref.j >= 0 && e.ref.j < 6 ? { j: e.ref.j } : {}) : null;
-    out.push({ id: String(e.id || rid()).slice(0, 40), date: e.date, heure: typeof e.heure === "string" && /^\d{2}:\d{2}$/.test(e.heure) ? e.heure : "",
-      titre: String(e.titre || "Séance").slice(0, 80), note: String(e.note || "").slice(0, 300), fait: !!e.fait, ref });
-  });
-  return out;
-}
+/* cleanEvents (agenda reçu d’une sauvegarde ou d’un autre appareil) : dans engine-user.js */
 
 /* ================= Synchronisation (db) ================= */
 const Sync = {
@@ -914,6 +926,8 @@ const Sync = {
   async init() {
     const c = window.claude;
     if (!c || typeof c.use !== "function") { this.set("local"); return; }
+    /* profils (3B) : seul le profil relié à ce compte se synchronise ; les autres restent sur l’appareil (rien ne se mélange) */
+    if (!isSyncOwner()) { this.set("local"); return; }
     let db = null, user = null;
     try { [db, user] = await Promise.all([c.use("db"), c.use("user")]); } catch (e) { db = null; }
     if (!db || !user) { this.set("local"); return; }
@@ -943,8 +957,9 @@ const Sync = {
     this.confirm(snap.metadata);
     if (snap.metadata && snap.metadata.hasPendingWrites) return;
     if (!snap.exists) { if (!snap.metadata.fromCache && hasPrivData()) this.queue("priv", 0); return; }
-    const r = snap.data() || {};
-    const ru = r.upd || 0;
+    const raw = snap.data() || {}, mg = migrate(raw); /* données reçues : passent par migrate ; format plus récent : ignorées */
+    if (mg.error) return;
+    const r = mg.data, ru = r.upd || 0;
     if (ru > (S.upd || 0)) { adoptPriv(r); saveLocal(); softRender(); }
     else if (ru < (S.upd || 0) && !snap.metadata.fromCache) this.queue("priv", 0);
   },
@@ -997,7 +1012,7 @@ const Sync = {
 function hasPrivData() { return S.mesSeances.length || S.historique.length || S.profile.sexe || S.profile.prenom || S.imports.length; }
 function privPayload() {
   let hist = S.historique.slice(0, 150);
-  let p = { v: 1, upd: S.upd || Date.now(), profile: S.profile, mesSeances: S.mesSeances.slice(0, 100), historique: hist, lastPerf: S.lastPerf, notes: S.notes, mesures: S.mesures.slice(-300), deload: S.deload, imports: S.imports.slice(0, 6), histDel: S.histDel, histClear: S.histClear || 0 };
+  let p = { v: SCHEMA_VERSION, upd: S.upd || Date.now(), profile: S.profile, mesSeances: S.mesSeances.slice(0, 100), historique: hist, lastPerf: S.lastPerf, refs: S.refs, legacyRefs: S.legacyRefs, legacySrc: S.legacySrc, notes: S.notes, mesures: S.mesures.slice(-300), deload: S.deload, imports: S.imports.slice(0, 6), histDel: S.histDel, histClear: S.histClear || 0 };
   while (JSON.stringify(p).length > 230000 && hist.length > 10) { hist = hist.slice(0, Math.floor(hist.length * 0.7)); p.historique = hist; }
   return p;
 }
@@ -1018,6 +1033,8 @@ function adoptPriv(r) {
     S.historique = trimHist(S.historique);
   }
   if (r.lastPerf && typeof r.lastPerf === "object") S.lastPerf = Object.assign({}, S.lastPerf, r.lastPerf);
+  if (isObj(r.refs)) S.refs = Object.assign({}, S.refs, r.refs);
+  if (isObj(r.legacyRefs) && !Object.keys(S.legacyRefs).length) { S.legacyRefs = r.legacyRefs; if (isObj(r.legacySrc)) S.legacySrc = r.legacySrc; }
   if (clr) Object.keys(S.lastPerf).forEach(id => { const lp = S.lastPerf[id]; const t = lp && (lp.ts || (typeof lp.d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(lp.d) ? fromISO(lp.d).getTime() : 0)); if (!t || t <= clr) delete S.lastPerf[id]; });
   if (isObj(r.notes)) S.notes = r.notes;
   if (Array.isArray(r.mesures)) S.mesures = r.mesures.filter(m => m && typeof m.date === "string");
@@ -1110,9 +1127,9 @@ const Cloud = {
     const fromCache = qs.metadata && qs.metadata.fromCache;
     if (!fromCache) this.err = "";
     this.set(fromCache ? (navigator.onLine === false ? "offline" : "connecting") : "live");
-    const partners = {}; let mine = null;
+    const partners = {}; let mine = null, owner = isSyncOwner();
     qs.docs.forEach(d => {
-      if (d.id === this.uid) { mine = d; return; }
+      if (d.id === this.uid && owner) { mine = d; return; } /* autre profil de cet appareil : l’agenda du profil relié apparaît comme celui d’un partenaire */
       const x = d.data() || {};
       partners[d.id] = { events: cleanEvents(x.events), prenom: typeof x.prenom === "string" ? x.prenom.slice(0, 40) : "", upd: x.upd || 0 };
     });
@@ -1120,16 +1137,16 @@ const Cloud = {
     if (mine && !(mine.metadata && mine.metadata.hasPendingWrites)) {
       const r = mine.data() || {};
       if ((r.upd || 0) > (S.agUpd || 0)) { S.agenda = cleanEvents(r.events); S.agUpd = r.upd; }
-    } else if (!mine && !fromCache) this.queue(0);
+    } else if (!mine && !fromCache && owner) this.queue(0);
     saveLocal(); softRender();
   },
   queue(delay) {
-    if (!this.cfg) return;
+    if (!this.cfg || !isSyncOwner()) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.push(), delay == null ? 800 : delay);
   },
   push() {
-    if (!this.col || !this.uid) return;
+    if (!this.col || !this.uid || !isSyncOwner()) return;
     const from = addDays(todayISO(), -120);
     this.col.doc(this.uid).set({ v: 1, upd: S.agUpd || Date.now(), prenom: (S.profile.prenom || "").slice(0, 40), events: S.agenda.filter(e => e.date >= from).slice(0, 500) }).catch(e => this.fail(e));
   },
@@ -1160,6 +1177,7 @@ function parseInvite(raw) {
   return null;
 }
 function cloudCard() {
+  if (!isSyncOwner() && Cloud.cfg) return `<div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Synchronisation automatique</div><p class="small muted">La synchro de l’agenda de cet appareil est reliée au profil ${esc(ownerName())}. Ce profil-ci voit son agenda et ceux des partenaires, mais ses propres séances restent sur ce téléphone. Pour régler la synchro, passe sur le profil ${esc(ownerName())}.</p></div>`;
   if (!Cloud.cfg) return `<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="h3">Synchronisation automatique</div><p class="small">Vos agendas se mettent à jour tout seuls, sans code à renvoyer. Il faut une base de données gratuite Firebase, à créer une seule fois avec ton compte Google (une dizaine de minutes). Ta copine, elle, n’a qu’à coller ton invitation.</p><div class="btn-row"><button class="btn btn-primary" data-a="cl-setup">Configurer</button><button class="btn" data-a="cl-join">J’ai une invitation</button></div></div>`;
   const st = { off: ["", "Synchro arrêtée"], connecting: ["warn", "Connexion…"], live: ["ok", "Synchronisé : les agendas se mettent à jour tout seuls"], offline: ["warn", "Hors ligne : tes changements partiront au retour du réseau"], error: ["warn", "Synchro en pause"] }[Cloud.state] || ["", ""];
   const names = Object.keys(S.partners).map(id => S.partners[id].prenom || "Sans prénom");
@@ -1256,6 +1274,7 @@ function viewAccueil() {
   let h = "";
   if (PWA && !INSTALLED && !UI.hideInstall) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;gap:12px;align-items:center"><svg aria-hidden="true" style="width:44px;height:44px;flex-shrink:0"><use href="#logo"/></svg><div class="row-main"><div class="h3">Installe Fonte</div><p class="small muted">Dans Safari, touche le bouton Partager (le carré avec une flèche), puis « Sur l’écran d’accueil ». Fonte s’ouvrira comme une appli, même sans réseau.</p></div></div><button class="btn" data-a="hide-install">J’ai compris</button></div></section>`;
   if (STORE_BLOCK && STORE_BLOCK.reason === "plus-recent") h += `<section><div class="card" id="store-block" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Mets Fonte à jour</div><p class="small muted">Les données de ce téléphone ont été enregistrées par une version plus récente de Fonte. Pour ne rien perdre, cette version ne les modifie pas et n’enregistre rien. Ferme l’appli et rouvre-la avec du réseau pour qu’elle se mette à jour.</p></div></section>`;
+  if (STORE.mode === "v1") h += `<section><div class="card" id="store-v1" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Fais une sauvegarde</div><p class="small muted">${STORE.note === "migration-verif" ? "La mise à jour de tes données vers le nouveau format n’a pas pu être vérifiée" : "La mémoire du téléphone est trop pleine pour mettre tes données au nouveau format"} : Fonte continue avec tes données actuelles, rien n’a été effacé. Fais une sauvegarde fichier (Profil › Sauvegarder / transférer) ; la mise à jour sera retentée au prochain lancement. En attendant, un seul profil est possible.</p><button class="btn btn-primary" data-a="bk-now">${icon("download")}Sauvegarder</button></div></section>`;
   const bk = backupDue();
   if (bk) h += `<section><div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="row-main"><div class="h3">Pense à sauvegarder</div><p class="small muted">${bk.last ? (bk.days ? "Ta dernière sauvegarde date de " + plural(bk.days, "jour") : "Depuis ta dernière sauvegarde") + (bk.n ? ", " + plural(bk.n, "séance") + " faite" + (bk.n > 1 ? "s" : "") + " depuis" : "") + "." : "Tu n’as encore jamais sauvegardé tes données."} Touche « Sauvegarder », puis « Enregistrer dans Fichiers » et choisis <b>iCloud Drive</b> : ton historique te suivra sur ton prochain iPhone.</p></div><div class="btn-row"><button class="btn btn-primary" data-a="bk-now">${icon("download")}Sauvegarder</button><button class="btn" data-a="bk-later">Me le rappeler dans 7 jours</button></div></div></section>`;
   const run = loadRun();
@@ -1567,10 +1586,30 @@ function adaptBullets(p) {
   return b;
 }
 function adaptCard() { return `<details class="card fold" id="adapt"><summary>${icon("sparkle")}<span class="row-main"><b>Ce que ton profil change</b><span class="small muted">Séries, pauses, poids, calories…</span></span>${icon("chev", "ic chev")}</summary><div class="fold-body"><ul class="bullets">${adaptBullets(S.profile).map(x => `<li>${esc(x)}</li>`).join("")}</ul></div></details>`; }
+/* ================= Profils (U4, 3B) =================
+   Chaque profil a ses propres données (programme, historique, records, mesures, notes, séance en cours, copie de sécurité).
+   Changer de profil relance l’appli sur l’autre profil : rien de l’un ne peut rester en mémoire dans l’autre. Interdit pendant une séance. */
+const profName = x => (x && x.prenom) || "Profil sans prénom";
+function ownerName() { const o = STORE.P && STORE.P.list.find(x => x.id === STORE.P.owner); return profName(o); }
+const profInit = x => esc(((x && x.prenom) || "?").charAt(0).toUpperCase());
+const profAv = (x, on) => `<span class="pf-av${on ? " on" : ""}" aria-hidden="true">${profInit(x)}</span>`;
+function runBusy() { return !!(R || loadRun()); }
+const RUN_BUSY = "Une séance est en cours dans ce profil : termine-la (ou supprime-la) avant de changer de profil.";
+function profilesCard() {
+  if (STORE.mode !== "v2") return "";
+  const list = profileList(), cur = list.find(x => x.active) || { prenom: S.profile.prenom };
+  cur.prenom = S.profile.prenom || cur.prenom;
+  return `<section><div class="card" id="pf-card" style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;gap:12px;align-items:center">${profAv(cur, true)}<div class="row-main"><div class="h3">${esc(profName(cur))}</div><p class="small muted">${list.length > 1 ? plural(list.length, "profil") + " sur cet appareil" : "Un seul profil sur cet appareil"}</p></div></div><div class="btn-row">${list.length > 1 ? `<button class="btn" data-a="prof-open">Changer de profil</button>` : ""}<button class="btn" data-a="prof-add">${icon("plus")}Ajouter un profil</button></div></div></section>`;
+}
+function openProfiles() {
+  const list = profileList();
+  const body = `<p class="small muted">Chaque profil a son programme, ses séances, son historique, ses records et ses réglages. Les profils sont séparés mais pas protégés par un code : toute personne qui utilise cet appareil peut les ouvrir.</p><div class="list">${list.map(x => `<button class="row" data-a="prof-pick" data-id="${esc(x.id)}" aria-current="${x.active}">${profAv(x, x.active)}<div class="row-main"><div class="row-title">${esc(profName(x.active ? { prenom: S.profile.prenom || x.prenom } : x))}</div><div class="row-sub">${x.active ? "Profil ouvert" : "Ouvrir ce profil"}</div></div>${x.active ? icon("check", "ic chev") : icon("chev", "ic chev")}</button>`).join("")}<button class="row" data-a="prof-add"><div class="row-main"><div class="row-title" style="color:var(--accent)">Ajouter un profil</div><div class="row-sub">Nouveau profil vide, avec le questionnaire de départ</div></div>${icon("plus", "ic chev")}</button></div>`;
+  Sheet.open({ key: "profs", title: "Profils", body });
+}
 function viewProfil() {
   const p = S.profile;
   const seg = (f, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button data-a="pf-set" data-f="${f}" data-v="${v}" aria-pressed="${String(p[f]) === String(v)}">${l}</button>`).join("")}</div>`;
-  return `<section><div class="form">
+  return `${profilesCard()}<section><div class="form">
     <div class="field"><label for="pf-prenom">Prénom</label><input class="inp" id="pf-prenom" data-pf="prenom" maxlength="30" autocomplete="given-name" value="${esc(p.prenom)}" placeholder="Ton prénom"></div>
     <div class="field"><div class="lbl">Je suis</div>${seg("sexe", [["H", "Un homme"], ["F", "Une femme"]])}</div>
     <div class="grid3"><div class="field"><label for="pf-age">Âge</label><input class="inp tnum" id="pf-age" data-pf="age" inputmode="numeric" value="${p.age || ""}" placeholder="ans"></div><div class="field"><label for="pf-taille">Taille</label><input class="inp tnum" id="pf-taille" data-pf="taille" inputmode="numeric" value="${p.taille || ""}" placeholder="cm"></div><div class="field"><label for="pf-poids">Poids</label><input class="inp tnum" id="pf-poids" data-pf="poids" inputmode="decimal" value="${p.poids ? fmtNum(p.poids) : ""}" placeholder="kg"></div></div>
@@ -1662,18 +1701,18 @@ function pkFoot() { const b = $("#pk-ok"); if (b) b.textContent = PK.sel.length 
 /* ================= Lecteur de séance ================= */
 let R = null;
 const RING_C = 2 * Math.PI * 54;
-function saveRun() { try { if (R) localStorage.setItem(LS_RUN, JSON.stringify(R)); } catch (e) { } }
-function clearRun() { try { localStorage.removeItem(LS_RUN); } catch (e) { } }
+function saveRun() { try { if (R) localStorage.setItem(storeKey("run"), JSON.stringify(R)); } catch (e) { } }
+function clearRun() { try { localStorage.removeItem(storeKey("run")); } catch (e) { } }
 /* Séance commencée il y a plus de 12 h : plus proposée à la reprise, mais jamais ignorée en silence (D6) :
    l’accueil propose de l’enregistrer à sa date ou de la supprimer. r.stale l’indique (non enregistré dans fonte:run). */
 const STALE_MS = 12 * 3600e3;
 function loadRun() {
-  try { const r = JSON.parse(localStorage.getItem(LS_RUN) || "null"); if (r && r.se && r.steps && Array.isArray(r.log)) { r.stale = !(Date.now() - (r.start || 0) < STALE_MS); return r; } } catch (e) { }
+  try { const r = JSON.parse(localStorage.getItem(storeKey("run")) || "null"); if (r && r.se && r.steps && Array.isArray(r.log)) { r.stale = !(Date.now() - (r.start || 0) < STALE_MS); return r; } } catch (e) { }
   return null;
 }
 const runSets = r => (r && Array.isArray(r.log) ? r.log.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0) : 0);
 /* « Ne pas enregistrer » (D2) : la séance supprimée est gardée 10 s dans fonte:run-trash pour « Annuler », même après rechargement */
-const LS_TRASH = "fonte:run-trash", UNDO_MS = 10e3;
+const UNDO_MS = 10e3; /* séance supprimée gardée dans fonte:p:<profil>:run-trash */
 let undoT = null;
 function showUndo(msg, action, until) {
   const b = $("#undo"); if (!b) return;
@@ -1685,17 +1724,17 @@ function hideUndo() { const b = $("#undo"); if (b) b.hidden = true; clearTimeout
 function trashRun(r) {
   const run = clone(r); delete run.stale;
   const at = Date.now();
-  try { localStorage.setItem(LS_TRASH, JSON.stringify({ at, run })); } catch (e) { }
+  try { localStorage.setItem(storeKey("run-trash"), JSON.stringify({ at, run })); } catch (e) { }
   TRASH = { at, run };
   showUndo("Séance supprimée", "run-undo-discard", at + UNDO_MS);
 }
 let TRASH = null;
 function readTrash() {
   let t = TRASH;
-  if (!t) try { t = JSON.parse(localStorage.getItem(LS_TRASH) || "null"); } catch (e) { t = null; }
+  if (!t) try { t = JSON.parse(localStorage.getItem(storeKey("run-trash")) || "null"); } catch (e) { t = null; }
   return t && t.run && Date.now() - (t.at || 0) < UNDO_MS ? t : null;
 }
-function clearTrash() { TRASH = null; try { localStorage.removeItem(LS_TRASH); } catch (e) { } }
+function clearTrash() { TRASH = null; try { localStorage.removeItem(storeKey("run-trash")); } catch (e) { } }
 let AC = null;
 function unlockAudio() { try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) { AC = null; } }
 function beep(f, d, v) {
@@ -1871,16 +1910,14 @@ function saveRunHistory(at) {
   const log = runLog(), pr = findRecords(S.historique.filter(h => (h.ts || 0) < now), log).map(r => ({ id: r.id, k: r.k, v: r.v }));
   const ref = R.tplId ? { k: "t", id: R.tplId } : (R.srcId ? { k: "p", id: R.srcId } : null);
   const today = toISO(new Date(now));
-  S.historique.unshift({ id: rid(), date: today, ts: now, nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log, pr: pr.length ? pr : undefined, pj: R.pj != null ? R.pj : undefined, pk: R.pk || undefined, dl: se.dl ? 1 : undefined });
+  const entry = { id: rid(), date: today, ts: now, upd: Date.now(), nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log, pr: pr.length ? pr : undefined, pj: R.pj != null ? R.pj : undefined, pk: R.pk || undefined, dl: se.dl ? 1 : undefined };
+  S.historique.unshift(entry);
   UI.progSkip = 0;
   if (at) S.historique.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   S.historique = trimHist(S.historique);
-  se.items.forEach((it, i) => {
-    const reps = R.log[i].filter(x => x.r != null); if (!reps.length || se.dl || it.warm || it.cool) return; /* semaine allégée : les charges de référence ne baissent pas */
-    if (S.lastPerf[it.id] && (S.lastPerf[it.id].ts || 0) > now) return; /* séance ancienne : ne remplace pas une référence plus récente */
-    const sets = reps.map(x => Object.assign({ r: x.r, kg: x.kg || 0 }, x.rir != null ? { rir: x.rir } : {}));
-    S.lastPerf[it.id] = { d: today, ts: now, sets, target: it.reps, base: it.base || it.reps, feel: R.feel || 0, fails: failCount(S.lastPerf[it.id], sets, it.reps) };
-  });
+  /* références (dernière performance et zone de répétitions) : refStep, la même règle que le recalcul D3 (engine-training.js) ;
+     semaine allégée : les charges de référence ne baissent pas ; séance ancienne : ne remplace pas une référence plus récente */
+  refStep(S.lastPerf, S.refs, entry);
   let ag = false;
   const ev = R.eventId ? S.agenda.find(e => e.id === R.eventId) : (ref ? S.agenda.find(e => e.date === today && !e.fait && e.ref && e.ref.k === ref.k && e.ref.id === ref.id) : null);
   if (ev) { ev.fait = true; ag = true; }
@@ -1946,8 +1983,7 @@ setInterval(tick, 250);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { if (R && !R.done && !$("#runner").hidden) wakeLock(); tick(); } });
 
 /* ================= Code d'agenda ================= */
-const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
+/* b64e, b64d : dans engine-user.js */
 function exportCode() {
   const from = addDays(todayISO(), -14), to = addDays(todayISO(), 120);
   const ev = S.agenda.filter(e => e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 200)
@@ -1968,60 +2004,42 @@ function importCode(raw) {
 }
 
 /* ===== Copie de sécurité avant une opération qui remplace ou efface les données (D5) =====
-   fonte:undo = contenu exact de fonte:v1 juste avant l’opération ; fonte:undo-info = { at, reason }. Une seule copie (la plus récente).
-   Si la copie ne tient pas dans la mémoire du téléphone, l’opération est refusée (rien n’est modifié). */
-const LS_UNDO = "fonte:undo", LS_UNDO_INFO = "fonte:undo-info";
+   :undo = contenu exact de l’état enregistré du profil actif juste avant l’opération ; :undo-info = { at, reason }. Une seule copie par profil.
+   Si la copie ne tient pas dans la mémoire du téléphone, l’opération est refusée (rien n’est modifié). Mécanisme : storeSnapshot (engine-user.js). */
 const UNDO_REASONS = { restore: "avant la restauration", "hist-clear": "avant l’effacement de l’historique", "reset-all": "avant la réinitialisation", undo: "avant le retour en arrière" };
 const SNAP_FAIL = "Pas assez de place sur ce téléphone pour garder une copie de sécurité : rien n’a été modifié. Fais d’abord une sauvegarde fichier (Profil › Sauvegarder / transférer).";
 function snapshotLocal(reason) {
   if (!saveLocal()) return false;
-  let raw = null; try { raw = localStorage.getItem(LS); } catch (e) { return false; }
-  if (raw == null) raw = JSON.stringify(S);
-  try { localStorage.setItem(LS_UNDO, raw); localStorage.setItem(LS_UNDO_INFO, JSON.stringify({ at: Date.now(), reason })); return true; }
-  catch (e) { try { localStorage.removeItem(LS_UNDO_INFO); } catch (e2) { } return false; }
+  return storeSnapshot(reason, Date.now(), JSON.stringify(S));
 }
 function undoInfo() {
-  try { const i = JSON.parse(localStorage.getItem(LS_UNDO_INFO) || "null"); if (i && i.at && localStorage.getItem(LS_UNDO) != null) return i; } catch (e) { }
+  try { const i = JSON.parse(localStorage.getItem(storeKey("undo-info")) || "null"); if (i && i.at && localStorage.getItem(storeKey("undo")) != null) return i; } catch (e) { }
   return null;
 }
-/* Revenir à l’état d’avant : l’état actuel devient à son tour la copie de sécurité (on peut revenir encore) */
+/* Revenir à l’état d’avant : l’état actuel devient à son tour la copie de sécurité (on peut revenir encore).
+   La copie peut être au format v1 (faite avant la mise à jour 3B) : loadState la fait passer par migrate. */
 function undoRestore() {
-  let raw = null; try { raw = localStorage.getItem(LS_UNDO); } catch (e) { }
-  let o = null; try { o = JSON.parse(raw); } catch (e) { o = null; }
-  if (!o || typeof o !== "object") return "Aucune copie de sécurité utilisable.";
+  let raw = null; try { raw = localStorage.getItem(storeKey("undo")); } catch (e) { }
+  const r = readState(raw);
+  if (!r.state) return r.error === "plus-recent" ? "Cette copie vient d’une version plus récente de Fonte : mets d’abord l’appli à jour." : "Aucune copie de sécurité utilisable.";
   if (!snapshotLocal("undo")) return SNAP_FAIL;
   /* la copie vient d’être remplacée par l’état actuel : on remet l’ancienne */
-  try { localStorage.setItem(LS, raw); } catch (e) { return SNAP_FAIL; }
+  try { localStorage.setItem(storeKey(), raw); } catch (e) { return SNAP_FAIL; }
   S = loadState();
   commit("pa");
   return null;
 }
-function dataPayload() { return { v: 1, app: "fonte", at: Date.now(), profile: S.profile, mesSeances: S.mesSeances, historique: S.historique, lastPerf: S.lastPerf, notes: S.notes, mesures: S.mesures, deload: S.deload, agenda: S.agenda, imports: S.imports }; }
+function dataPayload() { return backupPayload(S, Date.now()); }
 function dataCode() { return "FONTEDATA1." + b64e(JSON.stringify(dataPayload())); }
+/* Restauration d’un fichier ou d’un code (toutes versions : decodeBackup passe par migrate), dans le profil actif */
 function restoreData(raw) {
-  raw = String(raw || "").trim();
-  let o = null;
-  try {
-    const m = raw.replace(/\s/g, "").match(/FONTEDATA1\.([A-Za-z0-9_-]+)/);
-    o = m ? JSON.parse(b64d(m[1])) : JSON.parse(raw);
-  } catch (e) { return "Ce fichier ou ce code n’est pas une sauvegarde Fonte complète."; }
-  if (!o || typeof o !== "object" || !o.profile) return "Ce fichier ou ce code n’est pas une sauvegarde Fonte.";
-  const mg = migrate(o); /* D8 : toute restauration passe par migrate */
-  if (mg.error === "plus-recent") return "Cette sauvegarde vient d’une version plus récente de Fonte : mets d’abord l’appli à jour, puis réessaie. Rien n’a été modifié.";
-  if (mg.error) return "Ce fichier ou ce code n’est pas une sauvegarde Fonte.";
-  o = mg.data;
+  const d = decodeBackup(raw);
+  if (d.error === "illisible") return "Ce fichier ou ce code n’est pas une sauvegarde Fonte complète.";
+  if (d.error === "plus-recent") return "Cette sauvegarde vient d’une version plus récente de Fonte : mets d’abord l’appli à jour, puis réessaie. Rien n’a été modifié.";
+  if (d.error) return "Ce fichier ou ce code n’est pas une sauvegarde Fonte.";
   if (STORE_BLOCK && STORE_BLOCK.reason === "plus-recent") return "Les données de ce téléphone viennent d’une version plus récente de Fonte : mets d’abord l’appli à jour. Rien n’a été modifié.";
   if (!snapshotLocal("restore")) return SNAP_FAIL;
-  S.profile = normProfile(o.profile);
-  S.mesSeances = Array.isArray(o.mesSeances) ? o.mesSeances.filter(m => m && Array.isArray(m.items)) : [];
-  S.historique = Array.isArray(o.historique) ? trimHist(o.historique.filter(h => h && h.id && h.date).sort((a, b) => (b.ts || 0) - (a.ts || 0))) : [];
-  S.notes = isObj(o.notes) ? o.notes : {};
-  S.mesures = Array.isArray(o.mesures) ? o.mesures.filter(m => m && typeof m.date === "string") : [];
-  S.deload = isObj(o.deload) ? o.deload : {};
-  S.histClear = 0; S.histDel = {};
-  S.lastPerf = o.lastPerf && typeof o.lastPerf === "object" ? o.lastPerf : {};
-  S.agenda = cleanEvents(o.agenda);
-  S.imports = Array.isArray(o.imports) ? o.imports.filter(i => i && i.id).map(i => Object.assign(i, { events: cleanEvents(i.events) })) : [];
+  applyBackup(S, d.data);
   commit("pa");
   return null;
 }
@@ -2167,7 +2185,7 @@ const A = {
     const t = readTrash(); hideUndo();
     if (!t) { toast("Trop tard : la séance a été supprimée."); return; }
     if (R) { toast("Termine d’abord la séance en cours."); return; }
-    try { localStorage.setItem(LS_RUN, JSON.stringify(t.run)); } catch (e) { toast("Impossible de récupérer la séance."); return; }
+    try { localStorage.setItem(storeKey("run"), JSON.stringify(t.run)); } catch (e) { toast("Impossible de récupérer la séance."); return; }
     clearTrash(); toast("Séance récupérée");
     A["run-resume"]();
   },
@@ -2214,7 +2232,7 @@ const A = {
     const items = (x.log || []).filter(l => EX_BY_ID[l.id] && !l.cool && !l.warm).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.n || l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
     openEditor("prep", applySuggestions({ nom: x.nom, mode: "series", kind: x.kind || "muscu", items }), {});
   },
-  "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
+  "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; const gone = S.historique.find(h => h.id === id); S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); if (gone) afterHistDelete(gone); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
   "hist-all": () => Sheet.open({ key: "hall", title: "Historique", tall: true, body: `<div class="list">${S.historique.map(histRow).join("")}</div>` }),
   "prog-plan": () => { UI.seg = "prog"; saveUI(); goTab("seances"); },
   "plan-day": el => {
@@ -2350,13 +2368,13 @@ const A = {
   "cl-activate": () => {
     const cfg = parseFbConfig(($("#fb-cfg") || {}).value);
     if (!cfg) { const p = $("#fb-err"); p.textContent = "Je ne trouve pas apiKey, projectId et appId : copie tout le bloc firebaseConfig."; p.hidden = false; return; }
-    Cloud.activate(cfg, randomId(20)); Sheet.closeAll(); render(); toast("Synchro activée : envoie l’invitation à ta copine");
+    profileSetOwner(STORE.pid); Cloud.activate(cfg, randomId(20)); Sheet.closeAll(); render(); toast("Synchro activée : envoie l’invitation à ta copine");
   },
   "cl-join": () => Sheet.open({ key: "clj", title: "Rejoindre un agenda", body: `<p class="muted">Colle le message d’invitation reçu (il contient FONTESYNC1.). Ensuite, vos agendas se mettront à jour tout seuls.</p><textarea class="code-box" id="cl-code" aria-label="Invitation"></textarea><p class="small" id="cl-err" style="color:var(--red)" hidden></p>`, foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="cl-join-ok">Rejoindre</button>` }),
   "cl-join-ok": () => {
     const o = parseInvite(($("#cl-code") || {}).value);
     if (!o) { const p = $("#cl-err"); p.textContent = "Cette invitation n’est pas reconnue. Colle le message en entier."; p.hidden = false; return; }
-    Cloud.activate(Object.assign({}, o.c, { authDomain: o.c.authDomain || o.c.projectId + ".firebaseapp.com" }), o.s); Sheet.closeAll(); render(); toast("Espace rejoint");
+    profileSetOwner(STORE.pid); Cloud.activate(Object.assign({}, o.c, { authDomain: o.c.authDomain || o.c.projectId + ".firebaseapp.com" }), o.s); Sheet.closeAll(); render(); toast("Espace rejoint");
   },
   "cl-invite": () => {
     const code = Cloud.invite();
@@ -2387,7 +2405,7 @@ const A = {
   "mes-del": el => { if (!arm(el, "Supprimer ?")) return; S.mesures = S.mesures.filter(x => x.id !== el.dataset.id); commit("p"); const b = Sheet.body(); if (b) { if (S.mesures.length) b.innerHTML = mesSheetBody(); else Sheet.close(); } render(); },
   "ch-m": el => { if (!CH) return; CH.mode = el.dataset.v; if (CH.ptsBy) CH.sel = Math.min(CH.ptsBy[CH.mode].length, 30) - 1; el.parentNode.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === el)); $("#ch").innerHTML = chartInner(); },
   "ch-pt": el => { if (!CH) return; CH.sel = +el.dataset.i; $("#ch").innerHTML = chartInner(); },
-  "bk-later": () => { try { localStorage.setItem(LS_BKS, String(Date.now() + BK_SNOOZE_DAYS * 864e5)); } catch (e) { } render(); toast("Rappel dans 7 jours"); },
+  "bk-later": () => { try { localStorage.setItem(storeKey(LS_BKS), String(Date.now() + BK_SNOOZE_DAYS * 864e5)); } catch (e) { } render(); toast("Rappel dans 7 jours"); },
   "bk-now": () => shareBackup(),
   "csv-export": () => {
     if (!S.historique.length) { toast("Pas encore de séance dans l’historique."); return; }
@@ -2407,6 +2425,27 @@ const A = {
   },
   "fx-copy": () => { if (!FX) return; const t = FX.make(); try { navigator.clipboard.writeText(t).then(() => toast("Contenu copié"), () => toast("Copie impossible ici")); } catch (e) { toast("Copie impossible ici"); } },
   "app-reload": () => { saveRun(); location.reload(); },
+  /* profils (U4) */
+  "prof-open": () => openProfiles(),
+  "prof-pick": el => {
+    const id = el.dataset.id; if (id === STORE.pid) { Sheet.closeAll(); return; }
+    if (runBusy()) { toast(RUN_BUSY); return; }
+    saveLocal();
+    if (!profileSwitch(id)) { toast("Impossible de changer de profil : mémoire du téléphone pleine."); return; }
+    location.reload();
+  },
+  "prof-add": () => {
+    if (runBusy()) { toast(RUN_BUSY); return; }
+    Sheet.closeAll();
+    Sheet.open({ key: "profadd", title: "Ajouter un profil", body: `<p class="muted">Un nouveau profil vide est créé sur cet appareil, avec son propre programme, son historique et ses réglages. Le questionnaire de départ s’ouvre aussitôt. Tes données restent dans ton profil, tu peux y revenir à tout moment (Profil › Changer de profil).</p>`, foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="prof-add-ok">Créer le profil</button>` });
+  },
+  "prof-add-ok": () => {
+    if (runBusy()) { toast(RUN_BUSY); return; }
+    saveLocal();
+    const id = profileAdd(Date.now());
+    if (!id || !profileSwitch(id)) { toast("Pas assez de place sur ce téléphone pour un nouveau profil. Fais d’abord une sauvegarde fichier."); return; }
+    location.reload();
+  },
   "hide-install": () => { UI.hideInstall = true; try { localStorage.setItem("fonte:noinstall", "1"); } catch (e) { } render(); },
   "share-send": () => {
     const code = exportCode();
@@ -2444,7 +2483,7 @@ const A = {
   },
   "pf-obj-main": el => { const k = el.dataset.v, a = S.profile.objectifs.filter(x => x !== k); a.unshift(k); S.profile.objectifs = a; S.profile.objectif = k; commit("p"); syncPlan(); render(); toast("Objectif principal : " + OBJECTIFS[k].n); },
   "pf-toggle": el => { const f = el.dataset.f; S.profile[f] = !S.profile[f]; commit("p"); render(); },
-  "hist-clear": el => { if (!arm(el)) return; if (!snapshotLocal("hist-clear")) { toast(SNAP_FAIL); return; } S.historique = []; S.lastPerf = {}; S.histDel = {}; S.histClear = Date.now(); commit("p"); render(); toast("Historique effacé"); },
+  "hist-clear": el => { if (!arm(el)) return; if (!snapshotLocal("hist-clear")) { toast(SNAP_FAIL); return; } S.historique = []; S.lastPerf = {}; S.refs = {}; S.legacyRefs = {}; S.legacySrc = {}; S.histDel = {}; S.histClear = Date.now(); commit("p"); render(); toast("Historique effacé"); },
   "undo-restore": el => {
     if (!arm(el, "Revenir à l’état d’avant ?")) return;
     const err = undoRestore();
@@ -2521,6 +2560,9 @@ if (MISSED) setTimeout(() => toast(MISSED > 1 ? MISSED + " séances manquées : 
 else if (BODY_UP) setTimeout(() => toast("Ton poids ne baisse plus depuis 3 semaines : 5 min de cardio en plus dans tes séances cardio"), 800);
 render();
 { const t = readTrash(); if (t) showUndo("Séance supprimée", "run-undo-discard", t.at + UNDO_MS); else clearTrash(); }
+if (STORE.note === "resume") setTimeout(() => toast("Mise à jour des données : la mémoire était presque pleine, le détail des séances les plus anciennes a été résumé (aucune séance perdue)."), 900);
+if (STORE.note === "fusion") setTimeout(() => toast("Des séances enregistrées par une ancienne version de Fonte ont été ajoutées à ton profil."), 900);
+if (STORE.note === "fusion-plein") setTimeout(() => toast("Mémoire du téléphone pleine : fais une sauvegarde depuis Profil."), 900);
 if (STORE_BLOCK && STORE_BLOCK.reason === "illisible") setTimeout(() => toast("Les données enregistrées étaient illisibles : une copie a été gardée sur ce téléphone, rien n’a été effacé."), 900);
 if (STORE_BLOCK && STORE_BLOCK.reason === "plus-recent") { /* rien à faire : la carte « Mets Fonte à jour » est affichée */ }
 else if (onbNeeded() && !loadRun()) openOnb();

@@ -615,66 +615,341 @@ test("programmes identiques à la photographie (objectifs × niveau × jours × 
   console.log("        (" + keys.length + " programmes, " + ref.seances.length + " séances différentes)");
 });
 
-console.log("Format des données et migration (D8)");
-/* localStorage simulé : un moteur chargé par jeu de données */
-function fakeStorage(init) {
+console.log("Format des données v2 et migration v1 → v2 (D8, 3B)");
+/* localStorage simulé : un moteur chargé par jeu de données. limit = taille maximale (caractères des clés + valeurs) : simule la mémoire pleine. */
+function fakeStorage(init, opts) {
+  opts = opts || {};
   const m = new Map(Object.entries(init || {}));
-  return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: k => { m.delete(k); }, _m: m };
+  const size = () => { let n = 0; m.forEach((v, k) => { n += k.length + v.length; }); return n; };
+  return {
+    getItem: k => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => {
+      v = String(v);
+      if (opts.limit != null) { const old = m.has(k) ? k.length + m.get(k).length : 0; if (size() - old + k.length + v.length > opts.limit) { const e = new Error("plein"); e.name = "QuotaExceededError"; throw e; } }
+      if (opts.refuse && opts.refuse(k, v)) { const e = new Error("plein"); e.name = "QuotaExceededError"; throw e; }
+      m.set(k, opts.alter ? opts.alter(k, v) : v);
+    },
+    removeItem: k => { m.delete(k); }, _m: m, _size: size
+  };
 }
 const fixture = n => JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", n), "utf8"));
-function loadWith(storage) { const ls = fakeStorage(storage), U = require("./charger").charger({ localStorage: ls }); return { U, ls, st: U.loadState() }; }
-test("SCHEMA_VERSION = 1 ; migrate ne transforme pas une donnée v1 et ne modifie jamais l'objet reçu", () => {
-  assert.strictEqual(G.SCHEMA_VERSION, 1);
-  const o = { v: 1, profile: { prenom: "Zoé" }, historique: [{ id: "a", date: "2026-01-01" }] }, copy = JSON.stringify(o);
+const NOW = 1794000000000;
+function boot(storage, opts) { const ls = storage && storage._m ? storage : fakeStorage(storage, opts), U = require("./charger").charger({ localStorage: ls }); return { U, ls, st: U.storeOpen(ls, NOW) }; }
+const V1_FIX = ["v1-ancien-sans-objectifs.json", "v1-usage-typique.json", "v1-gros-historique.json", "v1-seance-en-cours.json"];
+const jsonOf = o => JSON.parse(JSON.stringify(o));
+/* Comparaison champ à champ d’un état migré avec sa source v1 : aucune séance, mesure, note, référence perdue */
+function checkMigrated(st, raw, f) {
+  assert.strictEqual(st.v, 2, f + " : v");
+  assert.strictEqual(st.historique.length, raw.historique.length, f + " : nombre de séances");
+  st.historique.forEach((h, i) => {
+    const src = raw.historique[i], c = Object.assign({}, h); delete c.upd;
+    same(c, src, f + " : séance " + i + " identique");
+    assert.strictEqual(h.upd, src.ts || 0, f + " : upd de la séance " + i);
+  });
+  ["mesures", "mesSeances", "agenda", "imports"].forEach(k => same(st[k], raw[k] || [], f + " : " + k));
+  ["notes", "deload", "lastPerf"].forEach(k => same(st[k], raw[k] || {}, f + " : " + k));
+  same(st.legacyRefs, raw.lastPerf || {}, f + " : legacyRefs = copie intacte de lastPerf");
+  Object.keys(raw.lastPerf || {}).forEach(id => {
+    const lp = raw.lastPerf[id], z = st.refs[id];
+    assert.ok(z, f + " : refs." + id);
+    const zone = Object.keys(z); assert.strictEqual(zone.length, 1, f + " : une zone pour " + id);
+    same(z[zone[0]], lp, f + " : refs." + id + " = lastPerf");
+    const reps = lp.target || Math.max.apply(null, lp.sets.map(s => s.r || 0));
+    assert.strictEqual(zone[0], reps <= 6 ? "force" : reps <= 12 ? "muscle" : "endurance", f + " : zone de " + id);
+    const sid = st.legacySrc[id];
+    if (sid) { const h = st.historique.find(x => x.id === sid); assert.ok(h && h.log.some(l => l.id === id), f + " : séance d’origine de " + id); if (lp.ts) assert.strictEqual(h.ts, lp.ts); }
+  });
+  Object.keys(raw.profile).forEach(k => same(st.profile[k], raw.profile[k], f + " : profil." + k));
+}
+test("SCHEMA_VERSION = 2 ; migrate v1 → v2 ajoute refs, legacyRefs, legacySrc, upd sans rien retirer ni modifier l'objet reçu", () => {
+  assert.strictEqual(G.SCHEMA_VERSION, 2);
+  const lp = { d: "2026-01-01", ts: 5, sets: [{ r: 5, kg: 100 }], target: 5, base: 5, feel: 2, fails: 0 };
+  const o = { v: 1, profile: { prenom: "Zoé" }, historique: [{ id: "a", date: "2026-01-01", ts: 5, log: [{ id: "squat-barre", sets: [{ r: 5, kg: 100 }] }] }], lastPerf: { "squat-barre": lp } }, copy = JSON.stringify(o);
   const m = G.migrate(o);
-  assert.strictEqual(m.from, 1); assert.strictEqual(m.error, undefined);
-  assert.strictEqual(JSON.stringify(m.data), copy); assert.strictEqual(JSON.stringify(o), copy);
+  assert.strictEqual(m.from, 1); assert.strictEqual(m.error, undefined); assert.strictEqual(JSON.stringify(o), copy, "objet reçu intact");
+  assert.strictEqual(m.data.v, 2); assert.strictEqual(m.data.historique[0].upd, 5);
+  same(m.data.legacyRefs, o.lastPerf); same(m.data.refs, { "squat-barre": { force: lp } }); same(m.data.legacySrc, { "squat-barre": "a" });
   assert.strictEqual(G.migrate({ profile: {} }).from, 1, "sans v : premières versions = v1");
-  assert.strictEqual(G.migrate(null).error, "illisible");
-  assert.strictEqual(G.migrate([1, 2]).error, "illisible");
+  const v2 = { v: 2, profile: {}, historique: [] }; assert.strictEqual(G.migrate(v2).data, v2, "v2 : rien à transformer");
+  assert.strictEqual(G.migrate(null).error, "illisible"); assert.strictEqual(G.migrate([1, 2]).error, "illisible");
+  same(G.REF_ZONES, ["force", "muscle", "endurance"]);
+  assert.strictEqual(G.zoneOf(6), "force"); assert.strictEqual(G.zoneOf(7), "muscle"); assert.strictEqual(G.zoneOf(12), "muscle"); assert.strictEqual(G.zoneOf(13), "endurance");
 });
-test("migrate : un format plus récent que l'appli est refusé", () => {
-  const m = G.migrate({ v: 2, profiles: [] });
-  assert.strictEqual(m.error, "plus-recent"); assert.strictEqual(m.data, null); assert.strictEqual(m.from, 2);
+test("migrate : un format plus récent que l'appli (v3) est refusé", () => {
+  const m = G.migrate({ v: 3, profiles: [] });
+  assert.strictEqual(m.error, "plus-recent"); assert.strictEqual(m.data, null); assert.strictEqual(m.from, 3);
 });
-test("loadState : chaque jeu de données v1 de référence se charge sans perte (séances, mesures, notes, références, profil)", () => {
-  ["v1-ancien-sans-objectifs.json", "v1-usage-typique.json", "v1-gros-historique.json", "v1-seance-en-cours.json"].forEach(f => {
-    const storage = fixture(f).storage, raw = JSON.parse(storage["fonte:v1"]), { st, U, ls } = loadWith(storage);
-    assert.strictEqual(U.STORE_BLOCK, null, f);
-    assert.strictEqual(st.historique.length, raw.historique.length, f + " : séances");
-    same(st.historique, raw.historique, f + " : historique identique");
-    same(st.lastPerf, raw.lastPerf || {}, f + " : références");
-    same(st.notes, raw.notes || {}, f + " : notes");
-    same(st.mesures, raw.mesures || [], f + " : mesures");
-    same(st.mesSeances, raw.mesSeances || [], f + " : séances perso");
-    Object.keys(raw.profile).forEach(k => same(st.profile[k], raw.profile[k], f + " : profil." + k));
-    assert.ok(Array.isArray(st.profile.objectifs) && st.profile.objectifs[0] === st.profile.objectif, f + " : objectifs");
-    assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"], f + " : rien d'écrit pendant la lecture");
+test("migration au démarrage, chaque jeu de données v1 : profil 1 créé, comparaison champ à champ, fonte:v1 conservé tel quel", () => {
+  V1_FIX.forEach(f => {
+    const storage = fixture(f).storage, raw = JSON.parse(storage["fonte:v1"]), { st, U, ls } = boot(storage);
+    assert.strictEqual(U.STORE_BLOCK, null, f); assert.strictEqual(U.STORE.mode, "v2", f); assert.strictEqual(U.STORE.note, "migre", f);
+    const P = JSON.parse(ls.getItem("fonte:profiles"));
+    assert.strictEqual(P.v, 2); assert.strictEqual(P.list.length, 1); assert.strictEqual(P.active, P.list[0].id); assert.strictEqual(P.owner, P.active);
+    assert.strictEqual(P.list[0].prenom, raw.profile.prenom || ""); assert.strictEqual(P.mig.pid, P.active); assert.strictEqual(P.mig.sig, U.sigOf(storage["fonte:v1"]));
+    assert.ok(/^p[a-z0-9]+$/.test(P.active), "identifiant de profil");
+    assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"], f + " : fonte:v1 jamais modifié");
+    checkMigrated(st, raw, f);
+    checkMigrated(JSON.parse(ls.getItem("fonte:p:" + P.active)), raw, f + " (relu)");
+    ["run", "backup"].forEach(s => { if (storage["fonte:" + s] != null) assert.strictEqual(ls.getItem("fonte:p:" + P.active + ":" + s), storage["fonte:" + s], f + " : " + s + " copié dans le profil"); });
+    assert.strictEqual(ls.getItem("fonte:ui"), storage["fonte:ui"] == null ? null : storage["fonte:ui"], "réglages d'appareil inchangés");
   });
 });
-test("loadState : premier lancement (vide) → état par défaut, rien d'écrit", () => {
-  const { st, U, ls } = loadWith(fixture("v1-vide.json").storage);
-  assert.strictEqual(U.STORE_BLOCK, null); assert.strictEqual(st.historique.length, 0); assert.strictEqual(ls._m.size, 0);
+test("migration : double lancement (idempotence), rien n'est réécrit ni dupliqué", () => {
+  V1_FIX.forEach(f => {
+    const storage = fixture(f).storage, a = boot(storage), key = "fonte:p:" + a.U.STORE.pid, snap = new Map(a.ls._m);
+    const b = boot(a.ls);
+    assert.strictEqual(b.U.STORE.pid, a.U.STORE.pid, f); assert.strictEqual(b.U.STORE.note, null, f + " : pas de nouvelle migration");
+    same(b.st, a.st, f + " : même état");
+    assert.strictEqual(b.ls._m.size, snap.size, f + " : aucune clé ajoutée");
+    snap.forEach((v, k) => assert.strictEqual(b.ls.getItem(k), v, f + " : " + k + " inchangé"));
+    assert.strictEqual(JSON.parse(b.ls.getItem("fonte:profiles")).list.length, 1);
+    assert.ok(b.ls.getItem(key));
+  });
 });
-test("loadState : JSON abîmé → copie brute gardée dans fonte:v1-illisible, jamais écrasée ensuite", () => {
-  const storage = fixture("v1-json-abime.json").storage, { st, U, ls } = loadWith(storage);
+test("migration : copie de sécurité D5 (fonte:undo) déplacée dans le profil, toujours utilisable", () => {
+  const s = fixture("v1-seance-en-cours.json").storage, undo = fixture("v1-ancien-sans-objectifs.json").storage["fonte:v1"];
+  const { U, ls } = boot(Object.assign({}, s, { "fonte:undo": undo, "fonte:undo-info": JSON.stringify({ at: 1, reason: "restore" }) }));
+  assert.strictEqual(ls.getItem(U.pKey(U.STORE.pid, "undo")), undo); assert.strictEqual(ls.getItem("fonte:undo"), null, "pas doublée");
+  assert.ok(U.readState(undo).state.historique.length > 0, "la copie v1 se relit via migrate");
+});
+test("premier lancement (vide) : un profil vide, fonte:v1 jamais créé", () => {
+  const { st, U, ls } = boot(fixture("v1-vide.json").storage);
+  assert.strictEqual(U.STORE_BLOCK, null); assert.strictEqual(U.STORE.mode, "v2"); assert.strictEqual(st.historique.length, 0);
+  assert.strictEqual(ls.getItem("fonte:v1"), null);
+  const P = JSON.parse(ls.getItem("fonte:profiles")); assert.strictEqual(P.list.length, 1); assert.strictEqual(P.mig, undefined);
+});
+test("JSON abîmé : copie brute dans fonte:v1-illisible, fonte:v1 jamais écrasé, nouveau profil vide", () => {
+  const storage = fixture("v1-json-abime.json").storage, { st, U, ls } = boot(storage);
   assert.strictEqual(U.STORE_BLOCK.reason, "illisible");
   assert.strictEqual(ls.getItem("fonte:v1-illisible"), storage["fonte:v1"]);
+  assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"]);
   assert.strictEqual(st.historique.length, 0);
-  ls.setItem("fonte:v1", "{abîmé une deuxième fois"); U.loadState();
+  U.storeSave(st); assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"], "l'enregistrement n'y touche pas");
+  ls.setItem("fonte:v1", "{abîmé une deuxième fois"); boot(ls);
   assert.strictEqual(ls.getItem("fonte:v1-illisible"), storage["fonte:v1"], "la première copie est conservée");
 });
-test("loadState : données d'un format plus récent → refusées, STORE_BLOCK posé, rien n'est écrasé", () => {
-  const newer = JSON.stringify({ v: 2, profiles: { list: [] } }), { st, U, ls } = loadWith({ "fonte:v1": newer });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(U.STORE_BLOCK)), { reason: "plus-recent", v: 2 });
-  assert.strictEqual(st.historique.length, 0);
-  assert.strictEqual(ls.getItem("fonte:v1"), newer);
+test("état d'un profil illisible : copie à part, et le profil migré repart de fonte:v1 (conservé)", () => {
+  const storage = fixture("v1-usage-typique.json").storage, a = boot(storage), key = "fonte:p:" + a.U.STORE.pid;
+  a.ls.setItem(key, "{cassé");
+  const b = boot(a.ls);
+  assert.strictEqual(b.U.STORE_BLOCK.reason, "illisible"); assert.strictEqual(b.ls.getItem(key + "-illisible"), "{cassé");
+  assert.strictEqual(b.st.historique.length, JSON.parse(storage["fonte:v1"]).historique.length, "données retrouvées depuis fonte:v1");
 });
-test("sauvegarde FONTEDATA1. de référence : décodée puis migrée sans perte", () => {
-  const code = fixture("v1-sauvegarde-fontedata1.json").code, m = code.match(/FONTEDATA1\.([A-Za-z0-9_-]+)/);
-  const o = JSON.parse(Buffer.from(m[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")), r = G.migrate(o);
-  assert.strictEqual(r.error, undefined); assert.strictEqual(r.from, 1);
-  assert.strictEqual(r.data.historique.length, JSON.parse(fixture("v1-usage-typique.json").storage["fonte:v1"]).historique.length);
+test("format plus récent : fonte:profiles v3 ou profil v3 → rien n'est écrit, STORE_BLOCK posé", () => {
+  const P3 = JSON.stringify({ v: 3, active: "x", list: [{ id: "x" }] }), a = boot({ "fonte:profiles": P3, "fonte:v1": fixture("v1-usage-typique.json").storage["fonte:v1"] });
+  same(jsonOf(a.U.STORE_BLOCK), { reason: "plus-recent", v: 3 }); assert.strictEqual(a.U.STORE.mode, "bloque");
+  assert.strictEqual(a.U.storeSave(a.st).ok, false); assert.strictEqual(a.ls.getItem("fonte:profiles"), P3); assert.strictEqual(a.ls._m.size, 2);
+  const st3 = JSON.stringify({ v: 3, profile: { prenom: "Futur" } }), P = JSON.stringify({ v: 2, active: "pa", owner: "pa", list: [{ id: "pa", prenom: "" }] });
+  const b = boot({ "fonte:profiles": P, "fonte:p:pa": st3 });
+  same(jsonOf(b.U.STORE_BLOCK), { reason: "plus-recent", v: 3 });
+  assert.strictEqual(b.U.storeSave(b.st).ok, false); assert.strictEqual(b.ls.getItem("fonte:p:pa"), st3, "jamais écrasé");
+  const c = boot({ "fonte:v1": JSON.stringify({ v: 3, profiles: { list: [] } }) });
+  assert.strictEqual(c.U.STORE_BLOCK.reason, "plus-recent"); assert.strictEqual(c.ls._m.size, 1, "rien d'écrit");
+});
+test("stockage plein simulé : l'historique ancien est résumé dans la copie, aucune séance perdue, fonte:v1 intact", () => {
+  const storage = fixture("v1-gros-historique.json").storage, raw = JSON.parse(storage["fonte:v1"]);
+  const full = boot(storage), v2len = full.ls.getItem("fonte:p:" + full.U.STORE.pid).length;
+  const limit = full.ls._size() - 2000; /* la copie v2 complète ne tient pas, une copie résumée oui */
+  const { st, U, ls } = boot(storage, { limit });
+  assert.strictEqual(U.STORE.mode, "v2"); assert.strictEqual(U.STORE.note, "resume");
+  assert.ok(JSON.parse(ls.getItem("fonte:profiles")).mig.resume);
+  assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"], "fonte:v1 intact");
+  assert.strictEqual(st.historique.length, raw.historique.length, "toutes les séances sont là");
+  same(st.historique.map(h => h.id), raw.historique.map(h => h.id), "mêmes séances");
+  assert.ok(ls.getItem("fonte:p:" + U.STORE.pid).length < v2len, "copie résumée");
+  same(st.lastPerf, raw.lastPerf); same(st.legacyRefs, raw.lastPerf); same(st.mesures, raw.mesures); same(st.notes, raw.notes);
+});
+test("stockage plein simulé : migration impossible → on reste sur fonte:v1, rien n'est effacé ni laissé à moitié", () => {
+  const storage = fixture("v1-usage-typique.json").storage, raw = JSON.parse(storage["fonte:v1"]);
+  const total = Object.keys(storage).reduce((n, k) => n + k.length + storage[k].length, 0);
+  const { st, U, ls } = boot(storage, { limit: total + 5000 });
+  assert.strictEqual(U.STORE.mode, "v1"); assert.strictEqual(U.STORE.note, "migration-plein");
+  assert.strictEqual(ls.getItem("fonte:profiles"), null); assert.ok([...ls._m.keys()].every(k => k.indexOf("fonte:p:") < 0), "aucune copie à moitié");
+  assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"]);
+  assert.strictEqual(st.historique.length, raw.historique.length); same(st.lastPerf, raw.lastPerf);
+  same(U.profileList(), [], "un seul profil possible en attendant");
+  /* l'appli continue comme la version 3A : fonte:v1 au format v1 */
+  const b = boot(storage, { limit: total + 5000 }); assert.strictEqual(b.U.STORE.mode, "v1", "nouvel essai au lancement suivant");
+  /* écriture de fonte:profiles refusée en dernier : tout est retiré */
+  const c = boot(storage, { refuse: k => k === "fonte:profiles" });
+  assert.strictEqual(c.U.STORE.mode, "v1"); assert.ok([...c.ls._m.keys()].every(k => k.indexOf("fonte:p:") < 0));
+  /* mode v1 : enregistrement au format v1 (lisible par la version 3A) */
+  const d = boot(storage, { refuse: k => k === "fonte:profiles" }); d.st.notes.x = "y"; assert.ok(d.U.storeSave(d.st).ok);
+  const w = JSON.parse(d.ls.getItem("fonte:v1")); assert.strictEqual(w.v, 1); assert.strictEqual(w.refs, undefined); assert.strictEqual(w.historique.length, raw.historique.length); assert.strictEqual(w.notes.x, "y");
+});
+test("vérification après relecture : une copie différente de la source est retirée, on reste sur v1", () => {
+  const storage = fixture("v1-usage-typique.json").storage;
+  const { U, ls } = boot(storage, { alter: (k, v) => (k.indexOf("fonte:p:") === 0 ? v.replace('"mesures":[{', '"mesures":[{"x":1},{') : v) });
+  assert.strictEqual(U.STORE.mode, "v1"); assert.strictEqual(U.STORE.note, "migration-verif");
+  assert.ok([...ls._m.keys()].every(k => k.indexOf("fonte:p:") < 0)); assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"]);
+});
+test("garde anti-retour : fonte:v1 modifié après la migration (ancienne version ouverte) → séances fusionnées par identifiant", () => {
+  const storage = fixture("v1-usage-typique.json").storage, a = boot(storage), pid = a.U.STORE.pid;
+  /* le profil v2 supprime une séance et en ajoute une */
+  const del = a.st.historique[3].id;
+  a.st.historique = a.st.historique.filter(h => h.id !== del); a.st.histDel[del] = NOW;
+  a.st.historique.unshift({ id: "nouv2", date: "2026-11-05", ts: NOW - 5e3, upd: NOW - 5e3, nom: "v2", log: [] }); a.st.upd = NOW - 4e3;
+  a.U.storeSave(a.st);
+  /* l'ancienne version (encore ouverte) enregistre une séance dans fonte:v1 */
+  const v1 = JSON.parse(storage["fonte:v1"]);
+  v1.historique.unshift({ id: "ancv1", date: "2026-11-04", ts: NOW - 9e4, nom: "ancienne", log: [{ id: "squat-barre", sets: [{ r: 5, kg: 90 }] }] });
+  v1.lastPerf["squat-barre"] = { d: "2026-11-04", ts: NOW - 9e4, sets: [{ r: 5, kg: 90 }], target: 5, base: 5, feel: 0, fails: 0 };
+  v1.upd = NOW - 1e3;
+  a.ls.setItem("fonte:v1", JSON.stringify(v1));
+  const b = boot(a.ls);
+  assert.strictEqual(b.U.STORE.note, "fusion"); assert.strictEqual(b.U.STORE.pid, pid);
+  const ids = b.st.historique.map(h => h.id);
+  assert.ok(ids.indexOf("ancv1") >= 0, "séance de l'ancienne version ajoutée"); assert.ok(ids.indexOf("nouv2") >= 0, "séance du profil gardée");
+  assert.ok(ids.indexOf(del) < 0, "séance supprimée dans le profil : pas ressuscitée");
+  assert.strictEqual(b.st.historique.length, a.st.historique.length + 1);
+  assert.ok(b.st.historique.every((x, i, l) => !i || (l[i - 1].ts || 0) >= (x.ts || 0)), "historique trié");
+  assert.strictEqual(b.st.lastPerf["squat-barre"].kg === undefined && b.st.lastPerf["squat-barre"].sets[0].kg, 90, "référence plus récente prise");
+  assert.strictEqual(b.ls.getItem("fonte:v1"), JSON.stringify(v1), "fonte:v1 toujours pas modifié");
+  const c = boot(b.ls); assert.strictEqual(c.U.STORE.note, null, "fusion faite une seule fois"); same(c.st, b.st);
+});
+test("toute restauration passe par migrate : codes FONTEDATA1. v1 de référence et aller-retour sauvegarde → restauration identique", () => {
+  const code = fixture("v1-sauvegarde-fontedata1.json").code, raw = JSON.parse(fixture("v1-usage-typique.json").storage["fonte:v1"]);
+  const r = G.decodeBackup(code);
+  assert.strictEqual(r.error, undefined); assert.strictEqual(r.from, 1); assert.strictEqual(r.data.v, 2);
+  assert.strictEqual(r.data.historique.length, raw.historique.length); same(r.data.legacyRefs, raw.lastPerf);
+  assert.strictEqual(G.decodeBackup(JSON.stringify({ v: 3, app: "fonte", profile: {} })).error, "plus-recent");
+  assert.strictEqual(G.decodeBackup("n'importe quoi").error, "illisible");
+  assert.strictEqual(G.decodeBackup(JSON.stringify({ a: 1 })).error, "pas-fonte");
+  V1_FIX.forEach(f => {
+    const { st, U } = boot(fixture(f).storage);
+    const KEYS = ["profile", "mesSeances", "historique", "lastPerf", "refs", "legacyRefs", "legacySrc", "notes", "mesures", "deload", "agenda", "imports"];
+    for (const enc of [o => JSON.stringify(o), o => "FONTEDATA1." + U.b64e(JSON.stringify(o))]) {
+      const txt = enc(U.backupPayload(st, NOW)), d = U.decodeBackup(txt);
+      assert.strictEqual(d.error, undefined, f); assert.strictEqual(d.from, 2);
+      const st2 = U.applyBackup(U.normState({}), jsonOf(d.data));
+      KEYS.forEach(k => same(st2[k], st[k], f + " : " + k + " identique après aller-retour"));
+    }
+    /* une sauvegarde v1 (ancienne) se restaure dans un profil v2 sans rien perdre */
+    const v1 = JSON.parse(fixture(f).storage["fonte:v1"]), d1 = U.decodeBackup(JSON.stringify(Object.assign({ app: "fonte" }, v1)));
+    const st3 = U.applyBackup(U.normState({}), d1.data);
+    assert.strictEqual(st3.historique.length, v1.historique.length); same(st3.lastPerf, v1.lastPerf || {}); same(st3.legacyRefs, v1.lastPerf || {});
+  });
+});
+test("profils : ajout, changement, données et fichiers séparés (séance en cours, copie de sécurité, sauvegarde)", () => {
+  const storage = fixture("v1-seance-en-cours.json").storage, a = boot(storage), p1 = a.U.STORE.pid;
+  const id = a.U.profileAdd(NOW); assert.ok(id && id !== p1);
+  assert.strictEqual(a.U.STORE.pid, p1, "le profil actif ne change pas tout seul");
+  assert.ok(a.U.profileSwitch(id));
+  const b = boot(a.ls);
+  assert.strictEqual(b.U.STORE.pid, id); assert.strictEqual(b.st.historique.length, 0, "nouveau profil vide");
+  assert.strictEqual(b.U.storeKey("run"), "fonte:p:" + id + ":run"); assert.strictEqual(b.ls.getItem(b.U.storeKey("run")), null, "pas la séance en cours de l'autre");
+  assert.ok(b.ls.getItem("fonte:p:" + p1 + ":run"), "séance en cours du profil 1 gardée");
+  b.st.profile.prenom = "Camille"; b.st.historique.push({ id: "s2", date: "2026-11-05", ts: NOW, log: [] }); assert.ok(b.U.storeSave(b.st).ok);
+  assert.ok(b.U.storeSnapshot("restore", NOW)); assert.ok(b.ls.getItem("fonte:p:" + id + ":undo")); assert.strictEqual(b.ls.getItem("fonte:p:" + p1 + ":undo"), null);
+  same(b.U.profileList().map(x => [x.prenom, x.active]), [["Alex", false], ["Camille", true]], "prénoms dans la liste");
+  assert.ok(!b.U.isSyncOwner(), "la synchro de l'appareil reste reliée au profil 1");
+  b.U.profileSwitch(p1);
+  const c = boot(b.ls);
+  assert.strictEqual(c.U.STORE.pid, p1); assert.ok(c.U.isSyncOwner());
+  assert.ok(c.st.historique.every(h => h.id !== "s2"), "rien ne se mélange"); assert.strictEqual(c.st.profile.prenom, "Alex");
+  assert.strictEqual(c.st.historique.length, JSON.parse(storage["fonte:v1"]).historique.length);
+  assert.strictEqual(c.ls.getItem("fonte:v1"), storage["fonte:v1"]);
+});
+
+console.log("Références par zone et suppression d'une séance (S1-b format, D3)");
+/* Ancienne règle de saveRunHistory (avant 3B), recopiée ici comme référence : refStep doit donner exactement la même chose */
+function oldSave(lastPerf, items, logs, now, feel, dl) {
+  const today = "2026-01-01";
+  items.forEach((it, i) => {
+    const reps = logs[i].filter(x => x.r != null); if (!reps.length || dl || it.warm || it.cool) return;
+    if (lastPerf[it.id] && (lastPerf[it.id].ts || 0) > now) return;
+    const sets = reps.map(x => Object.assign({ r: x.r, kg: x.kg || 0 }, x.rir != null ? { rir: x.rir } : {}));
+    lastPerf[it.id] = { d: today, ts: now, sets, target: it.reps, base: it.base || it.reps, feel: feel || 0, fails: G.failCount(lastPerf[it.id], sets, it.reps) };
+  });
+}
+/* Générateur pseudo-aléatoire reproductible */
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const EXS = ["squat-barre", "developpe-couche", "rowing-barre", "curl-halteres", "planche"];
+/* Séances générées comme l'appli les enregistre depuis 3B (cible t dans chaque série, base b) */
+function genHist(seed, n) {
+  const r = rng(seed), hist = [];
+  for (let k = 0; k < n; k++) {
+    const ts = 1790000000000 + k * 2 * 864e5 + Math.floor(r() * 1e6), log = [];
+    EXS.forEach(id => {
+      if (r() < 0.35) return;
+      if (id === "planche") { log.push({ id, sets: [{ d: 30 + Math.floor(r() * 30) }] }); return; }
+      const t = [5, 8, 10, 12, 15][Math.floor(r() * 5)], kg = 20 + Math.floor(r() * 16) * 2.5, ns = 2 + Math.floor(r() * 3);
+      const sets = []; for (let s = 0; s < ns; s++) sets.push(Object.assign({ r: Math.max(1, t - Math.floor(r() * 3)), kg, t }, r() < 0.5 ? { rir: Math.floor(r() * 4) } : {}));
+      log.push(Object.assign({ id, sets }, r() < 0.2 ? { b: t + 2 } : {}));
+    });
+    if (r() < 0.15) log.unshift({ id: "rameur", warm: 1, sets: [{ d: 300 }] });
+    hist.unshift(Object.assign({ id: "h" + k, date: "2026-" + String(1 + (k % 12)).padStart(2, "0") + "-10", ts, upd: ts, log, ressenti: 1 + Math.floor(r() * 4), kind: r() < 0.1 ? "mob" : "muscu" }, r() < 0.1 ? { dl: 1 } : {}));
+  }
+  return hist;
+}
+/* comparaison sans tenir compte de l'ordre des clés des objets (sans importance pour les données) */
+const canon = o => JSON.stringify(o, (k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, x) => { a[x] = v[x]; return a; }, {}) : v));
+const sameC = (a, b, msg) => assert.strictEqual(canon(a), canon(b), msg);
+const refsOf = (hist, L0) => { const lp = jsonOf(L0 || {}), rf = G.refsFromLastPerf(lp); hist.slice().reverse().forEach(h => G.refStep(lp, rf, h)); return jsonOf({ lastPerf: lp, refs: rf }); };
+test("refStep (enregistrement d'une séance) donne exactement la même référence que l'ancienne règle de saveRunHistory", () => {
+  const r = rng(7);
+  for (let k = 0; k < 300; k++) {
+    const A = {}, B = {}, refs = {};
+    for (let s = 0; s < 6; s++) {
+      const items = EXS.slice(0, 4).map(id => ({ id, reps: [5, 8, 10, 12][Math.floor(r() * 4)], base: r() < 0.3 ? 12 : undefined, warm: r() < 0.05 ? 1 : undefined }));
+      const logs = items.map(it => r() < 0.2 ? [] : [0, 1, 2].map(() => Object.assign({ r: Math.max(1, it.reps - Math.floor(r() * 3)), kg: 20 + Math.floor(r() * 10) * 2.5 }, r() < 0.5 ? { rir: Math.floor(r() * 4) } : {})));
+      const now = 1790000000000 + s * 864e5 + (r() < 0.1 ? -5 * 864e5 : 0), feel = Math.floor(r() * 5) || null, dl = r() < 0.1;
+      oldSave(A, items, logs, now, feel, dl);
+      /* journal tel que runLog l'écrit depuis 3B */
+      const log = items.map((it, i) => Object.assign(it.warm ? { warm: 1 } : {}, { id: it.id, sets: logs[i].map(x => Object.assign({ r: x.r, kg: x.kg }, x.rir != null ? { rir: x.rir } : {}, { t: it.reps })) }, it.base && it.base !== it.reps ? { b: it.base } : {})).filter(x => x.sets.length);
+      G.refStep(B, refs, { id: "x" + s, date: "2026-01-01", ts: now, ressenti: feel, dl: dl ? 1 : undefined, log });
+    }
+    same(B, A, "essai " + k);
+    Object.keys(B).forEach(id => same(refs[id][G.zoneOf(B[id].target)], B[id], "refs par zone"));
+  }
+});
+test("D3 : historique de 5 séances, suppression de celle à 600 kg → la référence revient à la précédente, palier décrémenté", () => {
+  const mk = (k, kg) => ({ id: "s" + k, date: "2026-10-0" + (k + 1), ts: 1790000000000 + k * 864e5, upd: 0, kind: "muscu", log: [{ id: "squat-barre", sets: [{ r: 5, kg, t: 5 }, { r: 5, kg, t: 5 }] }] });
+  const hist = [mk(0, 90), mk(1, 92.5), mk(2, 95), mk(3, 600), mk(4, 97.5)].reverse();
+  /* la séance à 600 kg est la plus récente pour cet exercice si on retire la dernière */
+  const h4 = hist.filter(h => h.id !== "s4");
+  const before = refsOf(h4);
+  assert.strictEqual(before.lastPerf["squat-barre"].sets[0].kg, 600);
+  const after = G.rebuildRefs(h4.filter(h => h.id !== "s3"), {}, {});
+  assert.strictEqual(after.lastPerf["squat-barre"].sets[0].kg, 95, "retour à 95 kg");
+  sameC(after, refsOf(h4.filter(h => h.id !== "s3")), "comme si elle n'avait jamais existé");
+  /* même cas avec des séances d'avant 3B (sans cible t) et la référence v1 venant de la séance à 600 kg */
+  const old = h4.map(h => jsonOf(Object.assign({}, h, { log: h.log.map(l => ({ id: l.id, sets: l.sets.map(s => ({ r: s.r, kg: s.kg })) })) })));
+  const L = { "squat-barre": { d: "2026-10-04", ts: 1790000000000 + 3 * 864e5, sets: [{ r: 5, kg: 600 }, { r: 5, kg: 600 }], target: 5, base: 5, feel: 0, fails: 0 } };
+  const src = G.legacySources(old, L); assert.strictEqual(src["squat-barre"], "s3");
+  same(G.rebuildRefs(old, L, src).lastPerf, L, "séance d'origine présente : référence v1 gardée telle quelle");
+  const rb = G.rebuildRefs(old.filter(h => h.id !== "s3"), L, src);
+  assert.strictEqual(rb.lastPerf["squat-barre"].sets[0].kg, 95, "séance d'origine supprimée : référence recalculée sur la précédente");
+  assert.strictEqual(rb.lastPerf["squat-barre"].target, 5, "cible déduite (plus grande répétition faite)");
+  /* palier : 5 séances, 9 par palier (3 jours × 3 semaines ? selon PHASE_WEEKS), une de moins */
+  const prof = { niveau: "intermediaire", jours: 3 }, p5 = G.rebuildProgress(hist, prof), p4 = G.rebuildProgress(hist.filter(h => h.id !== "s3"), p5, hist.find(h => h.id === "s3"));
+  assert.strictEqual(p5.phaseDone, 5); assert.strictEqual(p4.phaseDone, 4, "palier décrémenté");
+});
+test("D3, propriété : supprimer une séance puis recalculer = comme si elle n'avait jamais existé (références, zones, palier)", () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    const hist = genHist(seed, 10 + seed % 40), r = rng(seed * 31);
+    const legacy = seed % 3 === 0 ? { "squat-barre": { d: "2025-12-01", ts: 1780000000000, sets: [{ r: 8, kg: 70 }], target: 8, base: 8, feel: 2, fails: 0 } } : {};
+    for (let k = 0; k < 5; k++) {
+      const x = hist[Math.floor(r() * hist.length)], rest = hist.filter(h => h !== x);
+      sameC(G.rebuildRefs(rest, legacy, {}), refsOf(rest, legacy), "graine " + seed + " : références sans " + x.id);
+      sameC(G.rebuildRefs(hist, legacy, {}), refsOf(hist, legacy), "graine " + seed + " : rien de supprimé = références actuelles");
+      /* palier : séances une à une depuis le début, comme l'appli */
+      const p0 = { niveau: ["debutant", "intermediaire"][seed % 2], jours: 2 + seed % 4, phase: 1, phaseDone: 0, phases: [] };
+      const play = list => { const q = jsonOf(p0); q.phaseStart = undefined; list.slice().reverse().filter(G.countable).forEach(h => G.tickApply(q, G.progressTick(q), h.date)); return q; };
+      const cur = play(hist), want = play(rest), got = G.rebuildProgress(rest, cur, x);
+      ["phase", "phaseDone", "niveau"].forEach(f => assert.strictEqual(got[f], want[f], "graine " + seed + " : " + f + " sans " + x.id));
+      same((got.phases || []).map(p => [p.n, p.niv, p.to]), (want.phases || []).map(p => [p.n, p.niv, p.to]), "graine " + seed + " : paliers");
+    }
+  }
+});
+test("D3 : palier incohérent avec l'historique (jours changés, ancienne suppression) → une seule séance retirée au compteur", () => {
+  const hist = genHist(5, 12).map(h => Object.assign(h, { kind: "muscu", dl: undefined }));
+  const p = { niveau: "intermediaire", jours: 3, phase: 2, phaseDone: 3, phases: [{ n: 1, niv: "intermediaire", from: "2026-01-10", to: "2026-03-10" }], phaseStart: "2026-03-10" };
+  const q = G.rebuildProgress(hist.slice(1), p, hist[0]);
+  assert.strictEqual(q.phase, 2); assert.strictEqual(q.phaseDone, 2);
+  const q0 = G.rebuildProgress(hist.slice(1), Object.assign({}, p, { phaseDone: 0 }), hist[0]);
+  assert.strictEqual(q0.phase, 1, "palier précédent rouvert"); assert.strictEqual(q0.phases.length, 0); assert.strictEqual(q0.phaseStart, "2026-01-10");
+  same(G.rebuildProgress(hist.slice(1), p, Object.assign({}, hist[0], { kind: "mob" })), p, "séance de mobilité : palier inchangé");
 });
 
 console.log("Fichiers de l'appli et hors ligne");

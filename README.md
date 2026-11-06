@@ -27,6 +27,8 @@ Appli de musculation en français, installable sur iPhone et Android (PWA), qui 
 - **Agenda** partagé (synchro Firebase ou codes à échanger) et **export vers le calendrier du téléphone** (.ics) avec rappel.
 - **Données** : sauvegarde/restauration, **rappel de sauvegarde après 10 séances ou 14 jours** (« Me le rappeler dans 7 jours »), **export tableur** (CSV) de l’historique.
 - **Filet de sécurité** : « Ne pas enregistrer » une séance demande confirmation, puis **« Annuler »** pendant 10 secondes ; avant une restauration, « Effacer l’historique » ou « Tout réinitialiser », Fonte garde une **copie de sécurité** et propose **« Revenir à l’état d’avant »** (Profil › Données) ; une séance oubliée plus de 12 h n’est plus perdue : l’accueil propose de l’**enregistrer à sa date** ou de la supprimer.
+- **Profils** (Profil › en haut) : plusieurs personnes sur un même appareil (par exemple un iPad partagé), chacune avec son programme, ses séances, son historique, ses records, ses mesures, ses notes, sa séance en cours et sa copie de sécurité. « Ajouter un profil » lance le questionnaire de départ ; « Changer de profil » relance l’appli sur l’autre profil (impossible pendant une séance). Profils séparés mais pas protégés par un code.
+- **Supprimer une séance corrige la suite** : après suppression d’une séance de l’historique, la charge proposée et l’avancement du palier reviennent à ce qu’ils seraient sans elle.
 - **Charge recalculée** : si une séance vise beaucoup plus (ou moins) de répétitions que la dernière fois (écart d’au moins 3), la charge est convertie par le 1RM estimé avec une marge de prudence de 5 %, au lieu d’être simplement augmentée (ex. après 5 × 5 à 100 kg au squat : 82,5 kg pour 10 répétitions).
 
 ## Fichiers
@@ -35,15 +37,16 @@ Appli de musculation en français, installable sur iPhone et Android (PWA), qui 
 |---|---|
 | `index.html` | La page : styles, structure, et la ligne `window.FONTE_PWA = true`. Charge les fichiers `js/` ci-dessous, dans cet ordre. |
 | `js/engine-pedago.js` | Moteur « pédagogie » : exercices, libellés, charges de départ (`LOAD`), animations des mouvements. |
-| `js/engine-training.js` | Moteur « entraînement » : séances types, prescriptions, programmes, planning, progression des charges (dont le garde-fou de conversion), superséries, paliers. |
+| `js/engine-training.js` | Moteur « entraînement » : séances types, prescriptions, programmes, planning, progression des charges (dont le garde-fou de conversion), superséries, paliers, références par zone de répétitions et recalcul après suppression d’une séance (`refStep`, `rebuildRefs`, `rebuildProgress`). |
 | `js/engine-analytics.js` | Moteur « analyse » : courbes, records, muscles travaillés, régularité, plateau de poids. |
-| `js/engine-user.js` | Moteur « utilisateur » : version du format des données (`SCHEMA_VERSION`, `migrate`), lecture de l’état, historique résumé, rappel de sauvegarde, exports CSV et calendrier. |
-| `js/app.js` | Interface (écrans, lecteur de séance, sauvegarde, synchronisation). |
+| `js/engine-user.js` | Moteur « utilisateur » : format des données (`SCHEMA_VERSION = 2`, `migrate`, migration v1 → v2), stockage par profil (`storeOpen`, `storeSave`, profils), copie de sécurité, sauvegarde fichier et restauration, historique résumé, rappel de sauvegarde, exports CSV et calendrier. |
+| `js/app.js` | Interface (écrans, lecteur de séance, profils, messages), synchronisation (compte Claude, Firebase). |
 | `sw.js` | Service worker : fonctionnement hors ligne et détection des nouvelles versions. |
 | `manifest.webmanifest`, `icon-*.png` | Installation sur l’écran d’accueil. |
-| `tests/run.js` | Tests des calculs, sans dépendance (`node tests/run.js`), dont la **photographie des programmes** (`tests/fixtures/programmes.json`) qui garantit qu’aucun programme ne change par erreur. |
-| `tests/e2e/run.js` | Tests navigateur (Playwright + Chromium, iPhone 13 et iPad simulés) : filet de sécurité, hors ligne, mise à jour. |
-| `tests/fixtures/` | Jeux de données de référence **inventés** (aucune donnée réelle). |
+| `tests/run.js` | Tests des calculs, sans dépendance (`node tests/run.js`), dont la **photographie des programmes** (`tests/fixtures/programmes.json`) qui garantit qu’aucun programme ne change par erreur, et la **migration** des données sur chaque jeu de données de référence (mémoire pleine simulée, double lancement, aller-retour sauvegarde → restauration). |
+| `tests/e2e/run.js` | Tests navigateur (Playwright + Chromium, iPhone 13 et iPad simulés) : filet de sécurité, profils (isolation), hors ligne, mise à jour depuis les versions en service. |
+| `tests/fixtures/` | Jeux de données de référence **inventés** (aucune donnée réelle), au format v1 : ce sont les références de la migration, à ne pas régénérer. |
+| `docs/FORMAT_DONNEES.md` | Description des formats de données v1 et v2 et de la migration. |
 | `tools/` | Outils facultatifs : `assemble.js` (fichier unique), `analyse-volume.js` (séries par muscle), `photo-programmes.js`, `make-fixtures.js`. |
 
 Pas d’outil de construction : GitHub Pages sert les fichiers tels quels. Les fichiers `js/` sont de simples scripts qui partagent leurs déclarations, comme lorsqu’ils formaient un seul fichier.
@@ -68,6 +71,8 @@ Les deux tournent automatiquement sur GitHub à chaque envoi (onglet **Actions**
 
 ## Données et stockage
 
-Tout est enregistré dans le navigateur du téléphone (`localStorage`, clé `fonte:v1`, format version 1). Les données d’une version plus récente de Fonte ne sont jamais écrasées (l’appli demande de se mettre à jour) ; des données illisibles sont gardées à part (`fonte:v1-illisible`). Les 300 séances les plus récentes gardent tout leur détail ; au-delà, seules les meilleures séries de chaque exercice sont conservées (assez pour les courbes et les records), jusqu’à 3 000 séances. Si le stockage du téléphone est plein, l’appli résume davantage les séances anciennes au lieu de perdre des données, et prévient.
+Tout est enregistré dans le navigateur de l’appareil (`localStorage`), au **format version 2** depuis la phase 3B : `fonte:profiles` (liste des profils, profil ouvert) et une clé par profil, `fonte:p:<id>` (plus `:run` pour la séance en cours, `:undo` pour la copie de sécurité…). Les réglages de l’appareil (`fonte:ui`, `fonte:noinstall`, `fonte:rappel`, `fonte:sync`) sont communs. Détail : `docs/FORMAT_DONNEES.md`.
+
+Au premier lancement de la version 3B, les données de l’ancien format (`fonte:v1`) deviennent le **profil 1** : elles sont copiées, relues et comparées avant d’être utilisées, et `fonte:v1` est **gardé tel quel** comme copie de secours. Si la mémoire est pleine, l’historique ancien est résumé dans la copie ; si la copie est impossible, l’appli continue sur l’ancien format sans rien effacer et demande une sauvegarde. Les anciennes sauvegardes (fichier ou code `FONTEDATA1.`) restent restaurables. Les données d’une version plus récente de Fonte ne sont jamais écrasées (l’appli demande de se mettre à jour) ; des données illisibles sont gardées à part (`…-illisible`). Les 300 séances les plus récentes gardent tout leur détail ; au-delà, seules les meilleures séries de chaque exercice sont conservées (assez pour les courbes et les records), jusqu’à 3 000 séances par profil. Si le stockage du téléphone est plein, l’appli résume davantage les séances anciennes au lieu de perdre des données, et prévient. Une sauvegarde fichier contient le profil ouvert.
 
 Les rappels passent par le calendrier du téléphone : une vraie notification envoyée par l’appli, appli fermée, demanderait un serveur d’envoi (Web Push), que Fonte n’a pas.
