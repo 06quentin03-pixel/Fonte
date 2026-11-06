@@ -474,6 +474,148 @@ test("D3 dans l'appli : supprimer une séance de l'historique recalcule la réf�
   await ctx.close();
 });
 
+/* ---------- D4 : modifier une séance, ajouter une séance passée ; S9 (phase 3D) ---------- */
+function d4Storage() {
+  const prof = { prenom: "Test", sexe: "H", age: 30, taille: 180, poids: 80, niveau: "intermediaire", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple: false, phase: 1, phaseDone: 3, phaseStart: "2026-01-01", phases: [] };
+  const d = k => { const t = new Date(Date.now() - k * DAY); t.setHours(18, 0, 0, 0); return t; };
+  const iso = t => t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  const se = (id, k, log) => ({ id, date: iso(d(k)), ts: d(k).getTime(), nom: "Force : squat", kind: "muscu", duree: 3000, volume: 0, sets: 2, ressenti: 2, log });
+  const sq = kg => ({ id: "squat-barre", sets: [{ r: 5, kg }, { r: 5, kg }] });
+  const historique = [se("x3", 2, [sq(600)]), se("x2", 4, [sq(95), { id: "curl-halteres", sets: [{ r: 15, kg: 10 }] }]), se("x1", 6, [sq(90)])];
+  historique[0].pr = [{ id: "squat-barre", k: "kg", v: 600 }];
+  const lastPerf = { "squat-barre": { d: historique[0].date, ts: historique[0].ts, sets: [{ r: 5, kg: 600 }, { r: 5, kg: 600 }], target: 5, base: 5, feel: 2, fails: 0 },
+    "curl-halteres": { d: historique[1].date, ts: historique[1].ts, sets: [{ r: 15, kg: 10 }], target: 15, base: 15, feel: 2, fails: 0 } };
+  return { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique, lastPerf }), "fonte:backup": String(Date.now()) };
+}
+test("D4 : corriger une séance (600 → 60 kg) corrige la charge proposée, la courbe et les records", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: d4Storage() });
+  const A = await state(page); assert.strictEqual(A.lastPerf["squat-barre"].sets[0].kg, 600);
+  await page.click('[data-a="hist-open"][data-id="x3"]');
+  await page.click('.sheet [data-a="he-open"]');
+  await page.waitForSelector('.sheet input[data-he="0:0:kg"]');
+  for (const j of [0, 1]) await page.fill('.sheet input[data-he="0:' + j + ':kg"]', "60");
+  await page.click('.sheet [data-a="he-save"]');
+  await page.waitForSelector("#toast:text('Séance corrigée')");
+  const B = await state(page), h = B.historique.find(x => x.id === "x3");
+  assert.strictEqual(h.log[0].sets[0].kg, 60); assert.strictEqual(h.ed, 1); assert.ok(h.upd >= Date.now() - 60000, "upd = maintenant");
+  assert.strictEqual(B.lastPerf["squat-barre"].sets[0].kg, 60, "référence corrigée"); assert.strictEqual(B.refs["squat-barre"].force.sets[0].kg, 60);
+  assert.ok(!(h.pr || []).length, "plus de record à 600 kg");
+  assert.strictEqual(B.legacyRefs["squat-barre"].sets[0].kg, 600, "copie v1 jamais modifiée");
+  assert.strictEqual(h.volume, 600, "volume recalculé");
+  assert.deepStrictEqual([B.profile.phase, B.profile.phaseDone], [A.profile.phase, A.profile.phaseDone], "palier inchangé");
+  /* courbe et records de la fiche de l'exercice */
+  await page.click('[data-a="ex-open"][data-id="squat-barre"]').catch(async () => { await tab(page, "exercices"); await page.fill("#ex-q", "squat barre"); await page.click('[data-a="ex-open"][data-id="squat-barre"]'); });
+  await page.waitForSelector(".sheet .tag-rec");
+  const tags = (await page.$$eval(".sheet .tag-rec", els => els.map(e => e.textContent))).join(" | ");
+  assert.ok(/Charge max 95 kg/.test(tags), "record de charge : 95 kg (" + tags + ")");
+  assert.ok(!/600/.test(await page.textContent(".sheet #ch")), "plus de 600 sur la courbe");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("D4 : ajouter une séance passée (exercice, séries) → historique, palier, référence ; S9 : mention du 1RM peu fiable", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: d4Storage() });
+  const A = await state(page);
+  await page.click('[data-a="he-new"]');
+  await page.waitForSelector(".sheet #he-date");
+  const t = new Date(Date.now() - 10 * DAY), iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  await page.fill(".sheet #he-date", iso);
+  await page.fill(".sheet #he-nom", "Séance au parc");
+  await page.selectOption(".sheet #he-add", "dc-barre"); await page.click('.sheet [data-a="he-ex-add"]');
+  await page.waitForSelector('.sheet input[data-he="0:0:r"]');
+  await page.fill('.sheet input[data-he="0:0:r"]', "8"); await page.fill('.sheet input[data-he="0:0:kg"]', "50");
+  await page.click('.sheet [data-a="he-set-del"][data-i="0"][data-j="2"]');
+  await page.click('.sheet [data-a="he-save"]');
+  await page.waitForSelector("#toast:text('Séance ajoutée')");
+  const B = await state(page), h = B.historique.find(x => x.nom === "Séance au parc");
+  assert.ok(h, "séance ajoutée"); assert.strictEqual(h.date, iso); assert.strictEqual(B.historique.length, A.historique.length + 1);
+  assert.strictEqual(h.log[0].sets.length, 2, "une série retirée"); assert.strictEqual(h.log[0].sets[0].r, 8); assert.strictEqual(h.log[0].sets[0].kg, 50);
+  assert.ok(h.upd >= Date.now() - 60000); assert.strictEqual(B.historique[B.historique.length - 1].id, h.id, "rangée à sa date");
+  assert.strictEqual(B.profile.phaseDone, A.profile.phaseDone + 1, "compte pour le palier");
+  assert.strictEqual(B.lastPerf["dc-barre"].sets[0].kg, 50, "référence créée");
+  /* S9 : curl 15 × 10 kg → le 1RM vient d'une série de plus de 10 répétitions */
+  await page.click('[data-a="hist-open"][data-id="x2"]'); await page.click('.sheet [data-a="ex-open"][data-id="curl-halteres"]');
+  await page.waitForSelector(".sheet .ch-lo");
+  assert.ok(/peu fiable au-delà de 10 répétitions/.test(await page.textContent(".sheet .ch-lo")));
+  await page.click('.sheet [data-a="ch-m"][data-v="kgmax"]');
+  assert.strictEqual(await page.$(".sheet .ch-lo"), null, "pas de mention pour la charge max");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
+/* ---------- S5, S10, S4 (phase 3D, partie 2) ---------- */
+async function startTpl(page, id) {
+  await tab(page, "seances");
+  await page.click('[data-a="tpl-open"][data-id="' + id + '"]');
+  await page.click('.sheet [data-a="tpl-start"]');
+  if (await page.$('[data-a="ed-go"]')) await page.click('[data-a="ed-go"]');
+  await page.waitForSelector("#runner:not([hidden])");
+  if (await page.$('#runner [data-a="run-skipwarm"]')) await page.click('#runner [data-a="run-skipwarm"]');
+  await page.waitForSelector('#runner [data-a="run-next"]');
+}
+const debStorage = simple => ({ "fonte:v1": JSON.stringify({ v: 1, profile: { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau: "debutant", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple, phase: 1, phaseDone: 0, phases: [] }, historique: [] }), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "types" }) });
+test("S5 : débutante, la séance affiche « Garde 3 répétitions en réserve », jamais « jusqu’à l’échec »", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(false) });
+  await startTpl(page, "force-squat");
+  const note = await page.textContent("#runner .note-rir");
+  assert.ok(/Garde 3 répétitions en réserve/.test(note), note);
+  assert.strictEqual(await page.$("#runner .note-f"), null, "pas de note « échec »");
+  assert.ok(!/échec/i.test(await page.textContent("#runner .run-body")), "le mot échec n'apparaît pas");
+  assert.ok(await page.$('#runner [data-a="run-rir"][data-v="2"]'), "saisie de la réserve (mode normal)");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("S10 : en mode simple, « C’était facile / juste / très dur » devient la réserve (3 / 1 / 0) enregistrée avec la cible", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(true) });
+  await startTpl(page, "force-squat");
+  const lbl = await page.textContent("#runner .rir");
+  assert.ok(/Facile/.test(lbl) && /Juste/.test(lbl) && /Très dur/.test(lbl), lbl);
+  assert.ok(!/3 et \+/.test(lbl), "pas de chiffres en mode simple");
+  await page.click('#runner [data-a="run-rir"][data-v="0"]');
+  await page.click('#runner [data-a="run-next"]');
+  await page.click('#runner [data-a="run-quit"]'); await page.click('.sheet [data-a="run-end"]');
+  await page.click('#runner [data-a="run-save"]'); await page.waitForSelector("#toast:text('Séance enregistrée')");
+  const st = await state(page), set = st.historique[0].log.find(l => !l.warm && !l.cool).sets[0];
+  assert.strictEqual(set.rir, 0, "très dur = 0 en réserve"); assert.strictEqual(set.rt, 3, "cible de réserve enregistrée");
+  const id = st.historique[0].log.find(l => !l.warm && !l.cool).id;
+  assert.strictEqual(st.lastPerf[id].rirT, 3);
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+function lvlStorage() {
+  const hist = [], now = new Date(); now.setHours(12, 0, 0, 0);
+  const mon = new Date(now); mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7);
+  const iso = t => t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  for (let w = 30; w >= 1; w--) for (let k = 0; k < 3; k++) {
+    const t = new Date(mon); t.setDate(t.getDate() - 7 * w + k * 2); const n = (30 - w) * 3 + k, kg = Math.min(60, 30 + n * 2.5);
+    hist.unshift({ id: "h" + n, date: iso(t), ts: t.getTime(), nom: "Full body", kind: "muscu", duree: 3000, log: ["goblet-squat", "dc-halteres", "rowing-haltere"].map(id => ({ id, sets: [{ r: 10, kg }, { r: 10, kg }] })) });
+  }
+  const prof = { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau: "debutant", objectif: "muscle", objectifs: ["muscle"], jours: 3, onb: 1, simple: true, phase: 2, phaseDone: 4, phaseStart: hist[20].date,
+    phases: [1, 2, 3].map(n => ({ n, niv: "debutant", from: hist[90 - n * 24].date, to: hist[90 - n * 24 - 12].date })) };
+  return { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: hist }), "fonte:backup": String(Date.now()) };
+}
+test("S4 : passage de niveau proposé (jamais automatique) : « Plus tard » le reporte, « Passer » change le niveau en gardant les charges", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: lvlStorage() });
+  await tab(page, "accueil"); await page.waitForSelector("#lvl-card");
+  assert.ok(/niveau intermédiaire/.test(await page.textContent("#lvl-card")));
+  const A = await state(page); assert.strictEqual(A.profile.niveau, "debutant", "rien n'a changé tout seul");
+  await page.click('#lvl-card [data-a="lvl-later"]');
+  await page.waitForSelector("#toast:text('reproposera')");
+  assert.strictEqual(await page.$("#lvl-card"), null);
+  const B = await state(page); assert.strictEqual(B.profile.levelAsk.niv, "intermediaire"); assert.strictEqual(B.profile.niveau, "debutant");
+  /* 5 semaines plus tard (date du report dépassée) */
+  const k = await keyOf(page, "fonte:v1");
+  await page.evaluate(k => { const s = JSON.parse(localStorage.getItem(k)); s.profile.levelAsk.until = "2000-01-01"; localStorage.setItem(k, JSON.stringify(s)); }, k);
+  await page.reload(); await page.waitForSelector("#lvl-card");
+  await page.click('#lvl-card [data-a="lvl-up"]');
+  await page.waitForSelector("#toast:text('Niveau intermédiaire')");
+  const C = await state(page);
+  assert.strictEqual(C.profile.niveau, "intermediaire"); assert.strictEqual(C.profile.phase, 1); assert.strictEqual(C.profile.phaseDone, 0);
+  assert.deepStrictEqual(C.lastPerf, A.lastPerf, "charges réelles gardées"); assert.strictEqual(C.profile.phases[C.profile.phases.length - 1].man, 1);
+  assert.strictEqual(await page.$("#lvl-card"), null);
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
 /* ---------- Prochaine séance du programme ---------- */
 /* Bug signalé après 3B : une séance du programme lancée hors du programme (Séances types, « Refaire cette séance »)
    n'était pas reconnue : l'accueil reproposait la même séance. */

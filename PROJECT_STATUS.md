@@ -11,8 +11,8 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 | 2 — Plan d’amélioration | ✅ Terminée le 5 nov. 2026 | `claude/plan-phase-2` (part de `claude/audit-phase-1`) | `docs/PLAN_PHASE2.md`, `docs/PROMPT_PHASE3A.md` |
 | 3A — Filet de sécurité (D2, D5, D6, D1-a, S1-a, tests navigateur) **puis** moteurs en fichiers séparés (A1, A3, D8 cadre) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) | `claude/phase-3a-securite-moteurs` (part de `claude/plan-phase-2`) | `js/engine-*.js`, `js/app.js`, `tests/e2e/`, `tests/fixtures/`, `tools/assemble.js`, `docs/CHECKLIST_PHASE3A.md`, `docs/PROMPT_PHASE3B.md` |
 | 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ✅ Terminée le 6 nov. 2026 (parties 1, 2 et 3), **fusionnée dans `main`** (pull request n° 12, `b165012`) | `claude/phase-3b-format-profils` (part de `main` `434b292`) | `js/engine-user.js` (format v2, migration, profils), `js/engine-training.js` (D3), `docs/FORMAT_DONNEES.md`, `docs/CHECKLIST_PHASE3B.md`, `docs/PROMPT_PHASE3C.md` |
-| 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) — **à vérifier avec `docs/CHECKLIST_PHASE3C.md` avant 3D** | `claude/eloquent-goldberg-l5gn8b` (branche imposée par la session ; part de `main` `b165012`) | `js/engine-sync.js`, `Acct` et `RULES` dans `js/app.js`, `tests/synchro.js`, `tests/faux-firestore.js`, `tests/regles/run.js`, `tests/e2e/faux-firebase.js`, `docs/FORMAT_DONNEES.md` (section 5), `docs/CHECKLIST_PHASE3C.md`, `docs/PROMPT_PHASE3D.md` |
-| 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | À faire | — | — |
+| 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2), **fusionnée dans `main`** (pull request n° 13, `d94a720`) | `claude/eloquent-goldberg-l5gn8b` (branche imposée par la session ; part de `main` `b165012`) | `js/engine-sync.js`, `Acct` et `RULES` dans `js/app.js`, `tests/synchro.js`, `tests/faux-firestore.js`, `tests/regles/run.js`, `tests/e2e/faux-firebase.js`, `docs/FORMAT_DONNEES.md` (section 5), `docs/CHECKLIST_PHASE3C.md`, `docs/PROMPT_PHASE3D.md` |
+| 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) — **à vérifier avec `docs/CHECKLIST_PHASE3D.md` avant 3E** | `claude/phase-3d-charges-regles-q5qo4n` (branche imposée par la session ; part de `main` `d94a720`) | `histSave` (`engine-user.js`), `refFor`, `s8Load`, `rirFor`, `progressBW` (`engine-training.js`), `logVolume`, `plateauInfo`, `levelSuggest` (`engine-analytics.js`), écran « Modifier / Ajouter une séance passée » (`app.js`), `docs/REGLES_SPORTIVES.md`, `docs/PROPOSITIONS_PROGRAMMES.md`, `tools/propositions-programmes.js`, `docs/CHECKLIST_PHASE3D.md`, `docs/PROMPT_PHASE3E.md` |
 | 3E — Expérience de séance, iPad (U1, U2, U3, U5) **puis**, si validé, programmes (S2/S3) | À faire | — | — |
 | 4 — Tests complets | À faire | — | — |
 | 5 — Validation et documentation | À faire | — | — |
@@ -23,9 +23,56 @@ Le détail de chaque session (contenu, taille, critères « terminé », tests) 
 
 ## Version du code de l’appli
 
-- Version dans `main` : commit `b165012` (phase 3B et sa correction « même séance reproposée », fusionnées par la pull request n° 12).
-- Version de développement : branche `claude/eloquent-goldberg-l5gn8b` (phase 3C), **pas encore fusionnée** : la fusion attend l’accord du propriétaire.
+- Version dans `main` : commit `d94a720` (phase 3C, fusionnée par la pull request n° 13 ; avant : 3B, pull request n° 12).
+- Version de développement : branche `claude/phase-3d-charges-regles-q5qo4n` (phase 3D), **pas encore fusionnée** : la fusion attend l’accord du propriétaire.
 - Attention : dans un clone, la branche locale `main` peut être périmée ; comparer avec `origin/main`. GitHub signale que le dépôt s’appelle désormais `06quentin03-pixel/Fonte` (l’ancienne adresse redirige).
+
+## Phase 3D — résumé (6 nov. 2026)
+
+Tests au début de la session (sur `main` `d94a720`) : `node tests/run.js` → **127 réussis, 0 en échec** ; `node tests/e2e/run.js` → **66 réussis, 0 en échec**. (La session a redémarré une fois en cours de route ; rien n’a été perdu, le travail a repris là où il était.)
+
+**Partie 1 — charges et historique** (commit `6003655`) :
+- **S1-b (usage)** : `refFor` — la charge proposée part de la référence de la **même zone de répétitions** (force ≤ 6, muscle 7–12, endurance ≥ 13) ; sans référence dans la zone, de la dernière performance, convertie si l’écart est d’au moins 3 (S1-a). Le squat progresse séparément à 5 et à 10 répétitions.
+- **S8** : `s8Load` — 1 ou 2 répétitions de moins que la référence (palier 4 : 10 → 8) → conversion Epley sans marge, arrondie vers le bas, jamais sous la progression normale (100 kg × 10 → 105 kg × 8).
+- **D4** : Accueil › Dernières séances › une séance › **Modifier** (date, heure, durée, ressenti, séries, charges, répétitions, ajouter/retirer une série ou un exercice) et **Ajouter une séance passée** (pré-remplie d’après une séance du programme, une séance perso ou une séance type). `histSave` (`engine-user.js`, testable en Node) : `upd` = maintenant + marque `ed` (ajout : `rid()`, `ts` = date choisie, `upd` = maintenant, `ajout`), références recalculées avant/après, palier compté pour un ajout, records recalculés pour la séance et les suivantes (qui reçoivent `upd` et repartent en ligne), volume recalculé ; puis `commit("p")`. Synchro suspendue pendant la saisie. Les séances résumées ne se modifient pas.
+- **D10** : `logVolume` — 2 haltères comptés, assistance non comptée (anciens volumes inchangés).
+- **S9** : point en creux et mention « estimation peu fiable au-delà de 10 répétitions » sous la courbe du 1RM estimé.
+
+**Partie 2 — règles sportives** (commit `126d86b`) :
+- **S5** (décision 3) : `rirFor` — cible « garde N répétitions en réserve » (tableau de `docs/REGLES_SPORTIVES.md`, choix prudents dans les fourchettes du plan) ; **aucun échec chez le débutant** ; dernière série à l’échec seulement au niveau avancé, exercices sans risque ; semaine allégée et reprise à 3. Affichée dans la séance et le détail des séances ; la cible est enregistrée dans chaque série (`rt`) et la progression en tient compte (2 répétitions plus près de l’échec que prévu → même charge).
+- **S6** : `progressBW` — poids du corps et gainage : +1/+2 répétitions ou +5/+10 s, plafonné au haut de la fourchette (+5 reps, × 1,5), puis « passe à la version plus dure » après 2 séances en haut. Le gainage voit sa durée proposée augmenter.
+- **S7** : `plateauInfo` — moyennes d’au moins 3 pesées (7 derniers jours contre la semaine d’il y a 3 semaines) ; sinon invitation à se peser plus souvent, sans cardio ajouté.
+- **S4** (décision 4) : le niveau ne change **plus jamais seul** ; carte « Tu pourrais passer au niveau … » (3 critères : ~6 mois réguliers, progression devenue lente, 3 paliers ; 2 ans et 6 paliers pour avancé), « Passer » / « Plus tard » (4 semaines). Charges réelles gardées. Un passage automatique d’avant 3D déjà enregistré est respecté quand l’historique est rejoué.
+- **S10** : en mode simple, « C’était : Facile / Juste / Très dur » → réserve 3 / 1 / 0.
+- `docs/REGLES_SPORTIVES.md` (chaque règle, sa source, ce qui est un choix prudent) ; ACSM 2026 vérifiée sur la présentation officielle et des résumés (⚠️, texte complet non lu).
+- `docs/PROPOSITIONS_PROGRAMMES.md` : **propositions seulement** (P1 à P10, à cocher), annexe des 75 combinaisons générée par `tools/propositions-programmes.js`. Aucun programme modifié.
+- `sw.js` : `VERSION = "fonte-2026-11-06-charges-historique"`.
+
+**Photographie des programmes** : refaite **une seule fois**, pour S5. Vérification avant de la refaire (script de comparaison avec la photographie de 3C) : sur 15 750 séances comparées, **0 différence** en dehors des champs `rir`, `rirLast`, `echec` et des notes sur l’échec et la réserve. Séries à l’échec : 19 167 → 6 674, dont 0 chez les débutants. Un nouveau test garde cette preuve en permanence (empreinte SHA-256 des programmes de 3C sans ces champs).
+
+**Décisions prises pendant la session (expliquées simplement)** :
+- **Pas de changement de format** : les nouveautés des séances (`ed`, `ajout`, `rt`) sont des champs facultatifs à l’intérieur de la séance ; le document en ligne garde la même forme et le format reste en version 2. Une version 3C qui reçoit une séance corrigée la remplace normalement (son `upd` est plus récent) et ignore ces champs. Vérifié : la validation des séances reçues (`csSeOk`) ne regarde que l’identifiant, la date et le journal.
+- **Séance d’avant 3B corrigée** : si la référence v1 venait de cette séance, elle n’est plus utilisée (sinon corriger 600 → 60 kg n’aurait rien changé à la charge proposée) ; la copie v1 elle-même n’est jamais modifiée.
+- **Records** : corriger une séance peut rendre un record à une séance suivante (ou le lui retirer) ; ces séances sont mises à jour et repartent en ligne. Même chose après « Supprimer de l’historique ».
+- **S8 sans marquer les séances** : la règle s’applique dès que la séance vise 1 ou 2 répétitions de moins que la référence (pas seulement au palier 4), pour ne pas toucher à la photographie des programmes.
+- **Accepter un niveau** ajoute une ligne au bilan (`man: 1`) et repart au palier 1, comme l’ancien passage automatique.
+
+**Tests adaptés (imposés par les décisions 3, 4 et S7)** : dans `tests/run.js`, « débutant → intermédiaire automatiquement après 3 paliers » devient « le niveau ne change plus seul, même après 120 séances » ; « plateau : poids stable sur 3 semaines » (2 pesées) devient le test des moyennes (cas du plan : 70 → 69,8 avec 2 pesées, baisse puis pesée haute, vraie stagnation). La photographie (`tests/fixtures/programmes.json`) est refaite pour S5 (voir plus haut). `tests/charger.js` expose `csSeOk`, `HE_MAX`, `ECH`. Rien d’autre ne change dans les tests existants.
+
+**Résultats des tests (fin de session, réellement exécutés, sur `126d86b`)** :
+- `node tests/run.js` → **143 réussis, 0 en échec** (127 d’avant, dont 2 adaptés + 16 nouveaux : S1-b ×2, S8 (dont toutes les combinaisons au palier 4), D10, S9, D4 ×4 (600 → 60 kg : référence, courbe, records, upd ; séance d’avant 3B ; date et séries ; séance ajoutée), S5 ×3 (empreinte, tableau sur toutes les combinaisons, semaine allégée), réserve dans `progress`, S6, S4, et en synchro : **séance corrigée sur un appareil → corrigée sur l’autre**, références, records et palier identiques, puis séance passée ajoutée sur l’autre appareil).
+- `node tests/e2e/run.js` → **76 réussis, 0 en échec** (38 tests × iPhone 13 et iPad Pro 11 : les 33 d’avant + D4 correction 600 → 60 kg, D4 séance passée + S9, S5 débutante, S10 mode simple, S4 Plus tard / Passer).
+- Règles Firestore avec l’émulateur Firebase (firebase-tools 15.35.0, Java 21) → **9 réussis, 0 en échec** (règles inchangées en 3D).
+- GitHub Actions : exécution n° 60 (partie 1, `6003655`) et n° 61 (fin de session, `b923d78`) **réussies**, tâches « tests », « navigateur » et « regles ».
+- Non testé (impossible ici) : vrai Safari, vrais iPhone/iPad, vraie base Firebase → `docs/CHECKLIST_PHASE3D.md`.
+
+**Points ouverts notés pendant 3D** (non corrigés, hors périmètre ou à décider) :
+- Le compteur de séances ratées (`fails`) d’une référence reste calculé tous zones confondues (il demande la même charge, donc l’effet est rare).
+- Une séance ajoutée avec une charge très ancienne ne remplace pas une référence plus récente (voulu) ; une séance ajoutée à une date plus récente que la dernière devient la référence.
+- Modifier une séance ne change pas le palier (même si sa date change) ; une séance ajoutée compte pour le palier, à la date choisie.
+- Les mesures (poids) ne sont pas modifiables, seulement ajoutées ou supprimées (comportement d’origine).
+- Le programme à 1 jour n’est pas couvert par les propositions (le plan demandait 2 à 6 jours).
+- Epley et LeSuer 1997 restent à revérifier en ligne (❌ dans `docs/REGLES_SPORTIVES.md`).
 
 ## Phase 3C — résumé (6 nov. 2026)
 
@@ -169,15 +216,15 @@ Décisions techniques : 4 moteurs en fichiers séparés sans outil de constructi
 
 ## Décisions en attente
 
-Aucune bloquante. **Accord attendu : fusion de la branche 3C (`claude/eloquent-goldberg-l5gn8b`) dans `main`.** À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; validation des propositions de programmes (fin de 3D) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
+Aucune bloquante. **Accord attendu : fusion de la branche 3D (`claude/phase-3d-charges-regles-q5qo4n`) dans `main`.** **Réponses attendues : propositions P1 à P10 de `docs/PROPOSITIONS_PROGRAMMES.md`** (✅ / ❌ / ❓), avant 3E. À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
 
 ## Problèmes ouverts connus
 
-Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi). **Corrigés en 3B** : D8 (migration réelle v1 → v2), U4 (profils), S1-b (format : références par zone ; usage en 3D), D3. **Corrigés en 3C** (à vérifier sur les téléphones) : D1 (sauvegarde en ligne récupérable après perte ou réinstallation), D7 (conflits entre appareils), D9 (données personnelles en ligne protégées par compte et règles).
+Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi). **Corrigés en 3B** : D8 (migration réelle v1 → v2), U4 (profils), S1-b (format : références par zone ; usage en 3D), D3. **Corrigés en 3C** (à vérifier sur les téléphones) : D1 (sauvegarde en ligne récupérable après perte ou réinstallation), D7 (conflits entre appareils), D9 (données personnelles en ligne protégées par compte et règles). **Corrigés en 3D** (à vérifier sur les téléphones) : S1-b (usage), S8, D4, D10, S9, S5, S6, S7, S4, S10 ; S2/S3 : propositions écrites, non appliquées.
 
 ## Prochaine étape
 
-1. Le propriétaire lit ce résumé et donne (ou non) son accord pour fusionner `claude/eloquent-goldberg-l5gn8b` dans `main` (GitHub › Pull requests › New pull request › base `main` ← `claude/eloquent-goldberg-l5gn8b` › Create › Merge).
-2. **Avant la mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3C.md` : console Firebase (activer « Adresse e-mail/Mot de passe »), un compte par profil, **puis** publier les nouvelles règles, réinstallation d’un appareil de test, mode avion, corbeille.
-3. Dire à l’autre personne que l’administrateur du projet Firebase peut techniquement voir ses données dans la console (plan 3.1-4).
-4. Seulement ensuite, ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3D.md`.
+1. Le propriétaire lit ce résumé et donne (ou non) son accord pour fusionner `claude/phase-3d-charges-regles-q5qo4n` dans `main` (GitHub › Pull requests › New pull request › base `main` ← `claude/phase-3d-charges-regles-q5qo4n` › Create › Merge).
+2. **Avant la mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3D.md` (corriger une séance 600 → 60 kg et vérifier sur l’autre appareil, ajouter une séance passée, cibles « répétitions en réserve »).
+3. Lire `docs/PROPOSITIONS_PROGRAMMES.md` et cocher P1 à P10.
+4. Seulement ensuite, ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3E.md`, réponses aux propositions collées à la fin.

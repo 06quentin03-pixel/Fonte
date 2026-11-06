@@ -210,14 +210,16 @@ test("progressTick : un palier = 4 semaines de séances, puis palier suivant", (
   const r = G.progressTick(p);
   assert.ok(r.phaseUp && !r.levelUp); assert.strictEqual(r.phase, 2); assert.strictEqual(r.phaseDone, 0); assert.strictEqual(r.per, 12);
 });
-test("progressTick : débutant → intermédiaire automatiquement après 3 paliers, palier remis à 1", () => {
-  let p = Object.assign({}, P_F, { jours: 3, planJours: [0, 2, 4] }), up = null;
-  for (let k = 0; k < 36; k++) { const r = G.progressTick(p); if (r.levelUp) up = k + 1; p = Object.assign(p, r); }
-  assert.strictEqual(up, 36); assert.strictEqual(p.niveau, "intermediaire"); assert.strictEqual(p.phase, 1);
+test("progressTick (adapté en 3D, S4 — décision 4) : le niveau ne change plus seul, même après 36 séances ou plus", () => {
+  let p = Object.assign({}, P_F, { phase: 1, phaseDone: 0, jours: 3 }), up = 0;
+  for (let k = 0; k < 120; k++) { const r = G.progressTick(p); if (r.levelUp) up++; p = Object.assign(p, r); }
+  assert.strictEqual(up, 0); assert.strictEqual(p.niveau, "debutant"); assert.strictEqual(p.phase, 11, "les paliers continuent");
   const a = Object.assign({}, P_H, { niveau: "avance", phase: 9, phaseDone: 11, jours: 3 });
   const r = G.progressTick(a); assert.strictEqual(r.niveau, "avance"); assert.strictEqual(r.phase, 10);
-});
-test("paliers : une série de plus au palier 2, exercices plus durs au palier 3, plus lourd au palier 4", () => {
+  /* rejouer un passage automatique d'avant 3D enregistré dans les bilans : seul cas où progressTick change le niveau */
+  const b = G.progressTick(Object.assign({}, P_F, { phase: 3, phaseDone: 11, jours: 3 }), { up: "intermediaire" });
+  assert.ok(b.levelUp); assert.strictEqual(b.niveau, "intermediaire"); assert.strictEqual(b.phase, 1);
+});test("paliers : une série de plus au palier 2, exercices plus durs au palier 3, plus lourd au palier 4", () => {
   const t = G.TPL_BY_ID["fb-halteres"], p1 = G.prescribe(t, P_H), p2 = G.prescribe(t, Object.assign({}, P_H, { phase: 2 })), p4 = G.prescribe(t, Object.assign({}, P_H, { phase: 4 }));
   assert.strictEqual(p2.items[0].series, Math.min(5, p1.items[0].series + 1), "série en plus sur un gros exercice");
   assert.strictEqual(p2.items[p2.items.length - 1].series, p1.items[p1.items.length - 1].series, "gainage inchangé");
@@ -246,13 +248,15 @@ test("cardio en plus pour la perte de poids, plafonné à 15 min", () => {
   assert.strictEqual(tot(G.prescribe(t, Object.assign({}, P, { cardioPlus: 40 }))) - tot(G.prescribe(t, P)), 900);
   assert.strictEqual(tot(G.prescribe(t, Object.assign({}, P_H, { cardioPlus: 5 }))), tot(G.prescribe(t, P_H)), "objectif muscle : pas de cardio en plus");
 });
-test("plateau : poids stable sur 3 semaines", () => {
-  assert.ok(G.plateau([{ date: "2026-03-01", poids: 80 }, { date: "2026-03-18", poids: 79.9 }], "2026-03-20"));
-  assert.ok(!G.plateau([{ date: "2026-03-01", poids: 80 }, { date: "2026-03-18", poids: 79 }], "2026-03-20"), "en baisse");
-  assert.ok(!G.plateau([{ date: "2026-03-10", poids: 80 }, { date: "2026-03-18", poids: 80 }], "2026-03-20"), "moins de 14 jours");
-  assert.ok(!G.plateau([{ date: "2026-03-18", poids: 80 }], "2026-03-20"));
+test("plateau (adapté en 3D, S7) : moyennes d'au moins 3 pesées, pas deux pesées isolées", () => {
+  const T = "2026-03-28", w = (from, vals) => vals.map((v, k) => ({ date: G.isoAdd(T, from + k), poids: v }));
+  assert.ok(!G.plateau([{ date: G.isoAdd(T, -21), poids: 70 }, { date: T, poids: 69.8 }], T), "70 → 69,8 avec 2 pesées : pas de plateau");
+  assert.ok(G.plateauInfo([{ date: G.isoAdd(T, -21), poids: 70 }, { date: T, poids: 69.8 }], T).few, "pas assez de pesées : invitation à se peser plus souvent");
+  assert.ok(!G.plateau(w(-27, [70.4, 70.2, 70]).concat(w(-6, [69.4, 69.0, 70])), T), "baisse réelle puis une pesée haute : pas de plateau");
+  assert.ok(G.plateau(w(-27, [70.1, 69.9, 70]).concat(w(-6, [70, 69.9, 70.2])), T), "vraie stagnation : plateau");
+  assert.ok(!G.plateau(w(-27, [71, 71.2, 70.8]).concat(w(-6, [70.3, 70.1, 70.4])), T), "baisse de 0,7 kg en moyenne");
+  assert.ok(!G.plateauInfo([], T).few && !G.plateau([], T));
 });
-
 console.log("Progression");
 test("e1rm (Epley)", () => {
   near(G.e1rm(1, 100), 100); near(G.e1rm(10, 75), 100); assert.strictEqual(G.e1rm(0, 80), 0); assert.strictEqual(G.e1rm(5, 0), 0);
@@ -408,6 +412,64 @@ test("progress : 3 répétitions ou plus en réserve → deux crans", () => {
 test("progress : une réserve normale ne change rien", () => {
   const sg = G.progress("squat-barre", { sets: [{ r: 8, kg: 60, rir: 2 }, { r: 8, kg: 60, rir: 1 }], target: 8 });
   assert.strictEqual(sg.why, "up"); assert.strictEqual(sg.next, 62.5);
+});
+test("S5 : progress tient compte de la cible de réserve (rirT)", () => {
+  const lp = (rir, rt) => ({ sets: [{ r: 8, kg: 60, rir }, { r: 8, kg: 60, rir }], target: 8, rirT: rt });
+  assert.strictEqual(G.progress("squat-barre", lp(1, 3)).why, "limit", "cible 3, fini à 1 : plus dur que prévu, on garde");
+  assert.strictEqual(G.progress("squat-barre", lp(2, 3)).why, "up", "cible 3, fini à 2 : écart normal");
+  assert.strictEqual(G.progress("squat-barre", lp(3, 2)).why, "up", "cible 2, 3 et + : un cran seulement");
+  assert.strictEqual(G.progress("squat-barre", lp(3, 1)).why, "up2", "cible 1, 3 et + : c'était facile");
+  assert.strictEqual(G.progress("squat-barre", lp(0, 1)).why, "limit");
+  const st = {}, refs = {}; G.refStep(st, refs, { id: "a", date: "2026-10-01", ts: 1, log: [{ id: "squat-barre", sets: [{ r: 8, kg: 60, t: 8, rt: 2, rir: 2 }] }] });
+  assert.strictEqual(st["squat-barre"].rirT, 2, "cible de réserve gardée dans la référence");
+});
+test("S6 : progress(\"pompes\", 3 × 15) et progress(\"planche\", 45 s) renvoient un conseil", () => {
+  const p = G.progress("pompes", { sets: [{ r: 15 }, { r: 15 }, { r: 15 }], target: 15, base: 15 });
+  assert.ok(p && p.bw); assert.strictEqual(p.why, "reps"); assert.strictEqual(p.reps, 16);
+  assert.strictEqual(G.progress("pompes", { sets: [{ r: 15, rir: 3 }], target: 15, base: 15 }).reps, 17, "facile : +2");
+  assert.strictEqual(G.progress("pompes", { sets: [{ r: 15 }, { r: 12 }], target: 15 }).why, "hold", "cible manquée");
+  const t = G.progress("planche", { sets: [{ d: 45 }, { d: 45 }], target: 45, base: 45 });
+  assert.ok(t && t.bw); assert.strictEqual(t.why, "time"); assert.strictEqual(t.duree, 50);
+  assert.strictEqual(G.progress("planche", { sets: [{ d: 45 }], target: 45, feel: 1 }).duree, 55);
+  /* haut de la fourchette (15 + 5) atteint 2 séances de suite → version plus dure */
+  const top = { sets: [{ r: 20 }, { r: 20 }], target: 20, base: 15 };
+  assert.strictEqual(G.progress("pompes", top).why, "top", "une seule fois : on reste en haut");
+  const h = G.progress("pompes", top, { sets: [{ r: 20 }], target: 19 }); assert.strictEqual(h.why, "harder"); assert.strictEqual(h.harder, "pompes-declinees");
+  assert.strictEqual(G.progress("planche", { sets: [{ d: 70 }], target: 45, base: 45 }, { sets: [{ d: 70 }] }).harder, "hollow");
+  assert.strictEqual(G.progress("pompes", { sets: [{ r: 19 }], target: 19, base: 15 }).reps, 20, "plafonné au haut de la fourchette");
+  /* l'historique fournit la séance précédente */
+  const hist = [{ id: "a", ts: 1, date: "2026-10-01", log: [{ id: "pompes", sets: [{ r: 12, t: 12 }] }] }, { id: "b", ts: 2, date: "2026-10-03", log: [{ id: "pompes", sets: [{ r: 13, t: 13 }], b: 12 }] }];
+  const hp = G.histPerfs(hist, "pompes", 2); assert.strictEqual(hp.length, 2); assert.strictEqual(hp[0].target, 13); assert.strictEqual(hp[0].base, 12);
+});
+test("S4 : passage de niveau proposé quand les 3 critères sont réunis, jamais automatique ; « Plus tard » ; accepter garde les charges", () => {
+  const T = "2026-11-06", hist = [];
+  /* 30 semaines, 3 séances par semaine, squat qui progresse puis stagne */
+  for (let w = 30; w >= 1; w--) for (let k = 0; k < 3; k++) {
+    const date = G.isoAdd(G.isoMon(T), -7 * w + k * 2), n = (30 - w) * 3 + k;
+    const kg = Math.min(80, 40 + n * 2.5);
+    hist.push({ id: "h" + n, date, ts: new Date(date).getTime(), kind: "muscu", log: ["squat-barre", "dc-barre", "rowing-barre"].map(id => ({ id, sets: [{ r: 8, kg }] })) });
+  }
+  const p = { niveau: "debutant", jours: 3, phase: 2, phaseDone: 3, phases: [{ n: 1, niv: "debutant" }, { n: 2, niv: "debutant" }, { n: 3, niv: "debutant" }] };
+  const s = G.levelSuggest(p, hist, T);
+  assert.ok(s.ok, JSON.stringify(s.checks)); assert.strictEqual(s.to, "intermediaire");
+  assert.ok(!G.levelSuggest(Object.assign({}, p, { phases: p.phases.slice(0, 2) }), hist, T).ok, "moins de 3 paliers");
+  assert.ok(!G.levelSuggest(p, hist.slice(-40), T).ok, "moins de 6 mois");
+  const prog = hist.map((h, i) => Object.assign({}, h, { log: h.log.map(l => ({ id: l.id, sets: [{ r: 8, kg: 40 + i * 2.5 }] })) }));
+  assert.ok(!G.levelSuggest(p, prog, T).checks[1].ok, "charges qui montent encore à chaque séance");
+  assert.ok(!G.levelSuggest(Object.assign({}, p, { levelAsk: { niv: "intermediaire", until: "2026-12-04" } }), hist, T).ok, "Plus tard");
+  assert.ok(G.levelSuggest(Object.assign({}, p, { levelAsk: { niv: "intermediaire", until: "2026-11-01" } }), hist, T).ok, "revient après la date");
+  assert.strictEqual(G.levelSuggest(Object.assign({}, p, { niveau: "avance" }), hist, T), null);
+  const q = G.levelAccept(p, "intermediaire", T);
+  assert.strictEqual(q.niveau, "intermediaire"); assert.strictEqual(q.phase, 1); assert.strictEqual(q.phaseDone, 0); assert.strictEqual(q.simple, true);
+  same(q.phases[q.phases.length - 1], { n: 2, niv: "debutant", from: T, to: T, up: "intermediaire", man: 1 });
+  assert.strictEqual(p.niveau, "debutant", "profil d'origine non modifié");
+  /* les charges réelles sont gardées : la référence de zone sert toujours (pas d'estimation × 1,45) */
+  const refs = { "dc-barre": { muscle: { sets: [{ r: 8, kg: 50 }], target: 8 } } };
+  assert.strictEqual(G.progress("dc-barre", G.refFor(refs, {}, "dc-barre", 10)).next, 52.5);
+  /* rejouer l'historique ne fait plus passer de niveau tout seul, mais respecte un passage d'avant 3D enregistré */
+  const r1 = G.replayProgress(hist, { niveau: "debutant", jours: 3, phases: [] }); assert.strictEqual(r1.niveau, "debutant");
+  const r2 = G.replayProgress(hist, { niveau: "intermediaire", jours: 3, phases: [{ n: 1, niv: "debutant" }, { n: 2, niv: "debutant" }, { n: 3, niv: "debutant", up: "intermediaire" }] });
+  assert.strictEqual(r2.niveau, "intermediaire"); assert.strictEqual(r2.phases[2].up, "intermediaire");
 });
 test("altsFor : mêmes muscles principaux, même façon de compter, exclusions respectées", () => {
   ["presse-cuisses", "dc-barre", "tirage-vertical", "curl-halteres", "planche"].forEach(id => {
@@ -613,6 +675,38 @@ test("programmes identiques à la photographie (objectifs × niveau × jours × 
     a.seances.forEach((i, n) => assert.strictEqual(cur.seances[b.seances[n]], ref.seances[i], k + " : séance " + a.ids[n] + " modifiée"));
   });
   console.log("        (" + keys.length + " programmes, " + ref.seances.length + " séances différentes)");
+});
+
+test("S5 : hors cibles de répétitions en réserve et échec, les programmes sont identiques à ceux de la phase 3C (empreinte)", () => {
+  /* empreinte calculée sur la photographie de 3C (commit d94a720) une fois retirés rir, rirLast, echec et les notes sur l'échec et la réserve */
+  const cur = require("./photo-programmes").photo(G), NOTE = /échec|réserve/;
+  const strip = j => { const o = JSON.parse(j); o.items.forEach(it => { delete it.rir; delete it.rirLast; delete it.echec; }); o.notes = o.notes.filter(n => !NOTE.test(n)); return JSON.stringify(o); };
+  const txt = Object.keys(cur.programmes).sort().map(k => { const a = cur.programmes[k]; return k + "=" + JSON.stringify([a.ids, a.objs, a.offsets]) + a.seances.map(i => strip(cur.seances[i])).join("|"); }).join("\n");
+  assert.strictEqual(require("crypto").createHash("sha256").update(txt).digest("hex"), "d5b782b511a0c2ee9eaa7de56099e723f11c8b10d5a9912ca49a194f1bf8bd70");
+});
+test("S5 : aucune série à l'échec pour un débutant ; cibles de réserve conformes au tableau (plan 9.3) sur toutes les combinaisons", () => {
+  const cur = require("./photo-programmes").photo(G); let n = 0;
+  Object.keys(cur.programmes).forEach(k => {
+    const niv = k.split(" · ")[1], ph = +k.match(/palier (\d)/)[1];
+    cur.programmes[k].seances.forEach(i => { const se = JSON.parse(cur.seances[i]); se.items.forEach(it => {
+      const e = G.EX_BY_ID[it.id];
+      if (e.t === "t" || it.duree > 0) { assert.ok(it.rir == null && !it.echec, k + " : " + it.id + " chronométré sans échec ni réserve"); return; }
+      if (se.mode === "circuit") { assert.ok(!it.echec); return; }
+      if (it.rir == null) return; n++;
+      if (niv === "debutant") { assert.ok(!it.echec, k + " : échec chez un débutant (" + it.id + ")"); assert.ok(it.rir === 2 || (it.rir === 3 && ph === 1), k + " " + it.id + " rir " + it.rir); assert.strictEqual(it.rirLast, undefined); }
+      if (niv === "intermediaire") { assert.ok(!it.echec); assert.ok([1, 2].indexOf(it.rir) >= 0); if (it.rirLast != null) { assert.strictEqual(it.rirLast, 1); assert.ok(ph >= 4); } }
+      if (niv === "avance") { assert.ok([1, 2].indexOf(it.rir) >= 0); if (it.echec) assert.ok(G.ECH.has(it.id) && it.rirLast === 0); }
+    }); });
+  });
+  assert.ok(n > 10000, n + " exercices vérifiés");
+  same(G.rirFor(G.EX_BY_ID["squat-barre"], "C", 1, 1), { rir: 3 }); same(G.rirFor(G.EX_BY_ID["squat-barre"], "C", 1, 2), { rir: 2 });
+  same(G.rirFor(G.EX_BY_ID["leg-extension"], "I", 1, 1), { rir: 2 }); same(G.rirFor(G.EX_BY_ID["pompes"], "C", 2, 1), { rir: 1 });
+  same(G.rirFor(G.EX_BY_ID["squat-barre"], "C", 2, 4), { rir: 2, rirLast: 1 }); same(G.rirFor(G.EX_BY_ID["leg-extension"], "I", 3, 1), { rir: 1, rirLast: 0, echec: 1 });
+  same(G.rirFor(G.EX_BY_ID["curl-halteres"], "I", 2, 1), { rir: 1 }, "isolation aux haltères = isolation"); assert.strictEqual(G.rirFor(G.EX_BY_ID["planche"], "G", 1, 1), null);
+});
+test("S5 : semaine allégée → 3 répétitions en réserve partout, pas d'échec", () => {
+  const se = G.deloadSe({ mode: "series", items: [{ id: "leg-extension", series: 3, reps: 12, charge: 40, rir: 1, rirLast: 0, echec: 1 }] });
+  assert.strictEqual(se.items[0].rir, 3); assert.strictEqual(se.items[0].rirLast, undefined); assert.strictEqual(se.items[0].echec, 0);
 });
 
 console.log("Format des données v2 et migration v1 → v2 (D8, 3B)");
@@ -950,6 +1044,141 @@ test("D3 : palier incohérent avec l'historique (jours changés, ancienne suppre
   const q0 = G.rebuildProgress(hist.slice(1), Object.assign({}, p, { phaseDone: 0 }), hist[0]);
   assert.strictEqual(q0.phase, 1, "palier précédent rouvert"); assert.strictEqual(q0.phases.length, 0); assert.strictEqual(q0.phaseStart, "2026-01-10");
   same(G.rebuildProgress(hist.slice(1), p, Object.assign({}, hist[0], { kind: "mob" })), p, "séance de mobilité : palier inchangé");
+});
+
+console.log("Charges et historique (S1-b usage, S8, D4, D10, S9 — phase 3D)");
+test("S1-b : en force + muscle, le squat progresse séparément à 5 et à 10 répétitions (référence de la zone)", () => {
+  const f = { d: "2026-10-01", ts: 1, sets: [{ r: 5, kg: 100 }, { r: 5, kg: 100 }], target: 5, base: 5, feel: 2, fails: 0 };
+  const m = { d: "2026-10-03", ts: 2, sets: [{ r: 10, kg: 80 }, { r: 10, kg: 80 }], target: 10, base: 10, feel: 2, fails: 0 };
+  const refs = { "squat-barre": { force: f, muscle: m } }, lastPerf = { "squat-barre": m };
+  assert.strictEqual(G.refFor(refs, lastPerf, "squat-barre", 5), f, "5 reps → référence force");
+  assert.strictEqual(G.refFor(refs, lastPerf, "squat-barre", 10), m, "10 reps → référence muscle");
+  assert.strictEqual(G.progress("squat-barre", G.refFor(refs, lastPerf, "squat-barre", 5)).next, 102.5);
+  assert.strictEqual(G.progress("squat-barre", G.refFor(refs, lastPerf, "squat-barre", 10)).next, 82.5);
+  /* pas de référence dans la zone : la dernière performance, convertie si l'écart est grand (S1-a) */
+  const only = { "squat-barre": { force: f } };
+  assert.strictEqual(G.refFor(only, { "squat-barre": f }, "squat-barre", 10), f);
+  assert.strictEqual(G.convertLoad("squat-barre", f, 10, 20), 82.5);
+  assert.strictEqual(G.refFor({}, {}, "squat-barre", 10), null);
+  assert.strictEqual(G.refFor(refs, lastPerf, "planche", 0), null);
+});
+test("S1-b : refStep range chaque séance dans sa zone, et la charge proposée suit la bonne zone", () => {
+  const lp = {}, refs = {};
+  G.refStep(lp, refs, { id: "a", date: "2026-10-01", ts: 1, log: [{ id: "squat-barre", sets: [{ r: 5, kg: 100, t: 5 }] }] });
+  G.refStep(lp, refs, { id: "b", date: "2026-10-02", ts: 2, log: [{ id: "squat-barre", sets: [{ r: 10, kg: 80, t: 10 }] }] });
+  assert.strictEqual(G.refFor(refs, lp, "squat-barre", 5).sets[0].kg, 100);
+  assert.strictEqual(G.refFor(refs, lp, "squat-barre", 12).sets[0].kg, 80);
+});
+test("S8 : au palier 4 (10 → 8 reps), la charge proposée est au moins celle du palier 3, convertie par le 1RM estimé", () => {
+  const ref = { sets: [{ r: 10, kg: 100 }, { r: 10, kg: 100 }, { r: 10, kg: 100 }], target: 10, base: 10 };
+  const sg = G.progress("squat-barre", ref);
+  assert.strictEqual(sg.next, 102.5, "palier 3 : progression normale");
+  const v = G.s8Load("squat-barre", ref, 8, sg, 20);
+  assert.ok(v >= sg.next, "jamais moins que la progression normale");
+  assert.strictEqual(v, 105, "100 kg × (1 + 10/30) / (1 + 8/30) = 105,3 → 105 kg");
+  /* petite charge : la progression normale reste au-dessus */
+  const r2 = { sets: [{ r: 10, kg: 60 }], target: 10 }; assert.strictEqual(G.s8Load("squat-barre", r2, 8, G.progress("squat-barre", r2), 20), 62.5);
+  /* pas d'application : séance ratée, même nombre de reps, écart ≥ 3 (S1-a s'en charge), assistance */
+  assert.strictEqual(G.s8Load("squat-barre", { sets: [{ r: 7, kg: 100 }], target: 10 }, 8, G.progress("squat-barre", { sets: [{ r: 7, kg: 100 }], target: 10 }), 20), null);
+  assert.strictEqual(G.s8Load("squat-barre", ref, 10, sg, 20), null);
+  assert.strictEqual(G.s8Load("squat-barre", ref, 6, sg, 20), null);
+  assert.strictEqual(G.s8Load("tractions-assistees", { sets: [{ r: 10, kg: 20 }], target: 10 }, 8, { why: "up", next: 17.5 }, 20), null);
+  /* sur toutes les combinaisons : au palier 4, un gros exercice dont les reps baissent n'est jamais proposé plus léger qu'au palier 3 */
+  let n = 0;
+  ["muscle", "forme"].forEach(o => ["intermediaire", "avance"].forEach(niv => [3, 4].forEach(j => {
+    const p = Object.assign({}, P_H, { objectif: o, objectifs: [o], niveau: niv, jours: j });
+    G.programme(Object.assign({}, p, { phase: 4 })).ids.forEach(id => {
+      const s3 = G.prescribe(G.TPL_BY_ID[id], Object.assign({}, p, { phase: 3 })), s4 = G.prescribe(G.TPL_BY_ID[id], Object.assign({}, p, { phase: 4 }));
+      s4.items.forEach(it => { const a = s3.items.find(x => x.id === it.id); if (!a || !(a.reps > it.reps) || !G.LOAD[it.id]) return;
+        const lp = { sets: [{ r: a.reps, kg: 40 }, { r: a.reps, kg: 40 }], target: a.reps }, sg3 = G.progress(it.id, lp);
+        if (!sg3 || sg3.why !== "up") return;
+        const v4 = G.s8Load(it.id, lp, it.reps, sg3, 20); assert.ok(v4 == null || v4 >= sg3.next, it.id); if (v4 != null) n++; });
+    });
+  })));
+  assert.ok(n > 0, "cas vérifiés");
+});
+test("D10 : volume = répétitions × charge réellement soulevée (2 haltères, barre, assistance non comptée)", () => {
+  assert.strictEqual(G.logVolume([{ id: "dc-halteres", sets: [{ r: 10, kg: 20 }] }]), 400, "2 haltères de 20 kg");
+  assert.strictEqual(G.logVolume([{ id: "rowing-haltere", sets: [{ r: 10, kg: 20 }] }]), 200, "un seul haltère (option S)");
+  assert.strictEqual(G.logVolume([{ id: "squat-barre", sets: [{ r: 5, kg: 100 }, { r: 5, kg: 100 }] }]), 1000, "barre : charge totale");
+  assert.strictEqual(G.logVolume([{ id: "tractions-assistees", sets: [{ r: 8, kg: 30 }] }]), 0, "assistance : pas un poids soulevé");
+  assert.strictEqual(G.logVolume([{ id: "planche", sets: [{ d: 45 }] }, { id: "pompes", sets: [{ r: 15, kg: 0 }] }]), 0);
+  assert.strictEqual(G.exSeries([{ id: "a", date: "2026-10-01", ts: 1, log: [{ id: "dc-halteres", sets: [{ r: 10, kg: 20 }] }] }], "dc-halteres")[0].vol, 400);
+});
+test("S9 : la courbe sait quand le 1RM estimé vient d'une série de plus de 10 répétitions", () => {
+  const pts = G.exSeries([{ id: "a", date: "2026-10-01", ts: 1, log: [{ id: "squat-barre", sets: [{ r: 15, kg: 60 }, { r: 5, kg: 70 }] }] },
+    { id: "b", date: "2026-10-02", ts: 2, log: [{ id: "squat-barre", sets: [{ r: 5, kg: 100 }] }] }], "squat-barre");
+  assert.strictEqual(pts[0].rmR, 15, "60 × 15 (1RM 90) > 70 × 5 (81,7)"); assert.strictEqual(pts[1].rmR, 5);
+});
+/* État minimal pour D4 */
+const d4State = () => {
+  const mk = (k, kg) => ({ id: "s" + k, date: "2026-10-0" + (k + 1), ts: new Date(2026, 9, k + 1, 18).getTime(), upd: 100 + k, nom: "Force", kind: "muscu", duree: 3600, kcal: 300, sets: 2, volume: 10 * kg,
+    log: [{ id: "squat-barre", sets: [{ r: 5, kg, t: 5 }, { r: 5, kg, t: 5 }] }, { id: "curl-halteres", sets: [{ r: 10, kg: 10, t: 10 }] }] });
+  const st = G.normState({ profile: { niveau: "intermediaire", jours: 3, phase: 1, phaseDone: 0, phases: [], poids: 80 }, historique: [mk(0, 90), mk(1, 92.5), mk(2, 95), mk(3, 600)].reverse() });
+  const asc = st.historique.slice().reverse();
+  asc.forEach((h, k) => { const pr = G.findRecords(asc.slice(0, k), h.log).map(r => ({ id: r.id, k: r.k, v: r.v })); if (pr.length) h.pr = pr; G.refStep(st.lastPerf, st.refs, h); G.tickApply(st.profile, G.progressTick(st.profile), h.date); });
+  return st;
+};
+test("D4 : corriger 600 → 60 kg corrige la référence, la courbe et les records ; upd et ed posés", () => {
+  const st = d4State(), now = 1800000000000;
+  assert.strictEqual(st.lastPerf["squat-barre"].sets[0].kg, 600);
+  const x = st.historique.find(h => h.id === "s3"), e = jsonOf(x);
+  e.log[0].sets.forEach(s => { s.kg = 60; });
+  const r = G.histSave(st, e, now);
+  assert.ok(r.ok && !r.added); const h = st.historique.find(h => h.id === "s3");
+  assert.strictEqual(h.upd, now, "upd = maintenant"); assert.strictEqual(h.ed, 1);
+  assert.strictEqual(st.lastPerf["squat-barre"].sets[0].kg, 60, "référence corrigée");
+  assert.strictEqual(st.refs["squat-barre"].force.sets[0].kg, 60);
+  assert.strictEqual(G.progress("squat-barre", st.refs["squat-barre"].force).next, 62.5);
+  assert.strictEqual(Math.max.apply(null, G.exSeries(st.historique, "squat-barre").map(p => p.kg)), 95, "courbe : 95 kg au plus");
+  assert.ok(!(h.pr || []).some(p => p.id === "squat-barre"), "plus de record à 60 kg");
+  assert.strictEqual(h.volume, 60 * 10 + 10 * 10 * 2, "volume recalculé (D10)");
+  assert.strictEqual(st.profile.phaseDone, 4, "palier inchangé"); assert.strictEqual(st.historique.length, 4);
+  /* une séance faite après, à 97,5 kg : redevient un record grâce à la correction */
+  const st2 = d4State(); st2.historique.unshift({ id: "s4", date: "2026-10-05", ts: new Date(2026, 9, 5, 18).getTime(), upd: 5, kind: "muscu", nom: "F", log: [{ id: "squat-barre", sets: [{ r: 5, kg: 97.5, t: 5 }] }] });
+  const e2 = jsonOf(st2.historique.find(h => h.id === "s3")); e2.log[0].sets.forEach(s => { s.kg = 60; });
+  const r2 = G.histSave(st2, e2, now);
+  same(r2.changed, ["s4"], "la séance suivante a de nouveaux records");
+  const s4 = st2.historique.find(h => h.id === "s4"); assert.ok(s4.pr.some(p => p.id === "squat-barre" && p.k === "kg" && p.v === 97.5)); assert.strictEqual(s4.upd, now, "elle repartira en ligne");
+  /* rien de changé : rien n'est réécrit */
+  const st3 = d4State(), x3 = st3.historique[1], before = JSON.stringify(st3);
+  const r3 = G.histSave(st3, jsonOf(x3), now); assert.ok(r3.same); assert.strictEqual(JSON.stringify(st3), before);
+});
+test("D4 : séance d'avant 3B (référence v1 issue de la séance à 600 kg) : corrigée, la référence v1 n'est plus utilisée", () => {
+  const st = d4State();
+  st.historique.forEach(h => h.log.forEach(l => l.sets.forEach(s => { delete s.t; })));
+  st.legacyRefs = { "squat-barre": jsonOf(st.lastPerf["squat-barre"]) }; st.legacySrc = { "squat-barre": "s3" };
+  const e = jsonOf(st.historique.find(h => h.id === "s3")); e.log[0].sets.forEach(s => { s.kg = 60; });
+  G.histSave(st, e, 1800000000000);
+  assert.strictEqual(st.lastPerf["squat-barre"].sets[0].kg, 60);
+  assert.strictEqual(st.legacyRefs["squat-barre"].sets[0].kg, 600, "legacyRefs jamais modifiée");
+});
+test("D4 : changer la date, ajouter et retirer des séries, séance vide refusée, séance résumée refusée", () => {
+  const st = d4State(), now = 1800000000000;
+  const e = jsonOf(st.historique.find(h => h.id === "s0")); e.date = "2026-10-06"; e.heure = "07:30"; e.log[0].sets.push({ r: 3, kg: 90 }); e.log.splice(1, 1);
+  const r = G.histSave(st, e, now); assert.ok(r.ok);
+  assert.strictEqual(st.historique[0].id, "s0", "retriée : la plus récente");
+  assert.strictEqual(new Date(st.historique[0].ts).getHours(), 7); assert.strictEqual(st.historique[0].sets, 3);
+  assert.strictEqual(st.lastPerf["squat-barre"].d, "2026-10-06", "référence : la séance déplacée est maintenant la dernière");
+  assert.ok(!st.lastPerf["curl-halteres"] || st.lastPerf["curl-halteres"].d !== "2026-10-06");
+  const v = jsonOf(st.historique[1]); v.log = [{ id: "squat-barre", sets: [{ r: 0, kg: 90 }] }];
+  assert.strictEqual(G.histSave(st, v, now).error, "vide");
+  st.historique[2].c = 1; assert.strictEqual(G.histSave(st, jsonOf(st.historique[2]), now).error, "resume");
+  assert.strictEqual(G.histSave(st, { id: "inconnu", date: "2026-10-01", log: [] }, now).error, "introuvable");
+});
+test("D4 : ajouter une séance passée → identifiant, ts = date choisie, upd = maintenant, palier compté, références et records", () => {
+  const st = d4State(), now = 1800000000000, n0 = st.profile.phaseDone;
+  const r = G.histSave(st, { date: "2026-09-20", heure: "18:00", nom: "Séance faite sans l'appli", kind: "muscu", ref: { k: "t", id: "force-squat" }, duree: 2700, ressenti: 2,
+    log: [{ id: "squat-barre", sets: [{ r: 5, kg: 80 }] }, { id: "planche", sets: [{ d: 60 }] }] }, now);
+  assert.ok(r.ok && r.added); const h = r.entry;
+  assert.ok(typeof h.id === "string" && h.id.length >= 8); assert.strictEqual(h.ts, new Date(2026, 8, 20, 18).getTime()); assert.strictEqual(h.upd, now);
+  assert.strictEqual(h.ed, undefined); assert.strictEqual(h.ajout, 1); same(h.ref, { k: "t", id: "force-squat" });
+  assert.strictEqual(st.profile.phaseDone, n0 + 1, "compte pour le palier");
+  assert.strictEqual(st.historique[st.historique.length - 1].id, h.id, "rangée à sa date (la plus ancienne)");
+  assert.strictEqual(st.lastPerf["squat-barre"].sets[0].kg, 600, "plus ancienne : ne remplace pas la référence récente");
+  assert.ok(G.csSeOk(h), "valide pour la synchro"); assert.strictEqual(h.kcal > 0, true); assert.strictEqual(h.duree, 2700);
+  /* la séance suivante (90 kg) n'est plus la première fois : elle devient un record */
+  assert.ok(st.historique.find(x => x.id === "s0").pr.some(p => p.id === "squat-barre"));
 });
 
 console.log("Fichiers de l'appli et hors ligne");

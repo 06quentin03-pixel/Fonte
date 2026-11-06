@@ -11,7 +11,7 @@ const NAMES = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "
   "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf",
   "isAssist", "clone", "LS", "DEF", "DEF_PROFILE", "isObj", "CONV_GAP", "CONV_MARGIN", "BK_SESSIONS", "BK_DAYS", "BK_SNOOZE_DAYS", "nearestOf", "SCHEMA_VERSION", "MIGRATIONS", "STORE_BLOCK",
   "STORE", "LS_PROFILES", "PROFILE_SFX", "REF_ZONES", "countable", "pKey", "rid", "b64e", "b64d", "dayMs", "isQuota", "newProfileId", "LS_BROKEN",
-  "CS_TRASH_MS", "CS_LIM_MIN", "CS_LIM_DAY", "CS_SECTIONS", "CS_BATCH", "CS_SEC_MAX", "csSig", "csSeSig", "csParse", "csSameU", "csDel36"];
+  "CS_TRASH_MS", "CS_LIM_MIN", "CS_LIM_DAY", "CS_SECTIONS", "CS_BATCH", "CS_SEC_MAX", "csSig", "csSeSig", "csParse", "csSameU", "csDel36", "csSeOk", "HE_MAX", "ECH"];
 
 /* Fichiers moteurs, dans l’ordre de chargement de index.html (app.js, l’interface, n’est pas chargé ici) */
 const ENGINES = ["js/engine-pedago.js", "js/engine-training.js", "js/engine-analytics.js", "js/engine-user.js", "js/engine-sync.js"];

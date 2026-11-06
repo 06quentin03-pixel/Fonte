@@ -58,7 +58,7 @@ Le même contenu qu’en v1, avec :
 | Champ | Contenu |
 |---|---|
 | `v` | `2` |
-| `refs` | Références par exercice **et par zone de répétitions** (S1-b) : `refs[exercice][zone] = { d, ts, sets, target, base, feel, fails }`, zones `force` (≤ 6 répétitions), `muscle` (7 à 12), `endurance` (≥ 13) ; cible inconnue : `muscle`. Format seulement en 3B : l’appli continue d’utiliser `lastPerf` pour la charge proposée ; les zones serviront en 3D. |
+| `refs` | Références par exercice **et par zone de répétitions** (S1-b) : `refs[exercice][zone] = { d, ts, sets, target, base, feel, fails }`, zones `force` (≤ 6 répétitions), `muscle` (7 à 12), `endurance` (≥ 13) ; cible inconnue : `muscle`. **Depuis 3D**, la charge proposée part de la référence de la zone visée (`refFor`) ; sans référence dans cette zone, de `lastPerf` (convertie si l’écart de répétitions est d’au moins 3, S1-a). |
 | `legacyRefs` | Copie **intacte** de `lastPerf` au moment de la migration (ou de la restauration d’une sauvegarde v1). Jamais modifiée ensuite (sauf « Effacer l’historique » et « Tout réinitialiser », qui la vident avec le reste). Sert de point de départ au recalcul des références (D3), parce que les séances d’avant 3B n’ont pas la cible de répétitions. |
 | `legacySrc` | Séance d’origine de chaque référence de `legacyRefs` : `{ exercice: idSéance }` (même `ts`, ou même date et mêmes séries). Si cette séance est supprimée, la référence v1 est abandonnée et recalculée. |
 | `historique[].upd` | Date de dernière modification de chaque séance (pour les anciennes : son heure `ts`). Préparé pour la synchro par séance (3C). |
@@ -101,6 +101,17 @@ L’appli fonctionne comme la version 3A : elle lit et écrit `fonte:v1` au form
 
 - **Références** (`rebuildRefs(historique, legacyRefs, legacySrc)`, `engine-training.js`) : pour chaque exercice, on part de la référence v1 (si sa séance d’origine est toujours là, ou si elle est inconnue) puis on rejoue les séances plus récentes avec la même règle que l’enregistrement d’une séance (`refStep`) ; si la séance d’origine a été supprimée, on rejoue toutes les séances de l’exercice (cible = `t`, sinon la plus grande répétition faite). L’appli n’applique le résultat qu’aux exercices de la séance supprimée.
 - **Palier** (`rebuildProgress(historique, profil, séanceSupprimée)`) : si le palier actuel correspond à l’historique rejoué depuis le début (même logique que la première ouverture), on rejoue sans la séance : comme si elle n’avait jamais existé. Sinon (jours changés en cours de route, niveau choisi à la main, suppression ancienne non décomptée), on retire seulement une séance au compteur (et on rouvre le palier précédent si besoin), pour ne rien bouleverser. Une séance de mobilité ne change pas le palier.
+
+### 4.1 Séance modifiée ou ajoutée à la main (D4, phase 3D)
+
+`histSave(état, saisie, maintenant)` (`engine-user.js`) :
+- une séance **modifiée** reçoit `upd` = maintenant (c’est la date qui départage deux appareils, voir 5.4) et la marque `ed: 1` ; une séance **ajoutée** reçoit un identifiant `rid()`, `ts` = date et heure choisies, `upd` = maintenant et la marque `ajout: 1` ;
+- `sets`, `volume` (nouvelle règle D10 : 2 haltères comptés, assistance non comptée) et, si la durée change, `kcal` sont recalculés ; si rien n’a changé, rien n’est réécrit ;
+- références (`rebuildRefs`) recalculées pour les exercices touchés, avant et après ; si la séance d’origine d’une référence v1 (`legacySrc`) a été modifiée (`ed`), cette référence v1 n’est plus utilisée (sinon une correction 600 → 60 kg d’une séance d’avant 3B serait sans effet) — `legacyRefs` elle-même n’est jamais modifiée ;
+- palier : une séance ajoutée compte comme une séance faite (`csAddProgress`) ; une modification ne change pas le palier ;
+- records (`pr`) recalculés pour la séance et les suivantes qui contiennent les exercices touchés ; une séance dont les records changent reçoit aussi `upd` (elle repart en ligne). La même mise à jour des records est faite après « Supprimer de l’historique ».
+
+`ed` et `ajout` sont des champs **facultatifs** : le format reste en version 2 et le document en ligne garde la même forme (`{ v, upd, j, srv }`). Une version 3C qui reçoit une séance modifiée la remplace normalement (son `upd` est plus récent) et ignore ces champs. Les séances résumées (`c: 1`) ne se modifient pas.
 
 ---
 

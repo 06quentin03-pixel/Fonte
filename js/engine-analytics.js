@@ -5,7 +5,19 @@
    Les déclarations de haut niveau sont partagées entre ces fichiers (comme lorsqu’ils formaient un seul index.html) :
    un fichier peut utiliser ce qu’un fichier précédent déclare. tools/assemble.js les recolle en un seul fichier (mode « artifact Claude »). */
 
-/* Courbe d’un exercice : un point par séance, du plus ancien au plus récent */
+/* D10 (phase 3D) : charge réellement soulevée par répétition, à partir de la charge notée.
+   Exercice aux haltères (LOAD « d » sans l’option S, « par haltère ») : 2 haltères ; assistance (contrepoids) : ce n’est pas un poids
+   soulevé, 0 (comme les autres exercices au poids du corps, dont la charge notée est 0). */
+function loadMult(id) { const L = LOAD[id]; if (!L) return 1; if (L[0] === "a") return 0; if (L[0] === "d" && (L[2] || "").indexOf("S") < 0) return 2; return 1; }
+/* Volume d’une séance (journal au format de l’historique) : somme des répétitions × charge réellement soulevée.
+   Échauffement et étirements compris s’ils ont une charge (en pratique : non). */
+function logVolume(log) {
+  let v = 0;
+  (log || []).forEach(l => { if (!l || !Array.isArray(l.sets)) return; const m = loadMult(l.id); l.sets.forEach(s => { if (s && s.r > 0 && s.kg > 0) v += s.r * s.kg * m; }); });
+  return v;
+}
+/* Courbe d’un exercice : un point par séance, du plus ancien au plus récent.
+   rmR = répétitions de la série qui donne le 1RM estimé (S9 : au-delà de 10, l’estimation est peu fiable). */
 function exSeries(hist, id) {
   const by = {};
   (hist || []).forEach(h => {
@@ -15,10 +27,12 @@ function exSeries(hist, id) {
       const rs = l.sets.filter(s => s && s.r != null && s.r > 0), ds = l.sets.filter(s => s && s.d > 0);
       if (!rs.length && !ds.length) return;
       const k = h.id || h.date + h.ts;
-      const p = by[k] || (by[k] = { hid: h.id, date: h.date, ts: h.ts || 0, kg: 0, rm: 0, reps: 0, d: 0, as: 0, vol: 0 });
+      const p = by[k] || (by[k] = { hid: h.id, date: h.date, ts: h.ts || 0, kg: 0, rm: 0, rmR: 0, reps: 0, d: 0, as: 0, vol: 0 });
+      const mult = loadMult(id);
       rs.forEach(s => {
-        const kg = s.kg || 0;
-        p.kg = Math.max(p.kg, kg); p.rm = Math.max(p.rm, e1rm(s.r, kg)); p.reps = Math.max(p.reps, s.r); p.vol += s.r * kg;
+        const kg = s.kg || 0, rm = e1rm(s.r, kg);
+        if (rm > p.rm) { p.rm = rm; p.rmR = s.r; }
+        p.kg = Math.max(p.kg, kg); p.reps = Math.max(p.reps, s.r); p.vol += s.r * kg * mult;
         if (s.r >= 5 && (!p.as || kg < p.as)) p.as = kg || 0.001;
       });
       ds.forEach(s => { p.d = Math.max(p.d, s.d); });
@@ -98,11 +112,57 @@ function weekStreak(hist, today, goal) {
   for (k--; k >= 0 && w[k].n >= g; k--) s++;
   return s;
 }
-/* Poids qui ne baisse plus : au moins 2 pesées sur 14 jours ou plus dans les 3 dernières semaines, et moins de 0,3 kg perdus */
-function plateau(pts, today) {
-  const from = isoAdd(today, -21), P = (pts || []).filter(x => x && x.poids > 0 && x.date >= from && x.date <= today).sort((a, b) => a.date.localeCompare(b.date));
-  if (P.length < 2) return false;
-  const a = P[0], b = P[P.length - 1];
-  if (isoAdd(a.date, 14) > b.date) return false;
-  return b.poids - a.poids > -0.3;
+/* S7 (phase 3D) : poids qui ne baisse plus, jugé sur des moyennes (les pesées varient d’un jour à l’autre, Orsama et al. 2014).
+   Moyenne des pesées des 7 derniers jours comparée à celle de la semaine d’il y a 3 semaines (jours −27 à −21), au moins 3 pesées
+   de chaque côté ; plateau si moins de 0,3 kg perdus entre les deux (même seuil qu’avant 3D).
+   Renvoie { plateau, few } : few = pas assez de pesées pour juger (l’appli invite à se peser plus souvent, sans ajouter de cardio). */
+function plateauInfo(pts, today) {
+  const P = (pts || []).filter(x => x && x.poids > 0 && typeof x.date === "string");
+  const win = (a, b) => P.filter(x => x.date >= isoAdd(today, a) && x.date <= isoAdd(today, b)).map(x => x.poids);
+  const now = win(-6, 0), old = win(-27, -21), avg = l => l.reduce((s, x) => s + x, 0) / l.length;
+  if (now.length < 3 || old.length < 3) return { plateau: false, few: P.some(x => x.date >= isoAdd(today, -27) && x.date <= today), now: now.length, old: old.length };
+  return { plateau: avg(now) - avg(old) > -0.3, few: false, now: now.length, old: old.length, delta: Math.round((avg(now) - avg(old)) * 100) / 100 };
+}
+function plateau(pts, today) { return plateauInfo(pts, today).plateau; }
+
+/* ===== S4 (phase 3D, décision 4) : passage de niveau proposé, jamais automatique =====
+   Critères (plan section 9.4, docs/REGLES_SPORTIVES.md) :
+   débutant → intermédiaire : (1) environ 6 mois d’entraînement (première séance il y a 182 jours ou plus) et régulier
+   (au moins 16 séances sur les 8 dernières semaines terminées, soit 2 par semaine en moyenne) ; (2) progression devenue lente :
+   au moins 3 exercices avec charge dont les 3 dernières séances n’ont pas monté à chaque fois ; (3) au moins 3 paliers terminés à ce niveau.
+   intermédiaire → avancé : mêmes critères avec 2 ans d’entraînement et 6 paliers à ce niveau. Avancé : rien à proposer.
+   p.levelAsk = { niv, until } : « Plus tard », la proposition revient après cette date.
+   Renvoie null, ou { to, from, checks: [{ ok, txt }], ok } (ok = les 3 critères sont réunis : la carte s’affiche). */
+const LEVEL_RULES = { debutant: { to: "intermediaire", days: 182, phases: 3 }, intermediaire: { to: "avance", days: 730, phases: 6 } };
+function levelSuggest(p, hist, today) {
+  p = p || {}; const rule = LEVEL_RULES[p.niveau || "debutant"]; if (!rule) return null;
+  const list = (hist || []).filter(h => h && h.kind !== "mob" && typeof h.date === "string");
+  const first = list.reduce((m, h) => (h.date < m ? h.date : m), "9999-12-31");
+  const since = list.length ? Math.round((new Date(today) - new Date(first)) / 864e5) : 0;
+  const mon = isoMon(today), from = isoAdd(mon, -56), last8 = list.filter(h => h.date >= from && h.date < mon).length;
+  const regular = since >= rule.days && last8 >= 16;
+  /* progression lente : exercices avec charge, 3 dernières séances */
+  const ids = {}; list.forEach(h => (h.log || []).forEach(l => { if (l && !l.warm && !l.cool && !isAssist(l.id) && (l.sets || []).some(s => s && s.kg > 0)) ids[l.id] = 1; }));
+  let slow = 0, tracked = 0;
+  Object.keys(ids).forEach(id => { const P = exSeries(list, id).filter(x => x.kg > 0).slice(-3); if (P.length < 3) return; tracked++; if (!(P[0].kg < P[1].kg && P[1].kg < P[2].kg)) slow++; });
+  const done = (p.phases || []).filter(x => x && x.niv === (p.niveau || "debutant")).length;
+  const months = Math.round(rule.days / 30.4);
+  const checks = [
+    { ok: regular, txt: regular ? `Tu t’entraînes depuis ${since >= 365 ? "plus d’un an" : "environ " + Math.max(1, Math.round(since / 30.4)) + " mois"}, régulièrement (${last8} séances sur les 8 dernières semaines).` : `Il faut environ ${months >= 24 ? "2 ans" : months + " mois"} d’entraînement régulier (au moins 2 séances par semaine sur les 8 dernières semaines) : ${list.length ? "ta première séance date d’il y a " + since + " jours, " + last8 + " séances sur 8 semaines" : "pas encore de séance"}.` },
+    { ok: slow >= 3, txt: slow >= 3 ? `Tes charges ne montent plus à chaque séance sur ${slow} exercices : la progression « séance après séance » du débutant s’essouffle, c’est normal.` : `Tes charges montent encore souvent d’une séance à l’autre (${slow} exercice${slow > 1 ? "s" : ""} sur ${tracked} ralentissent) : continue au niveau actuel.` },
+    { ok: done >= rule.phases, txt: `${done} palier${done > 1 ? "s" : ""} terminé${done > 1 ? "s" : ""} à ce niveau (${rule.phases} au moins).` }
+  ];
+  const ok = checks.every(c => c.ok) && !(p.levelAsk && p.levelAsk.niv === rule.to && p.levelAsk.until > today);
+  return { from: p.niveau || "debutant", to: rule.to, checks, ok };
+}
+/* La personne accepte : niveau suivant, palier 1, charges réelles gardées (la charge proposée continue de partir de ses références).
+   Le bilan garde la trace du passage (man: 1 = choisi, pas automatique). Renvoie un nouveau profil. */
+function levelAccept(p, to, today) {
+  const q = JSON.parse(JSON.stringify(p || {})), old = q.niveau || "debutant";
+  if (!NIV_KEYS[to] || to === old) return q;
+  q.phases = (q.phases || []).concat([{ n: q.phase || 1, niv: old, from: q.phaseStart || today, to: today, up: to, man: 1 }]).slice(-40);
+  if (q.simple == null && (NIV_KEYS[old] || 1) === 1) q.simple = true; /* le mode simple ne disparaît pas sans prévenir */
+  Object.assign(q, { niveau: to, phase: 1, phaseDone: 0, phaseStart: today });
+  delete q.levelAsk;
+  return q;
 }
