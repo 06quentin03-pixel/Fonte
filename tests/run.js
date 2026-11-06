@@ -960,9 +960,20 @@ test("sw.js : tous les fichiers chargés par index.html et tous les fichiers de 
   const files = fs.readdirSync(path.join(__dirname, "..", "js")).filter(f => f.endsWith(".js")).map(f => "./js/" + f);
   assert.ok(srcs.length >= 5, "index.html charge les moteurs");
   srcs.concat(files).forEach(f => assert.ok(shell.indexOf(f) >= 0, f + " absent de SHELL"));
-  same(srcs, ["./js/engine-pedago.js", "./js/engine-training.js", "./js/engine-analytics.js", "./js/engine-user.js", "./js/app.js"], "ordre de chargement");
+  same(srcs, ["./js/engine-pedago.js", "./js/engine-training.js", "./js/engine-analytics.js", "./js/engine-user.js", "./js/engine-sync.js", "./js/app.js"], "ordre de chargement");
   assert.ok(/window\.FONTE_PWA = true/.test(html), "mode PWA conservé");
 });
 
-console.log("\n" + pass + " réussis, " + fail + " en échec");
-process.exit(fail ? 1 : 0);
+/* Tests asynchrones (synchro en ligne, phase 3C : faux Firestore) : lancés à la suite, dans l’ordre */
+const asyncTests = [];
+const atest = (name, fn) => asyncTests.push([name, fn]);
+require("./synchro")(atest, G, same);
+(async () => {
+  console.log("Sauvegarde et synchro en ligne (faux Firestore)");
+  for (const [name, fn] of asyncTests) {
+    try { await fn(); pass++; console.log("  ok  " + name); }
+    catch (e) { fail++; console.log("  ÉCHEC  " + name + "\n        " + (e && e.message ? e.message.split("\n").join("\n        ") : JSON.stringify(e))); }
+  }
+  console.log("\n" + pass + " réussis, " + fail + " en échec");
+  process.exit(fail ? 1 : 0);
+})();

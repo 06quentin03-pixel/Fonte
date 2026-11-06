@@ -36,6 +36,7 @@ async function openApp(browser, base, opts) {
   delete dev.defaultBrowserType;
   const ctx = await browser.newContext(Object.assign(dev, { serviceWorkers: opts.sw ? "allow" : "block" }));
   await blockExternal(ctx);
+  if (opts.before) await opts.before(ctx); /* par exemple le faux Firebase (tests/e2e/faux-firebase.js) */
   if (opts.storage) {
     await ctx.addInitScript(st => {
       try {

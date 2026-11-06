@@ -1,6 +1,6 @@
 /* ===== Fonte · interface (app.js) =====
    Fichiers chargés dans l’ordre par de simples <script src> (index.html), sans outil de construction :
-   engine-pedago.js → engine-training.js → engine-analytics.js → engine-user.js → app.js.
+   engine-pedago.js → engine-training.js → engine-analytics.js → engine-user.js → engine-sync.js → app.js.
    Les déclarations de haut niveau sont partagées entre ces fichiers (comme lorsqu’ils formaient un seul index.html) :
    un fichier peut utiliser ce qu’un fichier précédent déclare. tools/assemble.js les recolle en un seul fichier (mode « artifact Claude »). */
 (function () {
@@ -57,6 +57,7 @@ function commit(kinds) {
   if (kinds.indexOf("p") >= 0) { S.upd = now; Sync.queue("priv"); }
   if (kinds.indexOf("a") >= 0) { S.agUpd = now; Sync.queue("ag"); if (PWA) Cloud.queue(); }
   saveLocal();
+  if (PWA) Acct.queue(); /* sauvegarde en ligne du profil (3C) : partira dans 2 s, ou au retour du réseau */
 }
 const UI = { tab: "accueil", exG: "all", exQ: "", exMat: "", seg: "prog", tplCat: "all", calMonth: todayISO().slice(0, 7), calSel: todayISO() };
 try { const u = JSON.parse(localStorage.getItem(LS_UI) || "null"); if (u) { if (u.seg) UI.seg = u.seg; } UI.hideInstall = localStorage.getItem("fonte:noinstall") === "1"; } catch (e) { }
@@ -598,7 +599,7 @@ function renderOnb() {
   let title = "", body = "", next = "Continuer";
   if (i === 0) {
     title = "Bienvenue";
-    body = `<div style="display:flex;justify-content:center;padding:8px 0"><svg aria-hidden="true" style="width:72px;height:72px"><use href="#logo"/></svg></div><p class="onb-lead">Réponds à 5 petites questions : Fonte te prépare un programme fait pour toi, avec les bons exercices, le bon nombre de mouvements et les bons poids.</p><div class="field"><label for="onb-prenom">Ton prénom</label><input class="inp" id="onb-prenom" maxlength="30" autocomplete="given-name" value="${esc(d.prenom)}" placeholder="Facultatif"></div>`;
+    body = `<div style="display:flex;justify-content:center;padding:8px 0"><svg aria-hidden="true" style="width:72px;height:72px"><use href="#logo"/></svg></div><p class="onb-lead">Réponds à 5 petites questions : Fonte te prépare un programme fait pour toi, avec les bons exercices, le bon nombre de mouvements et les bons poids.</p><div class="field"><label for="onb-prenom">Ton prénom</label><input class="inp" id="onb-prenom" maxlength="30" autocomplete="given-name" value="${esc(d.prenom)}" placeholder="Facultatif"></div>${PWA && Acct.ok() && !Acct.user ? `<button class="link small" data-a="onb-account">J’ai déjà un compte Fonte : retrouver mes données</button>` : ""}`;
     next = "Commencer";
   } else if (i === 1) {
     title = "Ton objectif";
@@ -876,6 +877,7 @@ function lsNum(k) { try { return +(localStorage.getItem(storeKey(k)) || 0); } ca
 function markBackup() { try { localStorage.setItem(storeKey(LS_BK), String(Date.now())); } catch (e) { } }
 function backupDue() {
   if (Sync.state === "live") return null;
+  if (Acct.saved()) return null; /* D1 : sauvegarde en ligne active et à jour (moins de 7 jours) : plus besoin du rappel */
   return backupDueAt(S.historique, lsNum(LS_BK), lsNum(LS_BKS), Date.now());
 }
 /* Fichier de sauvegarde complet : profil, séances, historique, records, notes, mesures, agenda */
@@ -1066,12 +1068,49 @@ function statusHTML() {
 
 /* ================= Synchro automatique (version installée, Firebase) ================= */
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+/* Règles Firestore (à coller dans la console Firebase, Firestore › Règles). Testées avec l’émulateur Firebase : tests/regles/run.js.
+   - données personnelles (users/{uid} et ses séances) : lues et écrites seulement par leur propriétaire, connecté avec un vrai compte
+     (e-mail + mot de passe) ; la connexion anonyme n’y a pas accès ; champs et tailles bornés ; heure du serveur obligatoire (srv) ;
+   - agenda partagé : lu par les comptes e-mail connectés qui connaissent l’espace, chacun n’écrit que son propre agenda (500 séances au plus) ;
+     un ancien agenda anonyme peut encore être retiré par son appareil ;
+   - tout le reste est refusé. */
 const RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function compte() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function moi(uid) { return compte() && request.auth.uid == uid; }
+    function texte(d, k, max) { return !(k in d) || (d[k] is string && d[k].size() <= max); }
+    match /users/{uid} {
+      allow read, delete: if moi(uid);
+      allow create, update: if moi(uid)
+        && request.resource.data.keys().hasOnly(['v', 'app', 'upd', 'agUpd', 'u', 'srv', 'profile', 'notes', 'mesures', 'mesSeances', 'deload', 'imports', 'agenda', 'legacy', 'clear'])
+        && request.resource.data.v is int && request.resource.data.srv == request.time
+        && (!('u' in request.resource.data) || request.resource.data.u is map)
+        && texte(request.resource.data, 'profile', 20000) && texte(request.resource.data, 'notes', 100000)
+        && texte(request.resource.data, 'mesures', 200000) && texte(request.resource.data, 'mesSeances', 300000)
+        && texte(request.resource.data, 'deload', 5000) && texte(request.resource.data, 'imports', 200000)
+        && texte(request.resource.data, 'agenda', 200000) && texte(request.resource.data, 'legacy', 300000)
+        && texte(request.resource.data, 'clear', 50000);
+      match /seances/{sid} {
+        allow read, delete: if moi(uid);
+        allow create, update: if moi(uid) && sid.size() <= 40
+          && request.resource.data.keys().hasOnly(['v', 'upd', 'del', 'j', 'srv'])
+          && request.resource.data.v is int && request.resource.data.upd is number
+          && request.resource.data.srv == request.time
+          && ('j' in request.resource.data || 'del' in request.resource.data)
+          && texte(request.resource.data, 'j', 200000)
+          && (!('del' in request.resource.data) || request.resource.data.del is number);
+      }
+    }
     match /espaces/{espace}/agendas/{membre} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == membre;
+      allow read: if compte();
+      allow create, update: if compte() && request.auth.uid == membre
+        && request.resource.data.keys().hasOnly(['v', 'upd', 'prenom', 'events'])
+        && request.resource.data.events is list && request.resource.data.events.size() <= 500
+        && (!('prenom' in request.resource.data) || (request.resource.data.prenom is string && request.resource.data.prenom.size() <= 40));
+      allow delete: if request.auth != null && request.auth.uid == membre;
     }
   }
 }`;
@@ -1091,7 +1130,10 @@ function parseFbConfig(raw) {
 }
 function randomId(n) { const a = "abcdefghijkmnopqrstuvwxyz23456789"; let s = ""; const r = new Uint8Array(n); (window.crypto || window.msCrypto).getRandomValues(r); r.forEach(x => { s += a[x % a.length]; }); return s; }
 const Cloud = {
-  state: "off", cfg: null, space: null, app: null, db: null, uid: null, col: null, unsub: null, timer: null, starting: false, err: "",
+  state: "off", cfg: null, space: null, app: null, db: null, uid: null, col: null, unsub: null, timer: null, starting: false, err: "", shared: false,
+  /* 3C : ce profil écrit son propre agenda s’il est connecté à son compte ; sinon, comme avant, seul le profil relié à l’appareil (owner) l’écrit */
+  mine() { return this.shared || isSyncOwner(); },
+  async restart() { await this.stop(); this.state = "off"; this.err = ""; return this.start(); },
   load() { try { const x = JSON.parse(localStorage.getItem("fonte:sync") || "null"); if (x && x.cfg && x.space) { this.cfg = x.cfg; this.space = x.space; } } catch (e) { } },
   save() { try { if (this.cfg) localStorage.setItem("fonte:sync", JSON.stringify({ cfg: this.cfg, space: this.space })); else localStorage.removeItem("fonte:sync"); } catch (e) { } },
   set(st) { if (this.state !== st) { this.state = st; softRender(); } },
@@ -1104,13 +1146,18 @@ const Cloud = {
       await loadScript(FB + "firebase-firestore-compat.js");
       const fb = window.firebase;
       if (!fb || !fb.initializeApp) throw { code: "script" };
-      this.app = fb.apps.find(a => a.name === "fonte") || fb.initializeApp(this.cfg, "fonte");
-      const auth = this.app.auth();
-      this.db = this.app.firestore();
-      try { await this.db.enablePersistence({ synchronizeTabs: true }); } catch (e) { }
-      let user = await new Promise(res => { const u = auth.onAuthStateChanged(x => { u(); res(x); }); });
-      if (!user) user = (await auth.signInAnonymously()).user;
-      this.uid = user.uid;
+      if (Acct.user && Acct.app) { /* compte e-mail du profil (3C) : même connexion que la sauvegarde en ligne */
+        this.shared = true; this.app = Acct.app; this.db = Acct.db; this.uid = Acct.user.uid;
+      } else {
+        this.shared = false;
+        this.app = fb.apps.find(a => a.name === "fonte") || fb.initializeApp(this.cfg, "fonte");
+        const auth = this.app.auth();
+        this.db = this.app.firestore();
+        try { await this.db.enablePersistence({ synchronizeTabs: true }); } catch (e) { }
+        let user = await new Promise(res => { const u = auth.onAuthStateChanged(x => { u(); res(x); }); });
+        if (!user) user = (await auth.signInAnonymously()).user;
+        this.uid = user.uid;
+      }
       this.col = this.db.collection("espaces").doc(this.space).collection("agendas");
       this.unsub = this.col.onSnapshot({ includeMetadataChanges: true }, qs => this.onSnap(qs), e => this.fail(e));
       this.queue(300);
@@ -1120,14 +1167,14 @@ const Cloud = {
   async stop() {
     clearTimeout(this.timer);
     try { if (this.unsub) this.unsub(); } catch (e) { }
-    try { if (this.app) await this.app.delete(); } catch (e) { }
-    this.unsub = null; this.col = null; this.db = null; this.app = null; this.uid = null;
+    try { if (this.app && !this.shared) await this.app.delete(); } catch (e) { } /* l’app du compte du profil (Acct) n’est jamais fermée ici */
+    this.unsub = null; this.col = null; this.db = null; this.app = null; this.uid = null; this.shared = false;
   },
   onSnap(qs) {
     const fromCache = qs.metadata && qs.metadata.fromCache;
     if (!fromCache) this.err = "";
     this.set(fromCache ? (navigator.onLine === false ? "offline" : "connecting") : "live");
-    const partners = {}; let mine = null, owner = isSyncOwner();
+    const partners = {}; let mine = null, owner = this.mine();
     qs.docs.forEach(d => {
       if (d.id === this.uid && owner) { mine = d; return; } /* autre profil de cet appareil : l’agenda du profil relié apparaît comme celui d’un partenaire */
       const x = d.data() || {};
@@ -1141,12 +1188,12 @@ const Cloud = {
     saveLocal(); softRender();
   },
   queue(delay) {
-    if (!this.cfg || !isSyncOwner()) return;
+    if (!this.cfg || !this.mine()) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.push(), delay == null ? 800 : delay);
   },
   push() {
-    if (!this.col || !this.uid || !isSyncOwner()) return;
+    if (!this.col || !this.uid || !this.mine()) return;
     const from = addDays(todayISO(), -120);
     this.col.doc(this.uid).set({ v: 1, upd: S.agUpd || Date.now(), prenom: (S.profile.prenom || "").slice(0, 40), events: S.agenda.filter(e => e.date >= from).slice(0, 500) }).catch(e => this.fail(e));
   },
@@ -1154,7 +1201,7 @@ const Cloud = {
     const c = String((e && e.code) || "");
     if (c === "unavailable" || c === "auth/network-request-failed" || c === "script") { this.err = c === "script" ? "Connecte-toi à internet une première fois pour activer la synchro." : ""; this.set("offline"); if (c !== "unavailable") { this.stop(); } return; }
     const msg = {
-      "permission-denied": "Firebase refuse l’accès : vérifie les règles Firestore (étape 4) et qu’elles sont publiées.",
+      "permission-denied": this.shared ? "Firebase refuse l’accès : publie les nouvelles règles Firestore (Profil › Sauvegarde en ligne › Règles Firestore)." : "Firebase refuse l’accès. Depuis les nouvelles règles, l’agenda partagé est réservé aux comptes : crée ton compte dans Profil › Sauvegarde en ligne (sinon, vérifie que les règles Firestore sont publiées).",
       "auth/operation-not-allowed": "Active la connexion « Anonyme » dans Firebase, rubrique Authentication (étape 2).",
       "auth/admin-restricted-operation": "Active la connexion « Anonyme » dans Firebase, rubrique Authentication (étape 2).",
       "auth/configuration-not-found": "Ouvre Authentication dans Firebase, touche « Commencer », puis active « Anonyme » (étape 2).",
@@ -1177,7 +1224,7 @@ function parseInvite(raw) {
   return null;
 }
 function cloudCard() {
-  if (!isSyncOwner() && Cloud.cfg) return `<div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Synchronisation automatique</div><p class="small muted">La synchro de l’agenda de cet appareil est reliée au profil ${esc(ownerName())}. Ce profil-ci voit son agenda et ceux des partenaires, mais ses propres séances restent sur ce téléphone. Pour régler la synchro, passe sur le profil ${esc(ownerName())}.</p></div>`;
+  if (!Cloud.mine() && Cloud.cfg && !Acct.user) return `<div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="h3">Synchronisation automatique</div><p class="small muted">La synchro de l’agenda de cet appareil est reliée au profil ${esc(ownerName())}. Ce profil-ci voit son agenda et ceux des partenaires, mais ses propres séances restent sur ce téléphone. Pour régler la synchro, passe sur le profil ${esc(ownerName())}, ou crée un compte pour ce profil (Profil › Sauvegarde en ligne) : il aura alors son propre agenda partagé.</p></div>`;
   if (!Cloud.cfg) return `<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="h3">Synchronisation automatique</div><p class="small">Vos agendas se mettent à jour tout seuls, sans code à renvoyer. Il faut une base de données gratuite Firebase, à créer une seule fois avec ton compte Google (une dizaine de minutes). Ta copine, elle, n’a qu’à coller ton invitation.</p><div class="btn-row"><button class="btn btn-primary" data-a="cl-setup">Configurer</button><button class="btn" data-a="cl-join">J’ai une invitation</button></div></div>`;
   const st = { off: ["", "Synchro arrêtée"], connecting: ["warn", "Connexion…"], live: ["ok", "Synchronisé : les agendas se mettent à jour tout seuls"], offline: ["warn", "Hors ligne : tes changements partiront au retour du réseau"], error: ["warn", "Synchro en pause"] }[Cloud.state] || ["", ""];
   const names = Object.keys(S.partners).map(id => S.partners[id].prenom || "Sans prénom");
@@ -1189,13 +1236,238 @@ function setupBody() {
   return `<p class="muted">À faire une seule fois, sur ton téléphone ou un ordi, avec ton compte Google. Firebase est gratuit pour cet usage.</p>
   <ol class="steps">
     <li><span>Va sur <b>console.firebase.google.com</b>, crée un projet (par exemple « fonte »). Tu peux désactiver Google Analytics.</span></li>
-    <li><span>Menu <b>Authentication</b> : touche « Commencer », onglet « Sign-in method », active <b>Anonyme</b> et enregistre.</span></li>
+    <li><span>Menu <b>Authentication</b> : touche « Commencer », onglet « Sign-in method », active <b>Adresse e-mail/Mot de passe</b> et <b>Anonyme</b>, et enregistre.</span></li>
     <li><span>Menu <b>Firestore Database</b> : « Créer une base de données », choisis un emplacement en Europe, mode production.</span></li>
     <li><span>Dans Firestore, onglet <b>Règles</b> : remplace tout par les règles ci-dessous, puis « Publier ».</span></li>
     <li><span>Roue dentée, <b>Paramètres du projet</b> : sous « Vos applications », touche l’icône Web (&lt;/&gt;), donne un nom, enregistre, puis copie le bloc <b>firebaseConfig</b> et colle-le ici.</span></li>
   </ol>
   <div class="field"><div class="lbl">Règles Firestore</div><textarea class="code-box" id="rules-box" readonly style="min-height:150px">${esc(RULES)}</textarea><button class="btn" data-a="copy-rules">${icon("copy")}Copier les règles</button></div>
   <div class="field"><label for="fb-cfg">Configuration Firebase</label><textarea class="code-box" id="fb-cfg" placeholder="const firebaseConfig = { apiKey: &quot;…&quot;, … };"></textarea><p class="small" id="fb-err" style="color:var(--red)" hidden></p></div>`;
+}
+
+/* ================= Sauvegarde en ligne par compte (phase 3C : D1, D7, D9) =================
+   Un compte e-mail + mot de passe par profil, une « app » Firebase par profil (« fonte-<id> » : chaque profil garde sa propre connexion),
+   état de synchro dans fonte:p:<id>:sync. Ce qui décide (fusion, corbeille, limiteur, quoi envoyer) est dans engine-sync.js et testé en Node ;
+   ici : la connexion à Firebase et l’écran. Le téléphone reste la référence : sans réseau tout continue, et rien n’est retiré en cas d’erreur. */
+const withTO = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code: "timeout" }), ms || 25000))]);
+const Acct = {
+  state: "off", err: "", meta: csMeta(null), app: null, auth: null, db: null, user: null, busy: false, again: false, timer: null, pending: 0,
+  ok() { return PWA && STORE.mode === "v2" && !!STORE.pid && !STORE_BLOCK; },
+  key() { return pKey(STORE.pid, "sync"); },
+  load() { if (!this.ok()) return; try { this.meta = csMeta(JSON.parse(localStorage.getItem(this.key()) || "null")); } catch (e) { this.meta = csMeta(null); } },
+  save() { if (!this.ok()) return; try { localStorage.setItem(this.key(), JSON.stringify(this.meta)); } catch (e) { } },
+  cfg() { return this.meta.cfg || Cloud.cfg; },
+  /* sauvegarde en ligne active et à jour depuis moins de 7 jours (le rappel de sauvegarde fichier n’est alors plus utile) */
+  saved() { return !!this.user && !this.pending && this.meta.last > Date.now() - 7 * 864e5; },
+  set(st, err) { const ch = this.state !== st || this.err !== (err || ""); this.state = st; this.err = err || ""; if (ch) softRender(); },
+  async ensureApp(cfg) {
+    await loadScript(FB + "firebase-app-compat.js"); await loadScript(FB + "firebase-auth-compat.js"); await loadScript(FB + "firebase-firestore-compat.js");
+    const fb = window.firebase; if (!fb || !fb.initializeApp) throw { code: "script" };
+    const name = "fonte-" + STORE.pid;
+    this.app = fb.apps.find(a => a.name === name) || fb.initializeApp(cfg, name);
+    this.auth = this.app.auth(); this.db = this.app.firestore();
+    return fb;
+  },
+  /* Au démarrage : la connexion du profil est retrouvée (Firebase la garde sur l’appareil, même hors ligne) */
+  async boot() {
+    const cfg = this.cfg(); if (!this.ok() || !cfg || !this.meta.email) return false;
+    this.set("connecting");
+    try {
+      await this.ensureApp(cfg);
+      const u = await withTO(new Promise(res => { const off = this.auth.onAuthStateChanged(x => { off(); res(x); }); }), 15000);
+      if (!u || u.isAnonymous) { this.user = null; this.set("off"); return false; }
+      this.user = u; if (this.meta.uid !== u.uid) { this.meta = Object.assign(csMetaReset(this.meta), { uid: u.uid }); this.save(); }
+      this.sync(); return true;
+    } catch (e) { this.fail(e); return false; }
+  },
+  /* compte anonyme de l’appareil (agenda partagé, connexion d’avant 3C), s’il appartient à ce profil */
+  anon() { const a = Cloud.app && !Cloud.shared && isSyncOwner() && Cloud.app.auth().currentUser; return a && a.isAnonymous ? a : null; },
+  /* Création : le compte anonyme de l’appareil est relié au nouveau compte (même identifiant : l’agenda partagé continue) */
+  async create(email, pw, cfg) {
+    const fb = await this.ensureApp(cfg), anon = this.anon();
+    let u;
+    if (anon) {
+      await anon.linkWithCredential(fb.auth.EmailAuthProvider.credential(email, pw));
+      u = (await this.auth.signInWithEmailAndPassword(email, pw)).user;
+      try { await Cloud.app.auth().signOut(); } catch (e) { }
+    } else u = (await this.auth.createUserWithEmailAndPassword(email, pw)).user;
+    await this.connected(u, email, cfg);
+  },
+  /* Connexion à un compte existant (nouvel appareil, réinstallation) : l’ancien agenda anonyme de cet appareil est retiré */
+  async login(email, pw, cfg) {
+    await this.ensureApp(cfg);
+    const anon = this.anon(), col = Cloud.col;
+    const u = (await this.auth.signInWithEmailAndPassword(email, pw)).user;
+    if (anon && anon.uid !== u.uid) {
+      try { if (col) await withTO(col.doc(anon.uid).delete(), 5000); } catch (e) { }
+      try { await Cloud.app.auth().signOut(); } catch (e) { }
+    }
+    await this.connected(u, email, cfg);
+  },
+  async connected(u, email, cfg) {
+    if (this.meta.uid && this.meta.uid !== u.uid) this.meta = csMetaReset(this.meta);
+    Object.assign(this.meta, { cfg: { apiKey: cfg.apiKey, authDomain: cfg.authDomain || cfg.projectId + ".firebaseapp.com", projectId: cfg.projectId, appId: cfg.appId }, email, uid: u.uid });
+    this.user = u; this.save();
+    if (Cloud.cfg) Cloud.restart();
+    await this.sync();
+  },
+  async reset(email, cfg) { await this.ensureApp(cfg); await this.auth.sendPasswordResetEmail(email); },
+  /* Déconnexion : les données restent sur l’appareil ; l’e-mail est gardé pour se reconnecter */
+  async logout() {
+    clearTimeout(this.timer);
+    try { if (this.auth) await this.auth.signOut(); } catch (e) { }
+    this.meta = csMetaReset(this.meta); this.user = null; this.pending = 0; this.save(); this.set("off");
+    if (Cloud.cfg) Cloud.restart();
+  },
+  queue(delay) { if (!this.user) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.sync(), delay == null ? 2000 : delay); },
+  async sync() {
+    if (!this.user || !this.ok()) return;
+    if (this.busy) { this.again = true; return; }
+    /* pas pendant une séance ou l’édition d’une séance : l’état n’est jamais remplacé sous les yeux ; ce sera fait juste après */
+    if (!$("#runner").hidden || !$("#editor").hidden) { this.queue(30000); return; }
+    if (navigator.onLine === false) { this.pending = csPending(S, this.meta, Date.now()); this.set("offline"); return; }
+    this.busy = true; if (this.state !== "ok") this.set("connecting");
+    let r;
+    try { r = await csRun({ api: this.api(), meta: this.meta, now: () => Date.now(), getState: () => S, setState: (st, rep) => applyCloud(st, rep), saveMeta: m => { this.meta = m; this.save(); } }); }
+    catch (e) { r = { status: "erreur", error: e, pending: this.pending }; }
+    this.busy = false; this.pending = r.pending || 0;
+    if (r.status === "ok") this.set(this.pending ? "offline" : "ok");
+    else if (r.status === "limite") { this.set("limite"); this.queue(65000); }
+    else if (r.status === "plus-recent") this.set("plus-recent");
+    else if (r.status === "trop-gros") this.set("error", (r.big && r.big.length ? "Une partie de ton profil est trop grosse pour la sauvegarde en ligne (" + r.big.map(k => ({ profile: "profil", notes: "notes", mesures: "mesures", mesSeances: "séances perso", deload: "semaine allégée", imports: "agendas importés", agenda: "agenda", legacy: "anciennes références", clear: "suppressions" }[k] || k)).join(", ") + ") : elle reste sur ce téléphone." : "Ton profil est trop gros pour la sauvegarde en ligne.") + " Tes séances, elles, sont sauvegardées. Fais aussi une sauvegarde fichier.");
+    else this.fail(r.error);
+    if (this.again) { this.again = false; this.queue(500); }
+  },
+  fail(e) {
+    const c = String((e && e.code) || "");
+    if (["unavailable", "timeout", "deadline-exceeded", "auth/network-request-failed", "script"].indexOf(c) >= 0 || navigator.onLine === false) {
+      this.set("offline", c === "script" ? "Connecte-toi à internet une première fois pour activer la sauvegarde en ligne." : ""); return;
+    }
+    if (c === "unauthenticated" || c === "auth/user-token-expired" || c === "auth/user-disabled") { this.user = null; this.set("off", "Reconnecte-toi à ton compte."); return; }
+    this.set("error", acctMsg(c));
+  },
+  /* Branchement de engine-sync.js sur Firestore : users/{uid} et users/{uid}/seances/{id} */
+  api() {
+    const fb = window.firebase, ref = this.db.doc("users/" + this.user.uid), col = ref.collection("seances");
+    const FV = fb.firestore.FieldValue, TS = fb.firestore.Timestamp;
+    const micro = t => (t && typeof t.seconds === "number" ? t.seconds * 1e6 + Math.floor(t.nanoseconds / 1000) : 0); /* heure du serveur, en microsecondes */
+    const data = d => { const o = Object.assign({}, d.data() || {}); delete o.srv; return o; };
+    return {
+      getUser: async () => { const s = await withTO(ref.get({ source: "server" })); return s.exists ? data(s) : null; },
+      seancesSince: async c => {
+        const out = []; let last = null;
+        for (;;) {
+          let q = c ? col.where("srv", ">", new TS(Math.floor(c / 1e6), (c % 1e6) * 1000)).orderBy("srv") : col.orderBy("srv");
+          if (last) q = q.startAfter(last);
+          const qs = await withTO(q.limit(300).get({ source: "server" }));
+          qs.docs.forEach(d => out.push({ id: d.id, data: data(d), srv: micro(d.get("srv")) }));
+          if (qs.docs.length < 300) return out;
+          last = qs.docs[qs.docs.length - 1];
+        }
+      },
+      commit: async ops => {
+        const u = ops.find(x => x.t === "user");
+        if (u) return withTO(this.db.runTransaction(async t => { /* le profil en ligne ne doit pas avoir changé depuis la lecture */
+          const s = await t.get(ref);
+          if (!csSameU(s.exists ? (s.data() || {}).u : null, u.expect)) throw { code: "conflit" };
+          t.set(ref, Object.assign({}, u.data, { srv: FV.serverTimestamp() }));
+        }));
+        const b = this.db.batch();
+        ops.forEach(x => { if (x.t === "se") b.set(col.doc(x.id), Object.assign({}, x.data, { srv: FV.serverTimestamp() })); else if (x.t === "rm") b.delete(col.doc(x.id)); });
+        return withTO(b.commit());
+      }
+    };
+  }
+};
+function acctMsg(c) {
+  return {
+    "auth/email-already-in-use": "Un compte existe déjà avec cet e-mail : touche plutôt « Me connecter ».",
+    "auth/credential-already-in-use": "Un compte existe déjà avec cet e-mail : touche plutôt « Me connecter ».",
+    "auth/provider-already-linked": "Ce profil est déjà relié à un compte : touche « Me connecter ».",
+    "auth/invalid-email": "Adresse e-mail invalide.",
+    "auth/missing-email": "Écris ton adresse e-mail.",
+    "auth/weak-password": "Mot de passe trop court : 6 caractères au moins.",
+    "auth/missing-password": "Écris ton mot de passe.",
+    "auth/wrong-password": "E-mail ou mot de passe incorrect.", "auth/user-not-found": "E-mail ou mot de passe incorrect.",
+    "auth/invalid-credential": "E-mail ou mot de passe incorrect.", "auth/invalid-login-credentials": "E-mail ou mot de passe incorrect.",
+    "auth/too-many-requests": "Trop d’essais : réessaie dans quelques minutes.",
+    "auth/operation-not-allowed": "Active « Adresse e-mail/Mot de passe » dans Firebase (Authentication › Sign-in method).",
+    "auth/admin-restricted-operation": "Active « Adresse e-mail/Mot de passe » dans Firebase (Authentication › Sign-in method).",
+    "auth/configuration-not-found": "Ouvre Authentication dans Firebase, touche « Commencer », puis active « Adresse e-mail/Mot de passe ».",
+    "auth/invalid-api-key": "Configuration Firebase incorrecte : recopie le code d’invitation ou le bloc firebaseConfig en entier.",
+    "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "Configuration Firebase incorrecte : recopie le code d’invitation ou le bloc firebaseConfig en entier.",
+    "auth/network-request-failed": "Pas de réseau : connecte-toi à internet pour cette étape.",
+    "timeout": "Pas de réponse de Firebase : vérifie ta connexion et réessaie.", "script": "Connecte-toi à internet une première fois pour cette étape.",
+    "permission-denied": "Firebase refuse l’accès : publie les nouvelles règles Firestore (bouton « Règles Firestore » ci-dessous).",
+    "not-found": "Base Firestore introuvable : crée-la dans Firebase.", "failed-precondition": "Base Firestore introuvable ou pas encore prête : crée-la dans Firebase."
+  }[c] || "La sauvegarde en ligne a rencontré un problème" + (c ? " (" + c + ")" : "") + ". Rien n’a été retiré de ce téléphone.";
+}
+/* Résultat d’une synchro appliqué : copie de sécurité (D5) avant de retirer plusieurs séances ou d’effacer l’historique, puis enregistrement */
+function applyCloud(st, rep) {
+  if (STORE_BLOCK) return;
+  if (rep.snapshot) snapshotLocal("sync");
+  S = st; saveLocal();
+  const n = rep.added.length, k = rep.removed.length;
+  if (n || k) toast((n ? plural(n, "séance") + " reçue" + (n > 1 ? "s" : "") : "") + (n && k ? ", " : "") + (k ? plural(k, "séance") + " retirée" + (k > 1 ? "s" : "") + (n ? "" : " (corbeille)") : "") + " depuis ton autre appareil");
+  if (!$("#onb").hidden && !onbNeeded()) closeOnb();
+  softRender();
+}
+function agoTxt(t) { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "à l’instant" : m < 60 ? "il y a " + m + " min" : m < 1440 ? "il y a " + Math.round(m / 60) + " h" : "il y a " + plural(Math.round(m / 1440), "jour"); }
+function acctCard() {
+  if (!PWA) return "";
+  const head = `<div class="h3">Sauvegarde en ligne</div>`;
+  if (!Acct.ok()) return `<section><div class="card" style="display:flex;flex-direction:column;gap:8px">${head}<p class="small muted">Indisponible pour l’instant : ${STORE_BLOCK && STORE_BLOCK.reason === "plus-recent" ? "mets d’abord Fonte à jour" : "les données de ce téléphone attendent leur mise à jour (fais une sauvegarde fichier)"}.</p></div></section>`;
+  const priv = `<p class="small muted">Tes données sont dans la base Firebase créée pour Fonte. Personne d’autre ne peut les lire depuis l’appli, mais la personne qui gère ce projet Firebase peut techniquement les voir dans la console Firebase.</p>`;
+  if (!Acct.user) {
+    const again = Acct.meta.email ? `<p class="small">Compte de ce profil : <b>${esc(Acct.meta.email)}</b> (déconnecté).</p>` : "";
+    return `<section><div class="card" style="display:flex;flex-direction:column;gap:12px">${head}${Acct.err ? `<p class="small" style="color:var(--red)">${esc(Acct.err)}</p>` : ""}${again}
+      <p class="small">Avec un compte (e-mail + mot de passe), tout ce profil — séances, programme, palier, notes, mesures, agenda — se copie seul en ligne. Sur un nouvel iPhone ou après une réinstallation, tu te connectes et tout revient. Sans réseau, rien ne change : la copie se fait au retour du réseau.</p>
+      <div class="btn-row"><button class="btn btn-primary" data-a="ac-open" data-v="new">Créer mon compte</button><button class="btn" data-a="ac-open" data-v="login">Me connecter</button></div>${priv}</div></section>`;
+  }
+  const st = {
+    ok: ["ok", Acct.meta.last ? "Sauvegardé en ligne " + agoTxt(Acct.meta.last) : "Sauvegardé en ligne"],
+    connecting: ["warn", "Synchronisation…"],
+    offline: ["warn", "En attente du réseau" + (Acct.pending ? " : " + plural(Acct.pending, "changement") + " à envoyer" : "") + ". Tout est enregistré sur ce téléphone."],
+    limite: ["warn", "Beaucoup de changements à envoyer : la suite part dans une minute."],
+    "plus-recent": ["warn", "Les données en ligne viennent d’une version plus récente de Fonte : mets l’appli à jour. Rien n’a été modifié."],
+    error: ["warn", "Sauvegarde en ligne en pause"], off: ["", "Déconnecté"]
+  }[Acct.state] || ["", ""];
+  return `<section><div class="card" style="display:flex;flex-direction:column;gap:12px">${head}<div class="status ${st[0]}" id="ac-status"><i></i><span>${esc(st[1])}</span></div>${Acct.err ? `<p class="small" style="color:var(--red)">${esc(Acct.err)}</p>` : ""}
+    <p class="small muted">Compte : <b>${esc(Acct.meta.email || Acct.user.email || "")}</b>. Les séances supprimées restent 30 jours dans la corbeille (Profil › Données).</p>
+    <div class="btn-row"><button class="btn" data-a="ac-sync">${icon("refresh")}Synchroniser maintenant</button><button class="btn" data-a="ac-rules">Règles Firestore</button></div>
+    <button class="btn btn-danger" data-a="ac-logout">Me déconnecter</button>${priv}</div></section>`;
+}
+function acctForm(mode) {
+  const login = mode === "login", needCfg = !Acct.cfg();
+  const local = S.historique.length || S.mesures.length;
+  return `<p class="muted">${login ? "Connecte ce profil à ton compte : tes données en ligne reviennent sur ce téléphone." : "Un compte pour ce profil (une personne = un compte). Garde bien ton mot de passe."}</p>
+    ${needCfg ? `<div class="field"><label for="ac-code">Code d’invitation ou configuration Firebase</label><textarea class="code-box" id="ac-code" placeholder="FONTESYNC1.… (bouton « Inviter » sur l’autre téléphone, onglet Agenda) ou le bloc firebaseConfig"></textarea><span class="small muted">Ce téléphone ne connaît pas encore la base Firebase de Fonte : demande le code d’invitation à l’autre téléphone (Agenda › Partager mon agenda › Inviter).</span></div>` : ""}
+    <div class="field"><label for="ac-email">E-mail</label><input class="inp" id="ac-email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" value="${esc(Acct.meta.email || "")}"></div>
+    <div class="field"><label for="ac-pw">Mot de passe${login ? "" : " (6 caractères au moins)"}</label><input class="inp" id="ac-pw" type="password" autocomplete="${login ? "current-password" : "new-password"}"></div>
+    ${login && local ? `<div class="note">${icon("sparkle")}<span>Ce profil a déjà des séances sur ce téléphone : elles seront ajoutées à celles du compte (rien n’est effacé). Connecte-toi seulement à <b>ton</b> compte.</span></div>` : ""}
+    <p class="small" id="ac-err" style="color:var(--red)" hidden></p>
+    ${login ? `<button class="link small" data-a="ac-forgot">Mot de passe oublié ?</button>` : ""}`;
+}
+/* Configuration Firebase pour le formulaire : celle de l’appareil, sinon le code d’invitation (qui rejoint aussi l’agenda partagé) ou le bloc firebaseConfig */
+function acctCfgFrom(raw) {
+  const have = Acct.cfg(); if (have) return { cfg: have };
+  const inv = parseInvite(raw);
+  if (inv) return { cfg: Object.assign({}, inv.c, { authDomain: inv.c.authDomain || inv.c.projectId + ".firebaseapp.com" }), space: inv.s };
+  const cfg = parseFbConfig(raw); return cfg ? { cfg } : null;
+}
+function trashBody() {
+  const list = (S.corbeille || []).filter(c => c && c.h);
+  if (!list.length) return `<p class="muted">La corbeille est vide.</p>`;
+  return `<p class="muted">Les séances supprimées restent ici 30 jours, puis sont effacées définitivement (ici et en ligne).</p><div class="list">${list.map(c => `<div class="row"><div class="row-main"><div class="row-title">${esc(c.h.nom || "Séance")}</div><div class="row-sub">Faite le ${esc(fmtDay(c.h.date))} · supprimée ${esc(agoTxt(c.del))}</div></div><button class="btn" style="min-height:36px" data-a="trash-restore" data-id="${esc(c.id)}">Remettre</button></div>`).join("")}</div>`;
+}
+/* Séance remise depuis la corbeille : références de ses exercices et palier recalculés (comme D3, dans l’autre sens) */
+function afterHistRestore(h) {
+  const ids = (h.log || []).map(l => l && l.id).filter(Boolean);
+  if (ids.length) {
+    const rb = rebuildRefs(S.historique, S.legacyRefs, S.legacySrc);
+    ids.forEach(id => { if (rb.lastPerf[id]) S.lastPerf[id] = rb.lastPerf[id]; if (rb.refs[id]) S.refs[id] = rb.refs[id]; });
+  }
+  S.profile = csAddProgress(S.historique, S.profile, h);
 }
 
 /* ================= Feuilles, toast ================= */
@@ -1625,7 +1897,8 @@ function viewProfil() {
   </div></section>
   ${mesuresCard()}
   <section>${adaptCard()}</section>
-  <section><div class="sec-h"><h2>Données</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${statusHTML()}<p class="small muted">${PWA ? "Tout reste sur ce téléphone et fonctionne sans réseau. Fonte te propose une sauvegarde toutes les 10 séances ou tous les 14 jours ; fais-en une aussi juste avant de changer de téléphone. " + backupAgo() + "." : "Tout est enregistré sur ce téléphone et fonctionne sans réseau une fois l’appli ouverte. Quand tu es connecté à ton compte Claude, ton profil, tes séances et ton historique sont aussi sauvegardés dans ton compte (privés, toi seul y as accès)."}</p><div class="btn-row"><button class="btn" data-a="data-export">${icon("download")}${PWA ? "Sauvegarder / transférer" : "Transférer mes données"}</button><button class="btn" data-a="data-import">Restaurer</button></div>${simple() ? "" : `<button class="btn" data-a="csv-export">${icon("download")}Exporter l’historique (tableur)</button>`}<div class="btn-row"><button class="btn" data-a="hist-clear">Effacer l’historique</button><button class="btn btn-danger" data-a="reset-all">Tout réinitialiser</button></div>${undoBtn()}</div></section>
+  ${acctCard()}
+  <section><div class="sec-h"><h2>Données</h2></div><div class="card" style="display:flex;flex-direction:column;gap:12px">${statusHTML()}<p class="small muted">${PWA ? "Tout reste sur ce téléphone et fonctionne sans réseau. Fonte te propose une sauvegarde toutes les 10 séances ou tous les 14 jours ; fais-en une aussi juste avant de changer de téléphone. " + backupAgo() + "." : "Tout est enregistré sur ce téléphone et fonctionne sans réseau une fois l’appli ouverte. Quand tu es connecté à ton compte Claude, ton profil, tes séances et ton historique sont aussi sauvegardés dans ton compte (privés, toi seul y as accès)."}</p><div class="btn-row"><button class="btn" data-a="data-export">${icon("download")}${PWA ? "Sauvegarder / transférer" : "Transférer mes données"}</button><button class="btn" data-a="data-import">Restaurer</button></div>${simple() ? "" : `<button class="btn" data-a="csv-export">${icon("download")}Exporter l’historique (tableur)</button>`}${(S.corbeille || []).length ? `<button class="btn" data-a="trash-open">${icon("trash")}Corbeille (${(S.corbeille || []).length})</button>` : ""}<div class="btn-row"><button class="btn" data-a="hist-clear">Effacer l’historique</button><button class="btn btn-danger" data-a="reset-all">Tout réinitialiser</button></div>${undoBtn()}</div></section>
   <section><div class="card" style="display:flex;gap:14px;align-items:center"><div class="brand"><svg aria-hidden="true" style="width:46px;height:46px"><use href="#logo"/></svg></div><div class="row-main"><b>Fonte</b><span class="small muted">${EX.length} exercices · ${TPL.length} séances types. Les estimations (calories, fréquence cardiaque) sont indicatives. En cas de douleur ou de souci de santé, demande l’avis d’un médecin.</span></div></div></section>`;
 }
 const VIEWS = { accueil: viewAccueil, exercices: viewExercices, seances: viewSeances, agenda: viewAgenda, profil: viewProfil };
@@ -2006,7 +2279,7 @@ function importCode(raw) {
 /* ===== Copie de sécurité avant une opération qui remplace ou efface les données (D5) =====
    :undo = contenu exact de l’état enregistré du profil actif juste avant l’opération ; :undo-info = { at, reason }. Une seule copie par profil.
    Si la copie ne tient pas dans la mémoire du téléphone, l’opération est refusée (rien n’est modifié). Mécanisme : storeSnapshot (engine-user.js). */
-const UNDO_REASONS = { restore: "avant la restauration", "hist-clear": "avant l’effacement de l’historique", "reset-all": "avant la réinitialisation", undo: "avant le retour en arrière" };
+const UNDO_REASONS = { sync: "avant une synchro qui retirait des séances", restore: "avant la restauration", "hist-clear": "avant l’effacement de l’historique", "reset-all": "avant la réinitialisation", undo: "avant le retour en arrière" };
 const SNAP_FAIL = "Pas assez de place sur ce téléphone pour garder une copie de sécurité : rien n’a été modifié. Fais d’abord une sauvegarde fichier (Profil › Sauvegarder / transférer).";
 function snapshotLocal(reason) {
   if (!saveLocal()) return false;
@@ -2025,7 +2298,8 @@ function undoRestore() {
   if (!snapshotLocal("undo")) return SNAP_FAIL;
   /* la copie vient d’être remplacée par l’état actuel : on remet l’ancienne */
   try { localStorage.setItem(storeKey(), raw); } catch (e) { return SNAP_FAIL; }
-  S = loadState();
+  const cur = S; S = loadState();
+  if (PWA && Acct.user) csRevive(S, cur, Date.now()); /* 3C : l’état d’avant repart en ligne comme le plus récent (séances revenues partout) */
   commit("pa");
   return null;
 }
@@ -2232,7 +2506,7 @@ const A = {
     const items = (x.log || []).filter(l => EX_BY_ID[l.id] && !l.cool && !l.warm).map(l => { const r = l.sets.filter(s => s.r != null), d = l.sets.find(s => s.d); return { id: l.id, series: l.n || l.sets.length, reps: r.length ? Math.max.apply(null, r.map(s => s.r)) : 0, duree: d ? d.d : 0, charge: r.length ? Math.max.apply(null, r.map(s => s.kg || 0)) : 0, repos: 90 }; });
     openEditor("prep", applySuggestions({ nom: x.nom, mode: "series", kind: x.kind || "muscu", items }), {});
   },
-  "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; const gone = S.historique.find(h => h.id === id); S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); if (gone) afterHistDelete(gone); commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
+  "hist-del": el => { if (!arm(el)) return; const id = el.dataset.id; const gone = S.historique.find(h => h.id === id); S.historique = S.historique.filter(h => h.id !== id); S.histDel[id] = Date.now(); S.histDel = pruneDel(S.histDel); if (gone) { csTrashAdd(S, gone, S.histDel[id]); csTrashPrune(S, Date.now()); afterHistDelete(gone); } commit("p"); Sheet.closeAll(); render(); toast("Supprimée de l’historique"); },
   "hist-all": () => Sheet.open({ key: "hall", title: "Historique", tall: true, body: `<div class="list">${S.historique.map(histRow).join("")}</div>` }),
   "prog-plan": () => { UI.seg = "prog"; saveUI(); goTab("seances"); },
   "plan-day": el => {
@@ -2285,6 +2559,43 @@ const A = {
   /* premier lancement guidé */
   "onb-open": () => openOnb(),
   "onb-skip": () => { S.profile.onb = 1; commit("p"); closeOnb(); render(); },
+  /* sauvegarde en ligne (3C) */
+  "onb-account": () => { closeOnb(); A["ac-open"]({ dataset: { v: "login" } }); },
+  "ac-open": el => {
+    const login = el.dataset.v === "login";
+    Sheet.open({ key: "ac", title: login ? "Me connecter" : "Créer mon compte", body: acctForm(login ? "login" : "new"), foot: `<button class="btn" data-a="sheet-close">Annuler</button><button class="btn btn-primary" data-a="ac-go" data-v="${login ? "login" : "new"}" id="ac-go">${login ? "Me connecter" : "Créer mon compte"}</button>`,
+      onClose: () => { if (onbNeeded() && !Acct.user && !loadRun()) setTimeout(() => { if (onbNeeded() && $("#onb").hidden && !Sheet.top()) openOnb(); }, 50); } });
+  },
+  "ac-go": async el => {
+    const login = el.dataset.v === "login", err = $("#ac-err"), show = m => { if (err) { err.textContent = m; err.hidden = !m; } };
+    const email = ($("#ac-email").value || "").trim(), pw = $("#ac-pw").value || "", got = acctCfgFrom($("#ac-code") ? $("#ac-code").value : "");
+    if (!got) { show("Colle le code d’invitation (il commence par FONTESYNC1.) ou le bloc firebaseConfig."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show("Adresse e-mail invalide."); return; }
+    if (pw.length < 6) { show("Mot de passe trop court : 6 caractères au moins."); return; }
+    if (navigator.onLine === false) { show("Pas de réseau : connecte-toi à internet pour cette étape."); return; }
+    show(""); el.disabled = true; el.textContent = login ? "Connexion…" : "Création…";
+    try {
+      if (got.space && !Cloud.cfg) { Cloud.cfg = got.cfg; Cloud.space = got.space; Cloud.save(); } /* le code d’invitation rejoint aussi l’agenda partagé */
+      if (login) await Acct.login(email, pw, got.cfg); else await Acct.create(email, pw, got.cfg);
+      Sheet.closeAll(); render(); toast(login ? "Connecté : tes données en ligne arrivent" : "Compte créé : ce profil est sauvegardé en ligne");
+    } catch (e) { show(acctMsg(String((e && e.code) || ""))); if (el.isConnected) { el.disabled = false; el.textContent = login ? "Me connecter" : "Créer mon compte"; } }
+  },
+  "ac-forgot": async () => {
+    const err = $("#ac-err"), email = ($("#ac-email").value || "").trim(), got = acctCfgFrom($("#ac-code") ? $("#ac-code").value : "");
+    const show = m => { if (err) { err.textContent = m; err.hidden = !m; } };
+    if (!got) { show("Colle d’abord le code d’invitation ou le bloc firebaseConfig."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show("Écris ton adresse e-mail, puis touche « Mot de passe oublié ? »."); return; }
+    try { await Acct.reset(email, got.cfg); show(""); toast("E-mail envoyé à " + email + " : suis le lien pour choisir un nouveau mot de passe"); }
+    catch (e) { show(acctMsg(String((e && e.code) || ""))); }
+  },
+  "ac-sync": () => { Acct.err = ""; Acct.sync(); },
+  "ac-logout": el => { if (!arm(el, "Confirmer : me déconnecter")) return; Acct.logout().then(() => { render(); toast("Déconnecté : tes données restent sur ce téléphone"); }); },
+  "ac-rules": () => Sheet.open({ key: "acr", title: "Règles Firestore", body: `<p class="muted">À faire une fois, par la personne qui gère le projet Firebase : console Firebase › Firestore Database › onglet <b>Règles</b> › remplacer tout par ces règles › <b>Publier</b>. Elles protègent la sauvegarde en ligne : chacun ne peut lire et écrire que ses propres données.</p><div class="field"><textarea class="code-box" id="rules-box" readonly style="min-height:220px">${esc(RULES)}</textarea><button class="btn" data-a="copy-rules">${icon("copy")}Copier les règles</button></div>` }),
+  "trash-open": () => Sheet.open({ key: "trash", title: "Corbeille", body: trashBody() }),
+  "trash-restore": el => {
+    const h = csTrashRestore(S, el.dataset.id, Date.now()); if (!h) { toast("Séance introuvable"); return; }
+    afterHistRestore(h); commit("p"); const b = Sheet.body(); if (b) b.innerHTML = trashBody(); render(); toast("Séance remise dans l’historique");
+  },
   "onb-back": () => { onbRead(); ONB.err = ""; ONB.i = Math.max(0, ONB.i - 1); renderOnb(); },
   "onb-obj": el => { onbRead(); ONB.d.objectif = el.dataset.v; renderOnb(); },
   "onb-sexe": el => { onbRead(); ONB.d.sexe = el.dataset.v; ONB.err = ""; renderOnb(); },
@@ -2570,7 +2881,13 @@ else if (S.profile.bilanNew != null && !loadRun()) setTimeout(() => openBilan(S.
 Sync.init();
 if (PWA) {
   Cloud.load();
-  if (Cloud.cfg) Cloud.start();
+  Acct.load();
+  /* compte du profil (3C) : la connexion est retrouvée d’abord, l’agenda partagé l’utilise ensuite ; sinon, agenda comme avant */
+  if (Acct.meta.email && Acct.cfg()) Acct.boot().then(() => { if (Cloud.cfg && !Cloud.col && !Cloud.starting) Cloud.start(); });
+  else if (Cloud.cfg) Cloud.start();
+  window.addEventListener("online", () => { Acct.queue(0); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) Acct.queue(300); });
+  setInterval(() => { if (!document.hidden) Acct.queue(0); }, 5 * 60e3); /* ce qui a changé sur l’autre appareil arrive aussi pendant que l’appli est ouverte */
   window.addEventListener("online", () => { if (Cloud.cfg && !Cloud.col) Cloud.start(); });
   window.addEventListener("offline", () => { if (Cloud.cfg && Cloud.state === "live") Cloud.set("offline"); });
 }

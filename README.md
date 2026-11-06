@@ -24,8 +24,10 @@ Appli de musculation en français, installable sur iPhone et Android (PWA), qui 
 - **Progression** : courbe par exercice (1RM estimé, charge max, répétitions ou durée), **records** détectés en fin de séance, conseil de charge pour la séance suivante (double progression, ressenti, allègement après 3 séances ratées).
 - **Suivi** : muscles travaillés sur 7 jours (silhouette), régularité sur 8 semaines, bilan du mois, **poids et tour de taille** avec leurs courbes (le dernier poids met à jour les charges conseillées).
 - **Notes par exercice** (réglage du siège, prise…), affichées pendant la séance.
-- **Agenda** partagé (synchro Firebase ou codes à échanger) et **export vers le calendrier du téléphone** (.ics) avec rappel.
-- **Données** : sauvegarde/restauration, **rappel de sauvegarde après 10 séances ou 14 jours** (« Me le rappeler dans 7 jours »), **export tableur** (CSV) de l’historique.
+- **Sauvegarde en ligne par compte** (Profil › Sauvegarde en ligne) : un compte e-mail + mot de passe par profil ; tout le profil (séances, programme, palier, notes, mesures, séances perso, agenda) se copie seul en ligne, sur la base Firebase gratuite de Fonte. Sur un nouvel iPhone ou après une réinstallation : « J’ai déjà un compte Fonte », et tout revient. Deux appareils hors ligne qui enregistrent chacun une séance gardent les deux. Indicateur « Sauvegardé en ligne il y a 2 min » / « En attente du réseau ». Mot de passe oublié, déconnexion (les données restent sur le téléphone). Sans réseau, rien ne change.
+- **Corbeille** (Profil › Données) : une séance supprimée de l’historique y reste 30 jours (sur tous les appareils du compte) et peut être remise ; la charge proposée et le palier sont alors recalculés.
+- **Agenda** partagé (synchro Firebase ou codes à échanger) et **export vers le calendrier du téléphone** (.ics) avec rappel. Depuis 3C, chaque profil connecté à son compte a son propre agenda partagé.
+- **Données** : sauvegarde/restauration, **rappel de sauvegarde après 10 séances ou 14 jours** (« Me le rappeler dans 7 jours » ; plus de rappel tant que la sauvegarde en ligne est à jour), **export tableur** (CSV) de l’historique.
 - **Filet de sécurité** : « Ne pas enregistrer » une séance demande confirmation, puis **« Annuler »** pendant 10 secondes ; avant une restauration, « Effacer l’historique » ou « Tout réinitialiser », Fonte garde une **copie de sécurité** et propose **« Revenir à l’état d’avant »** (Profil › Données) ; une séance oubliée plus de 12 h n’est plus perdue : l’accueil propose de l’**enregistrer à sa date** ou de la supprimer.
 - **Profils** (Profil › en haut) : plusieurs personnes sur un même appareil (par exemple un iPad partagé), chacune avec son programme, ses séances, son historique, ses records, ses mesures, ses notes, sa séance en cours et sa copie de sécurité. « Ajouter un profil » lance le questionnaire de départ ; « Changer de profil » relance l’appli sur l’autre profil (impossible pendant une séance). Profils séparés mais pas protégés par un code.
 - **Supprimer une séance corrige la suite** : après suppression d’une séance de l’historique, la charge proposée et l’avancement du palier reviennent à ce qu’ils seraient sans elle.
@@ -39,14 +41,17 @@ Appli de musculation en français, installable sur iPhone et Android (PWA), qui 
 | `js/engine-pedago.js` | Moteur « pédagogie » : exercices, libellés, charges de départ (`LOAD`), animations des mouvements. |
 | `js/engine-training.js` | Moteur « entraînement » : séances types, prescriptions, programmes, planning, progression des charges (dont le garde-fou de conversion), superséries, paliers, références par zone de répétitions et recalcul après suppression d’une séance (`refStep`, `rebuildRefs`, `rebuildProgress`). |
 | `js/engine-analytics.js` | Moteur « analyse » : courbes, records, muscles travaillés, régularité, plateau de poids. |
+| `js/engine-sync.js` | Moteur « sauvegarde en ligne » (sans Firebase) : fusion de ce qui est reçu, ce qu’il faut envoyer, corbeille, limiteur d’écritures, recalcul du palier et des références après une synchro (`csMerge`, `csPlan`, `csRun`). |
 | `js/engine-user.js` | Moteur « utilisateur » : format des données (`SCHEMA_VERSION = 2`, `migrate`, migration v1 → v2), stockage par profil (`storeOpen`, `storeSave`, profils), copie de sécurité, sauvegarde fichier et restauration, historique résumé, rappel de sauvegarde, exports CSV et calendrier. |
-| `js/app.js` | Interface (écrans, lecteur de séance, profils, messages), synchronisation (compte Claude, Firebase). |
+| `js/app.js` | Interface (écrans, lecteur de séance, profils, messages), synchronisation (compte Claude ; Firebase : agenda partagé `Cloud`, compte et sauvegarde en ligne `Acct`), règles Firestore (`RULES`). |
 | `sw.js` | Service worker : fonctionnement hors ligne et détection des nouvelles versions. |
 | `manifest.webmanifest`, `icon-*.png` | Installation sur l’écran d’accueil. |
 | `tests/run.js` | Tests des calculs, sans dépendance (`node tests/run.js`), dont la **photographie des programmes** (`tests/fixtures/programmes.json`) qui garantit qu’aucun programme ne change par erreur, et la **migration** des données sur chaque jeu de données de référence (mémoire pleine simulée, double lancement, aller-retour sauvegarde → restauration). |
-| `tests/e2e/run.js` | Tests navigateur (Playwright + Chromium, iPhone 13 et iPad simulés) : filet de sécurité, profils (isolation), hors ligne, mise à jour depuis les versions en service. |
+| `tests/synchro.js`, `tests/faux-firestore.js` | Tests de la sauvegarde en ligne avec un faux Firestore (lancés par `tests/run.js`) : fusion, corbeille, conflits entre deux appareils, limiteur, format plus récent refusé, pannes. |
+| `tests/regles/run.js` | Tests des règles Firestore avec l’émulateur Firebase (outil de test, voir « Tests »). |
+| `tests/e2e/run.js` | Tests navigateur (Playwright + Chromium, iPhone 13 et iPad simulés) : filet de sécurité, profils (isolation), hors ligne, mise à jour depuis les versions en service, sauvegarde en ligne avec un faux Firebase (`tests/e2e/faux-firebase.js` : création de compte, réinstallation, mode avion), corbeille. |
 | `tests/fixtures/` | Jeux de données de référence **inventés** (aucune donnée réelle), au format v1 : ce sont les références de la migration, à ne pas régénérer. |
-| `docs/FORMAT_DONNEES.md` | Description des formats de données v1 et v2 et de la migration. |
+| `docs/FORMAT_DONNEES.md` | Description des formats de données v1 et v2, de la migration et des données en ligne (Firebase). |
 | `tools/` | Outils facultatifs : `assemble.js` (fichier unique), `analyse-volume.js` (séries par muscle), `photo-programmes.js`, `make-fixtures.js`. |
 
 Pas d’outil de construction : GitHub Pages sert les fichiers tels quels. Les fichiers `js/` sont de simples scripts qui partagent leurs déclarations, comme lorsqu’ils formaient un seul fichier.
@@ -65,14 +70,19 @@ Change `VERSION` dans `sw.js` quand tu modifies `sw.js`, la liste des fichiers m
 ```sh
 node tests/run.js          # calculs, format des données, photographie des programmes (aucune dépendance, Node.js 18+)
 node tests/e2e/run.js      # navigateur (nécessite Playwright et Chromium)
+# règles Firestore, avec l’émulateur Firebase (Java + paquets de test installés dans un dossier à part, rien n’est ajouté à l’appli) :
+#   cd /tmp/regles && npm install --no-save firebase-tools@15.35.0 @firebase/rules-unit-testing@5.0.2 firebase@12.19.0
+#   FONTE_REGLES_DEPS=/tmp/regles /tmp/regles/node_modules/.bin/firebase emulators:exec --only firestore --project demo-fonte "node tests/regles/run.js"
 ```
 
-Les deux tournent automatiquement sur GitHub à chaque envoi (onglet **Actions**, tâches « tests » et « navigateur »).
+Les trois tournent automatiquement sur GitHub à chaque envoi (onglet **Actions**, tâches « tests », « navigateur » et « regles »).
 
 ## Données et stockage
 
 Tout est enregistré dans le navigateur de l’appareil (`localStorage`), au **format version 2** depuis la phase 3B : `fonte:profiles` (liste des profils, profil ouvert) et une clé par profil, `fonte:p:<id>` (plus `:run` pour la séance en cours, `:undo` pour la copie de sécurité…). Les réglages de l’appareil (`fonte:ui`, `fonte:noinstall`, `fonte:rappel`, `fonte:sync`) sont communs. Détail : `docs/FORMAT_DONNEES.md`.
 
 Au premier lancement de la version 3B, les données de l’ancien format (`fonte:v1`) deviennent le **profil 1** : elles sont copiées, relues et comparées avant d’être utilisées, et `fonte:v1` est **gardé tel quel** comme copie de secours. Si la mémoire est pleine, l’historique ancien est résumé dans la copie ; si la copie est impossible, l’appli continue sur l’ancien format sans rien effacer et demande une sauvegarde. Les anciennes sauvegardes (fichier ou code `FONTEDATA1.`) restent restaurables. Les données d’une version plus récente de Fonte ne sont jamais écrasées (l’appli demande de se mettre à jour) ; des données illisibles sont gardées à part (`…-illisible`). Les 300 séances les plus récentes gardent tout leur détail ; au-delà, seules les meilleures séries de chaque exercice sont conservées (assez pour les courbes et les records), jusqu’à 3 000 séances par profil. Si le stockage du téléphone est plein, l’appli résume davantage les séances anciennes au lieu de perdre des données, et prévient. Une sauvegarde fichier contient le profil ouvert.
+
+**Sauvegarde en ligne (depuis 3C)** : chaque profil connecté à son compte a une copie en ligne dans Firebase (`users/{uid}`, une séance par document dans `users/{uid}/seances`), détail en section 5 de `docs/FORMAT_DONNEES.md`. Le téléphone reste la référence : une erreur de synchro ne retire jamais rien de l’appareil. Les règles Firestore (Profil › Sauvegarde en ligne › Règles Firestore) empêchent chacun de lire les données d’un autre depuis l’appli ; la personne qui gère le projet Firebase peut toutefois techniquement tout voir dans la console Firebase. Plan gratuit Spark : rien à payer pour cet usage.
 
 Les rappels passent par le calendrier du téléphone : une vraie notification envoyée par l’appli, appli fermée, demanderait un serveur d’envoi (Web Push), que Fonte n’a pas.

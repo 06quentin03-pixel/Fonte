@@ -10,8 +10,8 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 | 1 — Audit complet | ✅ Terminée le 5 nov. 2026 | `claude/audit-phase-1` | `docs/AUDIT_PHASE1.md`, `tools/analyse-volume.js`, `docs/PROMPT_PHASE2.md` |
 | 2 — Plan d’amélioration | ✅ Terminée le 5 nov. 2026 | `claude/plan-phase-2` (part de `claude/audit-phase-1`) | `docs/PLAN_PHASE2.md`, `docs/PROMPT_PHASE3A.md` |
 | 3A — Filet de sécurité (D2, D5, D6, D1-a, S1-a, tests navigateur) **puis** moteurs en fichiers séparés (A1, A3, D8 cadre) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) | `claude/phase-3a-securite-moteurs` (part de `claude/plan-phase-2`) | `js/engine-*.js`, `js/app.js`, `tests/e2e/`, `tests/fixtures/`, `tools/assemble.js`, `docs/CHECKLIST_PHASE3A.md`, `docs/PROMPT_PHASE3B.md` |
-| 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ✅ Terminée le 6 nov. 2026 (parties 1, 2 et 3) — **à vérifier sur les deux iPhone avant 3C** | `claude/phase-3b-format-profils` (part de `main` `434b292`) | `js/engine-user.js` (format v2, migration, profils), `js/engine-training.js` (D3), `docs/FORMAT_DONNEES.md`, `docs/CHECKLIST_PHASE3B.md`, `docs/PROMPT_PHASE3C.md` |
-| 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ⏳ À faire (nouvelle session, **après** la checklist 3B sur les deux iPhone) | — | voir `docs/PROMPT_PHASE3C.md` |
+| 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ✅ Terminée le 6 nov. 2026 (parties 1, 2 et 3), **fusionnée dans `main`** (pull request n° 12, `b165012`) | `claude/phase-3b-format-profils` (part de `main` `434b292`) | `js/engine-user.js` (format v2, migration, profils), `js/engine-training.js` (D3), `docs/FORMAT_DONNEES.md`, `docs/CHECKLIST_PHASE3B.md`, `docs/PROMPT_PHASE3C.md` |
+| 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) — **à vérifier avec `docs/CHECKLIST_PHASE3C.md` avant 3D** | `claude/eloquent-goldberg-l5gn8b` (branche imposée par la session ; part de `main` `b165012`) | `js/engine-sync.js`, `Acct` et `RULES` dans `js/app.js`, `tests/synchro.js`, `tests/faux-firestore.js`, `tests/regles/run.js`, `tests/e2e/faux-firebase.js`, `docs/FORMAT_DONNEES.md` (section 5), `docs/CHECKLIST_PHASE3C.md`, `docs/PROMPT_PHASE3D.md` |
 | 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | À faire | — | — |
 | 3E — Expérience de séance, iPad (U1, U2, U3, U5) **puis**, si validé, programmes (S2/S3) | À faire | — | — |
 | 4 — Tests complets | À faire | — | — |
@@ -23,9 +23,57 @@ Le détail de chaque session (contenu, taille, critères « terminé », tests) 
 
 ## Version du code de l’appli
 
-- Version utilisée sur les téléphones : `main` au commit `434b292` (phase 3A, fusionnée par la pull request n° 11, vérifiée sur iPhone : mise à jour reçue, données intactes, mode avion OK).
-- Version de développement : branche `claude/phase-3b-format-profils` (phase 3B), **pas encore fusionnée** : la fusion attend l’accord du propriétaire.
+- Version dans `main` : commit `b165012` (phase 3B et sa correction « même séance reproposée », fusionnées par la pull request n° 12).
+- Version de développement : branche `claude/eloquent-goldberg-l5gn8b` (phase 3C), **pas encore fusionnée** : la fusion attend l’accord du propriétaire.
 - Attention : dans un clone, la branche locale `main` peut être périmée ; comparer avec `origin/main`. GitHub signale que le dépôt s’appelle désormais `06quentin03-pixel/Fonte` (l’ancienne adresse redirige).
+
+## Phase 3C — résumé (6 nov. 2026)
+
+Tests au début de la session (sur `main` `b165012`) : `node tests/run.js` → **106 réussis, 0 en échec** ; `node tests/e2e/run.js` → **58 réussis, 0 en échec**.
+
+**Tarifs Firebase relus (plan 3.2)** sur la page officielle (firebase.google.com/pricing et la page des quotas Firestore, le 6 nov. 2026 ; il a fallu autoriser ce site dans le réseau de la session) : plan gratuit **Spark**, Firestore « Standard » : 1 Gio stocké, **50 000 lectures, 20 000 écritures, 20 000 suppressions par jour**, 10 Gio de transfert par mois ; Authentication gratuite jusqu’à 50 000 utilisateurs actifs par mois (seuls les SMS sont payants) ; document de 1 Mio au plus. **Les sauvegardes de la base, la restauration à une date et la suppression automatique (TTL) demandent la facturation** → la corbeille de 30 jours est vidée par l’appli elle-même. Coût prévu : **0 €**.
+
+**Partie 1 — moteur de synchro et règles** (commit `f5843db`) :
+- `js/engine-sync.js` (nouveau fichier, **sans Firebase**) : décide quoi fusionner et quoi envoyer. **Pourquoi un fichier à part** : c’est ce qui permet de tester toute la synchro en Node avec un faux Firestore ; `app.js` ne fait que le brancher sur Firebase. Ajouté à `index.html`, `sw.js` (`SHELL`), `tests/charger.js` ; `tools/assemble.js` le prend tout seul.
+- Modèle (plan D1/D7/D9, détail : `docs/FORMAT_DONNEES.md` section 5) : `users/{uid}` (profil, notes, mesures, séances perso, semaine allégée, agendas importés, agenda, `legacyRefs`/`legacySrc`, suppressions), chaque rubrique en texte JSON avec sa date ; `users/{uid}/seances/{id}` : **une séance = un document**, suppression = marque `del` + date, **corbeille 30 jours** puis effacement définitif. On ne relit que ce qui a changé (heure du serveur, à la microseconde). Les séances partent d’abord, le profil ensuite (il ne compte jamais une séance absente en ligne), et seulement s’il n’a pas changé en ligne depuis la lecture (deux appareils ne s’écrasent pas : la synchro recommence). **Limiteur** : 60 écritures/minute, 1 500/jour par profil et par appareil.
+- Après une synchro qui ajoute, retire ou modifie des séances : références (`rebuildRefs`) et palier (`rebuildProgress`, et `csAddProgress`, son pendant pour un ajout) recalculés. Toute donnée reçue passe par `migrate` ; un format plus récent arrête la synchro sans rien écrire. Une erreur ne retire jamais rien de l’appareil.
+- État d’un profil : nouvelle rubrique `corbeille` (facultative, le format reste en version 2).
+- `RULES` remplacées : données perso lues/écrites seulement par leur propriétaire connecté par **e-mail** (connexion anonyme refusée), champs et tailles bornés (mêmes limites que le moteur, vérifié par un test), heure du serveur obligatoire ; agenda partagé réservé aux comptes e-mail ; un ancien agenda anonyme peut encore être retiré par son appareil.
+
+**Partie 2 — l’appli** (commits `7e852fd` et `d3bd946`) :
+- Profil › **Sauvegarde en ligne** : créer un compte, se connecter, mot de passe oublié, se déconnecter (les données restent). Une « app » Firebase par profil (`fonte-<id>`), état dans `fonte:p:<id>:sync`. **Liaison** : le compte anonyme de l’appareil devient le compte e-mail (même identifiant, l’agenda partagé continue) ; « Me connecter » sur un appareil qui avait un agenda anonyme le retire. Indicateur « Sauvegardé en ligne il y a 2 min » / « En attente du réseau : N changements ». Rappel de la visibilité par l’administrateur du projet Firebase dans la carte.
+- Questionnaire de départ : **« J’ai déjà un compte Fonte »** (téléphone neuf ou réinstallé). Un téléphone qui ne connaît pas la base Firebase demande le code d’invitation `FONTESYNC1.` (ou le bloc `firebaseConfig`).
+- Synchro à l’ouverture, 2 s après chaque changement, au retour du réseau ou dans l’appli, toutes les 5 min appli ouverte ; **jamais pendant une séance** (juste après). Copie de sécurité D5 avant d’appliquer une synchro qui retire 3 séances ou plus (ou un effacement complet) ; « Revenir à l’état d’avant » les fait revenir partout.
+- Agenda partagé : un profil connecté à son compte a son propre agenda (fin de la restriction « profil relié à l’appareil » pour lui).
+- **Corbeille** : Profil › Données › Corbeille › « Remettre » (référence et palier recalculés). Rappel de sauvegarde fichier masqué quand la sauvegarde en ligne est à jour (moins de 7 jours).
+- `sw.js` : `VERSION = "fonte-2026-11-06-synchro-comptes"`.
+
+**Décisions prises pendant la session (expliquées simplement)** :
+- **Données en ligne en texte** : chaque séance et chaque rubrique est envoyée comme un texte. Firestore ne peut alors rien transformer ni refuser, et les règles peuvent limiter la taille de chaque texte. Inconvénient : moins lisible dans la console Firebase (ce qui protège aussi un peu la vie privée).
+- **Pas de lecture « en direct »** des séances : l’appli demande ce qui a changé à des moments précis (voir plus haut). Plus simple, plus prévisible, et testable ; une séance faite sur l’autre téléphone arrive au plus tard 5 minutes après, ou à l’ouverture.
+- **Téléphone neuf** : si ce téléphone n’a encore aucune séance, c’est le profil en ligne qui gagne au premier lien, même si le questionnaire a été rempli avant (sinon le palier serait remis à zéro).
+- **Ordre conseillé dans la console** (checklist 3C) : activer l’e-mail, créer les comptes, **puis** publier les règles : l’agenda partagé n’est jamais coupé.
+- **Une rubrique trop grosse** pour les règles n’est pas envoyée (le reste part, message à l’écran) au lieu de bloquer toute la sauvegarde.
+
+**Écarts et adaptations** :
+- Branche : `claude/eloquent-goldberg-l5gn8b` (imposée par la configuration de la session) au lieu de `claude/phase-3c-firebase`.
+- Commits : partie 1 et partie 2 séparées comme demandé ; la partie 2 a un commit de suite (rubrique trop grosse), trouvé à la relecture.
+- Test adapté (imposé) : dans `tests/run.js`, le test qui fige l’ordre de chargement des fichiers `js/` inclut maintenant `engine-sync.js`. `tests/run.js` lance aussi des tests asynchrones (synchro) après les autres. `tests/e2e/outils.js` : option `before` (pour brancher le faux Firebase avant l’ouverture). Rien d’autre ne change dans les tests existants.
+- Défauts trouvés et corrigés **pendant** la session grâce aux tests (avant tout envoi) : marque « supprimée » confondue avec une empreinte commençant par « d » (aurait pu effacer une séance en ligne) ; deux changements dans la même milliseconde ; profil vide d’un téléphone neuf qui gagnait contre le vrai (palier posé à l’ouverture).
+
+**Résultats des tests (fin de session, réellement exécutés, sur `d3bd946`)** :
+- `node tests/run.js` → **127 réussis, 0 en échec** (106 d’avant, dont 1 adapté pour l’ordre de chargement, + 21 de synchro avec le faux Firestore : premier envoi et lectures minimales, réinstallation, téléphone neuf dont le questionnaire est rempli, deux appareils hors ligne, suppression propagée avec D3, corbeille remise, effacement définitif à 30 jours, même séance modifiée des deux côtés, deux envois de profil simultanés, limiteur sur 3 000 modifications, 500 séances étalées, format plus récent refusé, pannes à chaque étape, séance résumée, effacement complet, union de deux appareils, document abîmé et ancien format, retour arrière après synchro, rubrique trop grosse, limites identiques aux règles, comptes séparés).
+- `node tests/e2e/run.js` → **66 réussis, 0 en échec** (33 tests × iPhone 13 et iPad Pro 11 : les 29 d’avant inchangés + création de compte et liaison du compte anonyme, réinstallation « J’ai déjà un compte », mode avion puis retour du réseau, corbeille).
+- Règles Firestore avec l’**émulateur Firebase** (firebase-tools 15.35.0, Java 21) → **9 réussis, 0 en échec** (lecture/écriture croisées interdites, anonyme refusé sur les données perso, sans connexion refusé, heure du serveur, champs inconnus, tailles, agenda partagé).
+- GitHub Actions : exécution n° 55 (commit `7a92e63`) **réussie** : tâches « tests », « navigateur » et la nouvelle tâche « regles » (émulateur Firebase installé et lancé sur GitHub : elle fonctionne réellement).
+- Non testé (impossible ici) : vrai projet Firebase, vrai Safari, vrais iPhone/iPad → `docs/CHECKLIST_PHASE3C.md`.
+
+**Points ouverts notés pendant 3C** (non corrigés, hors périmètre ou à décider) :
+- « Restaurer » une sauvegarde fichier n’efface pas les séances déjà en ligne ; « Effacer l’historique » et « Tout réinitialiser » laissent les séances en ligne (ignorées partout). Détail : `docs/FORMAT_DONNEES.md` 5.5.
+- Un téléphone neuf doit recevoir le code d’invitation (ou le bloc `firebaseConfig`) pour trouver la base : prévu dans la checklist. Plus simple plus tard : écrire la configuration du projet dans l’appli (elle n’est pas secrète).
+- La synchro Claude (mode artifact) fusionne encore `lastPerf` sans recalcul D3 après des suppressions reçues (déjà noté en 3B) : non repris, le mode artifact n’est pas utilisé sur les téléphones.
+- Quiconque a la clé publique du projet peut créer un compte e-mail ; il ne peut lire que ses propres données, et l’agenda d’un espace seulement s’il connaît son identifiant (20 caractères aléatoires). Pour de futurs utilisateurs : page confidentialité, suppression de compte (plan section 10).
+- Mot de passe oublié : l’e-mail de Firebase peut arriver dans les indésirables.
 
 ## Phase 3B — résumé (6 nov. 2026)
 
@@ -121,14 +169,15 @@ Décisions techniques : 4 moteurs en fichiers séparés sans outil de constructi
 
 ## Décisions en attente
 
-Aucune bloquante. **Accord attendu : fusion de la branche 3B dans `main`.** À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; validation des propositions de programmes (fin de 3D) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
+Aucune bloquante. **Accord attendu : fusion de la branche 3C (`claude/eloquent-goldberg-l5gn8b`) dans `main`.** À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; validation des propositions de programmes (fin de 3D) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
 
 ## Problèmes ouverts connus
 
-Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi). **Corrigés en 3B** : D8 (migration réelle v1 → v2), U4 (profils), S1-b (format : références par zone ; usage en 3D), D3.
+Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi). **Corrigés en 3B** : D8 (migration réelle v1 → v2), U4 (profils), S1-b (format : références par zone ; usage en 3D), D3. **Corrigés en 3C** (à vérifier sur les téléphones) : D1 (sauvegarde en ligne récupérable après perte ou réinstallation), D7 (conflits entre appareils), D9 (données personnelles en ligne protégées par compte et règles).
 
 ## Prochaine étape
 
-1. Le propriétaire lit ce résumé et donne (ou non) son accord pour fusionner `claude/phase-3b-format-profils` dans `main` (GitHub › Pull requests › New pull request › base `main` ← `claude/phase-3b-format-profils` › Create › Merge).
-2. **Avant la mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3B.md` sur **les deux iPhone** (données toutes là, mode avion) et sur l’iPad (2ᵉ profil, une séance dans chaque, rien ne se mélange).
-3. Seulement ensuite, ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3C.md`.
+1. Le propriétaire lit ce résumé et donne (ou non) son accord pour fusionner `claude/eloquent-goldberg-l5gn8b` dans `main` (GitHub › Pull requests › New pull request › base `main` ← `claude/eloquent-goldberg-l5gn8b` › Create › Merge).
+2. **Avant la mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3C.md` : console Firebase (activer « Adresse e-mail/Mot de passe »), un compte par profil, **puis** publier les nouvelles règles, réinstallation d’un appareil de test, mode avion, corbeille.
+3. Dire à l’autre personne que l’administrateur du projet Firebase peut techniquement voir ses données dans la console (plan 3.1-4).
+4. Seulement ensuite, ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3D.md`.

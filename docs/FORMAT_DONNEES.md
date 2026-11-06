@@ -1,8 +1,8 @@
 # Fonte — format des données
 
-Ce document décrit comment Fonte enregistre les données sur l’appareil (dans le `localStorage` du navigateur), en version 1 (jusqu’à la phase 3A) et en version 2 (depuis la phase 3B). Le code correspondant est dans `js/engine-user.js` (stockage, migration) et `js/engine-training.js` (références, palier).
+Ce document décrit comment Fonte enregistre les données sur l’appareil (dans le `localStorage` du navigateur), en version 1 (jusqu’à la phase 3A) et en version 2 (depuis la phase 3B), et, depuis la phase 3C, leur copie en ligne (Firebase, section 5). Le code correspondant est dans `js/engine-user.js` (stockage, migration), `js/engine-training.js` (références, palier) et `js/engine-sync.js` (sauvegarde et synchro en ligne).
 
-Règle : **toute donnée lue passe par `migrate(raw)`** : les données de l’appareil au démarrage, les fichiers et codes de sauvegarde `FONTEDATA1.`, les données reçues de la synchro Claude. Une donnée d’un format plus récent que l’appli est refusée et jamais écrasée.
+Règle : **toute donnée lue passe par `migrate(raw)`** : les données de l’appareil au démarrage, les fichiers et codes de sauvegarde `FONTEDATA1.`, les données reçues de la synchro Claude et (depuis 3C) chaque document reçu de Firebase. Une donnée d’un format plus récent que l’appli est refusée et jamais écrasée.
 
 ---
 
@@ -43,12 +43,13 @@ Le fichier et le code de sauvegarde v1 (`FONTEDATA1.` + base64) contiennent `{ v
 |---|---|
 | `fonte:profiles` | `{ v: 2, active, owner, list: [{ id, prenom, cree }], mig? }` : liste des profils de l’appareil et profil ouvert. `owner` = profil relié à la synchro de l’appareil (agenda Firebase, compte Claude). `mig` = trace de la migration : `{ pid, at, sig, resume?, merged?, illisible? }` (`sig` = empreinte de `fonte:v1` au moment de la migration). |
 | `fonte:p:<id>` | État du profil (voir 2.2). `<id>` = `p` + lettres et chiffres. |
+| `fonte:p:<id>:sync` | **Depuis 3C** : état de la sauvegarde en ligne du profil (voir 5.3). |
 | `fonte:p:<id>:run`, `:run-trash`, `:undo`, `:undo-info`, `:backup`, `:bksnooze` | Les mêmes fichiers qu’en v1, **un jeu par profil** : séance en cours, séance supprimée récemment, copie de sécurité, dates de sauvegarde. |
 | `fonte:p:<id>-illisible` | Copie brute d’un état de profil abîmé (jamais écrasée). |
 | `fonte:ui`, `fonte:noinstall`, `fonte:rappel`, `fonte:sync` | Inchangés, **communs à l’appareil**. |
 | `fonte:v1` | **Conservé tel quel** après la migration, comme copie de secours. Plus jamais écrit par la version 3B (sauf mode « v1 », voir 3.3). Il ne sera supprimé qu’avec l’accord du propriétaire (futur bouton « Libérer de la place », qui proposera d’abord une sauvegarde fichier). |
 
-`fonte:sync` (Firebase, agenda partagé, connexion anonyme de l’appareil) reste commun en 3B : seul le profil `owner` y envoie son agenda ; les autres profils de l’appareil voient l’agenda du profil relié et ceux des partenaires, et gardent leurs séances sur l’appareil. Chaque profil aura son propre compte en 3C (`fonte:p:<id>:sync`).
+`fonte:sync` (configuration Firebase et espace d’agenda partagé) reste commun à l’appareil. En 3B, seul le profil `owner` y envoyait son agenda (connexion anonyme de l’appareil). **Depuis 3C**, un profil connecté à son compte e-mail envoie son propre agenda avec ce compte ; un profil sans compte fonctionne comme en 3B.
 
 ### 2.2 État d’un profil (`fonte:p:<id>`)
 
@@ -63,6 +64,7 @@ Le même contenu qu’en v1, avec :
 | `historique[].upd` | Date de dernière modification de chaque séance (pour les anciennes : son heure `ts`). Préparé pour la synchro par séance (3C). |
 | `historique[].log[].sets[].t` | **Nouvelles séances** : cible de répétitions de la série (`it.reps`). |
 | `historique[].log[].b` | **Nouvelles séances** : répétitions prévues au départ, si différentes de la cible (`it.base`). |
+| `corbeille` | **Depuis 3C** : séances supprimées de l’historique depuis moins de 30 jours, `[{ id, del, h }]` (`del` = date de suppression, `h` = la séance), 200 au plus. « Remettre » (Profil › Données › Corbeille) la replace dans l’historique. Champ facultatif : une version 3B l’ignore et le garde. Le format reste en version 2. |
 
 Les séances résumées (`c: 1`) gardent `t` et `b`.
 
@@ -99,3 +101,52 @@ L’appli fonctionne comme la version 3A : elle lit et écrit `fonte:v1` au form
 
 - **Références** (`rebuildRefs(historique, legacyRefs, legacySrc)`, `engine-training.js`) : pour chaque exercice, on part de la référence v1 (si sa séance d’origine est toujours là, ou si elle est inconnue) puis on rejoue les séances plus récentes avec la même règle que l’enregistrement d’une séance (`refStep`) ; si la séance d’origine a été supprimée, on rejoue toutes les séances de l’exercice (cible = `t`, sinon la plus grande répétition faite). L’appli n’applique le résultat qu’aux exercices de la séance supprimée.
 - **Palier** (`rebuildProgress(historique, profil, séanceSupprimée)`) : si le palier actuel correspond à l’historique rejoué depuis le début (même logique que la première ouverture), on rejoue sans la séance : comme si elle n’avait jamais existé. Sinon (jours changés en cours de route, niveau choisi à la main, suppression ancienne non décomptée), on retire seulement une séance au compteur (et on rouvre le palier précédent si besoin), pour ne rien bouleverser. Une séance de mobilité ne change pas le palier.
+
+---
+
+## 5. Sauvegarde et synchro en ligne (phase 3C)
+
+Le téléphone reste la référence : tout fonctionne sans réseau, la copie en ligne se fait quand le réseau est là. Une erreur de synchro (réseau, refus de Firebase, limite atteinte) ne retire jamais rien des données de l’appareil : ce qui n’est pas parti repart à la synchro suivante.
+
+### 5.1 Comptes
+
+- Un compte **e-mail + mot de passe par profil** (Firebase Authentication). Chaque profil a sa propre « app » Firebase nommée `fonte-<id du profil>` : sa connexion est gardée par Firebase sur l’appareil et ne se mélange pas avec celle d’un autre profil.
+- **Liaison** : quand le profil relié à l’appareil (`owner`) crée son compte alors que l’appareil était connecté de façon anonyme (agenda partagé d’avant 3C), le compte anonyme est **relié** au nouveau compte : l’identifiant (`uid`) ne change pas, l’agenda partagé continue. Si le compte existe déjà (« Me connecter »), l’ancien agenda anonyme de l’appareil est retiré et l’agenda repart sous le compte.
+- La configuration Firebase (`apiKey`, `projectId`…) vient de `fonte:sync` ; sur un téléphone qui ne la connaît pas encore, on colle le **code d’invitation** `FONTESYNC1.` (qui fait aussi rejoindre l’agenda partagé) ou le bloc `firebaseConfig`.
+
+### 5.2 Documents en ligne (Firestore)
+
+| Document | Contenu |
+|---|---|
+| `users/{uid}` | `{ v, app: "fonte", upd, agUpd, u, srv, profile, notes, mesures, mesSeances, deload, imports, agenda, legacy, clear }`. Chaque rubrique est enregistrée **en texte JSON** (Firestore ne peut alors rien modifier ni refuser : listes dans des listes, valeurs vides…), avec sa date de modification `u[rubrique]` (toujours strictement croissante). `legacy` = `{ legacyRefs, legacySrc }` ; `clear` = `{ histClear, histDel }`. `srv` = heure du serveur. |
+| `users/{uid}/seances/{id}` | **Une séance = un document** : `{ v, upd, j, srv }` (`j` = la séance en texte JSON). Suppression : `{ v, upd, del, j, srv }` (marque `del` + date ; la séance reste lisible pour la corbeille des autres appareils). Effacée définitivement 30 jours après la suppression. |
+| `espaces/{espace}/agendas/{uid}` | Agenda partagé (inchangé depuis 3A) : `{ v, upd, prenom, events }`. |
+
+Tailles maximales (caractères), identiques dans les règles et dans `engine-sync.js` (un test le vérifie) : profil 20 000, notes 100 000, mesures 200 000, séances perso 300 000, semaine allégée 5 000, agendas importés 200 000, agenda 200 000, anciennes références 300 000, suppressions 50 000, séance 200 000. Une rubrique plus grosse n’est pas envoyée (elle reste sur le téléphone, l’écran le signale), le reste part. `lastPerf` et `refs` ne sont pas envoyés : ils sont **recalculés** à partir des séances (`rebuildRefs`).
+
+### 5.3 État de synchro d’un profil (`fonte:p:<id>:sync`)
+
+`{ v: 1, cfg, email, uid, cursor, sent, ru, su, seen, skip, lim, last, blocked }` :
+`cursor` = heure du serveur (microsecondes) de la dernière séance reçue — on ne relit que les séances plus récentes ; `sent[rubrique]` = empreinte de la rubrique telle qu’envoyée ou reçue ; `ru` / `su` = dates `u` lues en ligne ; `seen[id]` = empreinte de chaque séance telle qu’en ligne (`~…` = supprimée) ; `skip` = séances d’un format plus récent (jamais réécrites) ; `lim` = compteurs du limiteur ; `last` = dernière synchro complète.
+
+### 5.4 Une synchro (`csRun`)
+
+1. **Lecture** : le document `users/{uid}` (1 lecture) et les séances dont l’heure du serveur est plus récente que `cursor` (une lecture par séance changée, une seule si rien n’a changé).
+2. **Fusion** (`csMerge`, sans réseau, testée en Node) :
+   - tout ce qui est reçu passe par `migrate` ; un document d’un **format plus récent** arrête tout : rien n’est fusionné ni écrit (« Mets l’appli à jour ») ;
+   - rubrique changée d’un seul côté : ce côté gagne ; changée des deux côtés : union par identifiant (mesures, séances perso, agenda, agendas importés, notes, anciennes références), sinon la plus récente (profil, semaine allégée) ; suppressions (`histDel`) toujours additionnées, effacement complet : le plus récent ;
+   - premier lien d’un téléphone **sans aucune séance** (neuf, réinstallé) : le profil en ligne l’emporte, même si le questionnaire vient d’être rempli ;
+   - séances : une séance reçue s’ajoute ; une même séance modifiée des deux côtés : la plus récente (`upd`) gagne ; une suppression reçue retire la séance (dans la corbeille), sauf si elle a été modifiée ici après ; une version résumée (`c: 1`) ne remplace jamais le détail ;
+   - **palier** : le profil gagnant a compté ses propres séances ; les séances qu’il ne connaissait pas sont ajoutées (ou retirées) une à une, avec la même logique que D3 (`csAddProgress`, `rebuildProgress`) ; un effacement complet ne change pas le palier ;
+   - **références** : recalculées (`rebuildRefs`) pour les exercices des séances ajoutées, retirées ou modifiées ;
+   - avant d’appliquer une synchro qui retire 3 séances ou plus, ou un effacement complet, l’appli fait une **copie de sécurité** (D5, « Revenir à l’état d’avant ») ; revenir en arrière refait revenir les séances partout (`csRevive`).
+3. **Envoi** (`csPlan`) : les séances nouvelles ou modifiées (par groupes de 100), **puis** le document du profil, seul et à condition qu’il n’ait pas changé en ligne depuis la lecture (sinon tout recommence : deux appareils ne s’écrasent pas), puis les effacements définitifs (corbeille de plus de 30 jours). Le profil en ligne ne compte donc jamais une séance absente en ligne.
+4. **Limiteur** : 60 écritures par minute et 1 500 par jour au plus, par profil et par appareil (le plan gratuit permet 20 000 écritures par jour pour tout le projet). Au-delà, la suite part plus tard (« Beaucoup de changements à envoyer »).
+
+Quand : à l’ouverture de l’appli, 2 s après chaque changement, au retour du réseau, au retour dans l’appli et toutes les 5 minutes pendant qu’elle est ouverte ; jamais pendant une séance ou l’édition d’une séance (juste après).
+
+### 5.5 Limites connues
+
+- « Restaurer » une sauvegarde fichier remplace les données du téléphone mais n’efface pas les séances déjà en ligne : celles qui ne sont pas dans la sauvegarde restent en ligne (un nouvel appareil les récupérerait).
+- Les séances effacées par « Effacer l’historique » ou « Tout réinitialiser » restent en ligne (ignorées par tous les appareils) ; elles ne sont pas dans la corbeille (la copie de sécurité D5 permet de revenir en arrière).
+- Une rubrique trop grosse pour les règles reste sur le téléphone (message à l’écran).

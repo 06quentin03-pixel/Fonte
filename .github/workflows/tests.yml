@@ -29,3 +29,19 @@ jobs:
       - run: npm install --no-save --no-package-lock playwright@1.63.0
       - run: npx playwright install --with-deps chromium
       - run: node tests/e2e/run.js
+
+  # Règles Firestore (RULES dans js/app.js) testées avec l'émulateur Firebase : outils de test seulement, rien n'est ajouté à l'appli,
+  # aucun vrai projet Firebase n'est contacté.
+  regles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: mkdir -p /tmp/regles && cd /tmp/regles && npm install --no-save --no-package-lock firebase-tools@15.35.0 @firebase/rules-unit-testing@5.0.2 firebase@12.19.0
+      - run: FONTE_REGLES_DEPS=/tmp/regles /tmp/regles/node_modules/.bin/firebase emulators:exec --only firestore --project demo-fonte "node tests/regles/run.js"
