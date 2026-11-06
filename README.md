@@ -25,36 +25,49 @@ Appli de musculation en français, installable sur iPhone et Android (PWA), qui 
 - **Suivi** : muscles travaillés sur 7 jours (silhouette), régularité sur 8 semaines, bilan du mois, **poids et tour de taille** avec leurs courbes (le dernier poids met à jour les charges conseillées).
 - **Notes par exercice** (réglage du siège, prise…), affichées pendant la séance.
 - **Agenda** partagé (synchro Firebase ou codes à échanger) et **export vers le calendrier du téléphone** (.ics) avec rappel.
-- **Données** : sauvegarde/restauration, rappel de sauvegarde tous les 30 jours, **export tableur** (CSV) de l’historique.
+- **Données** : sauvegarde/restauration, **rappel de sauvegarde après 10 séances ou 14 jours** (« Me le rappeler dans 7 jours »), **export tableur** (CSV) de l’historique.
+- **Filet de sécurité** : « Ne pas enregistrer » une séance demande confirmation, puis **« Annuler »** pendant 10 secondes ; avant une restauration, « Effacer l’historique » ou « Tout réinitialiser », Fonte garde une **copie de sécurité** et propose **« Revenir à l’état d’avant »** (Profil › Données) ; une séance oubliée plus de 12 h n’est plus perdue : l’accueil propose de l’**enregistrer à sa date** ou de la supprimer.
+- **Charge recalculée** : si une séance vise beaucoup plus (ou moins) de répétitions que la dernière fois (écart d’au moins 3), la charge est convertie par le 1RM estimé avec une marge de prudence de 5 %, au lieu d’être simplement augmentée (ex. après 5 × 5 à 100 kg au squat : 82,5 kg pour 10 répétitions).
 
 ## Fichiers
 
 | Fichier | Rôle |
 |---|---|
-| `index.html` | Toute l’appli, en un seul fichier autonome (styles, données, animations, code). Le plan est en tête de chaque bloc `<script>`. |
+| `index.html` | La page : styles, structure, et la ligne `window.FONTE_PWA = true`. Charge les fichiers `js/` ci-dessous, dans cet ordre. |
+| `js/engine-pedago.js` | Moteur « pédagogie » : exercices, libellés, charges de départ (`LOAD`), animations des mouvements. |
+| `js/engine-training.js` | Moteur « entraînement » : séances types, prescriptions, programmes, planning, progression des charges (dont le garde-fou de conversion), superséries, paliers. |
+| `js/engine-analytics.js` | Moteur « analyse » : courbes, records, muscles travaillés, régularité, plateau de poids. |
+| `js/engine-user.js` | Moteur « utilisateur » : version du format des données (`SCHEMA_VERSION`, `migrate`), lecture de l’état, historique résumé, rappel de sauvegarde, exports CSV et calendrier. |
+| `js/app.js` | Interface (écrans, lecteur de séance, sauvegarde, synchronisation). |
 | `sw.js` | Service worker : fonctionnement hors ligne et détection des nouvelles versions. |
 | `manifest.webmanifest`, `icon-*.png` | Installation sur l’écran d’accueil. |
-| `tests/run.js` | Tests des calculs (prescriptions, progression, records, superséries, exports). |
+| `tests/run.js` | Tests des calculs, sans dépendance (`node tests/run.js`), dont la **photographie des programmes** (`tests/fixtures/programmes.json`) qui garantit qu’aucun programme ne change par erreur. |
+| `tests/e2e/run.js` | Tests navigateur (Playwright + Chromium, iPhone 13 et iPad simulés) : filet de sécurité, hors ligne, mise à jour. |
+| `tests/fixtures/` | Jeux de données de référence **inventés** (aucune donnée réelle). |
+| `tools/` | Outils facultatifs : `assemble.js` (fichier unique), `analyse-volume.js` (séries par muscle), `photo-programmes.js`, `make-fixtures.js`. |
 
-`index.html` reste volontairement un fichier unique : on peut le déposer tel quel sur GitHub Pages ou l’ouvrir comme artifact Claude (sans la ligne `window.FONTE_PWA = true`, l’appli passe en mode artifact et synchronise via le compte Claude).
+Pas d’outil de construction : GitHub Pages sert les fichiers tels quels. Les fichiers `js/` sont de simples scripts qui partagent leurs déclarations, comme lorsqu’ils formaient un seul fichier.
+
+**Mode « artifact Claude »** (fichier unique) : `node tools/assemble.js` produit `dist/fonte-artifact.html`, sans la ligne `window.FONTE_PWA = true` (l’appli passe en mode artifact et synchronise via le compte Claude). `node tools/assemble.js sortie.html --pwa` garde la ligne.
 
 ## Mettre à jour l’appli
 
 1. Remplace `index.html` (et les autres fichiers modifiés) sur GitHub.
 2. Au lancement suivant, l’appli s’ouvre depuis le cache, télécharge la nouvelle version en arrière-plan et affiche **« Nouvelle version de Fonte prête – Recharger »**.
 
-Il n’est plus nécessaire de changer `VERSION` dans `sw.js` à chaque mise à jour : seulement quand tu modifies `sw.js` lui-même ou la liste des fichiers mis en cache (`SHELL`).
+Change `VERSION` dans `sw.js` quand tu modifies `sw.js`, la liste des fichiers mis en cache (`SHELL`) ou un fichier `js/` (tout est alors retéléchargé ensemble). Tout nouveau fichier doit être ajouté à `SHELL` (un test le vérifie).
 
 ## Tests
 
 ```sh
-node tests/run.js
+node tests/run.js          # calculs, format des données, photographie des programmes (aucune dépendance, Node.js 18+)
+node tests/e2e/run.js      # navigateur (nécessite Playwright et Chromium)
 ```
 
-Aucune dépendance : il suffit de Node.js 18 ou plus. Les tests tournent aussi automatiquement sur GitHub à chaque envoi (onglet **Actions**).
+Les deux tournent automatiquement sur GitHub à chaque envoi (onglet **Actions**, tâches « tests » et « navigateur »).
 
 ## Données et stockage
 
-Tout est enregistré dans le navigateur du téléphone (`localStorage`). Les 300 séances les plus récentes gardent tout leur détail ; au-delà, seules les meilleures séries de chaque exercice sont conservées (assez pour les courbes et les records), jusqu’à 3 000 séances. Si le stockage du téléphone est plein, l’appli résume davantage les séances anciennes au lieu de perdre des données, et prévient.
+Tout est enregistré dans le navigateur du téléphone (`localStorage`, clé `fonte:v1`, format version 1). Les données d’une version plus récente de Fonte ne sont jamais écrasées (l’appli demande de se mettre à jour) ; des données illisibles sont gardées à part (`fonte:v1-illisible`). Les 300 séances les plus récentes gardent tout leur détail ; au-delà, seules les meilleures séries de chaque exercice sont conservées (assez pour les courbes et les records), jusqu’à 3 000 séances. Si le stockage du téléphone est plein, l’appli résume davantage les séances anciennes au lieu de perdre des données, et prévient.
 
 Les rappels passent par le calendrier du téléphone : une vraie notification envoyée par l’appli, appli fermée, demanderait un serveur d’envoi (Web Push), que Fonte n’a pas.
