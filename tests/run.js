@@ -1,20 +1,13 @@
 /* Tests des calculs de Fonte : node tests/run.js
-   Charge le script « Base d'exercices » de index.html (données + fonctions pures) sans navigateur. */
+   Charge les moteurs de calcul (js/engine-*.js : données + fonctions pures) sans navigateur. */
 "use strict";
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
-const data = scripts.find(s => s.indexOf("/* ===== Base d'exercices") === 0);
-if (!data) throw new Error("Script « Base d'exercices » introuvable dans index.html");
-const ctx = vm.createContext({ console });
-/* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
-const names = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn", "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf", "isAssist", "BK_SNOOZE_DAYS"];
-vm.runInContext(data + "\n;globalThis.__x = {" + names.map(n => n + ": typeof " + n + " === 'undefined' ? undefined : " + n).join(", ") + "};", ctx);
-const G = new Proxy({}, { get: (_, k) => (k in ctx.__x ? ctx.__x[k] : ctx[k]) });
+/* Moteurs chargés depuis js/engine-*.js (phase 3A) : voir tests/charger.js */
+const G = require("./charger").charger();
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -605,6 +598,95 @@ test("backupDueAt : 10 séances ou 14 jours depuis la dernière sauvegarde, repo
   assert.strictEqual(G.backupDueAt(h(12, now - 20 * D), now - 20 * D, now + 7 * D, now), null, "reporté");
   assert.ok(G.backupDueAt(h(12, now - 20 * D), now - 20 * D, now - 1, now), "report terminé");
   assert.strictEqual(G.BK_SNOOZE_DAYS, 7);
+});
+
+console.log("Photographie des programmes");
+test("programmes identiques à la photographie (objectifs × niveau × jours × palier × semaine A/B)", () => {
+  const ref = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "programmes.json"), "utf8"));
+  const cur = require("./photo-programmes").photo(G);
+  const keys = Object.keys(ref.programmes);
+  assert.strictEqual(Object.keys(cur.programmes).length, keys.length, "nombre de combinaisons");
+  keys.forEach(k => {
+    const a = ref.programmes[k], b = cur.programmes[k];
+    assert.ok(b, "combinaison absente : " + k);
+    same(b.ids, a.ids, k + " : séances"); same(b.objs, a.objs, k + " : objectifs"); same(b.offsets, a.offsets, k + " : jours");
+    a.seances.forEach((i, n) => assert.strictEqual(cur.seances[b.seances[n]], ref.seances[i], k + " : séance " + a.ids[n] + " modifiée"));
+  });
+  console.log("        (" + keys.length + " programmes, " + ref.seances.length + " séances différentes)");
+});
+
+console.log("Format des données et migration (D8)");
+/* localStorage simulé : un moteur chargé par jeu de données */
+function fakeStorage(init) {
+  const m = new Map(Object.entries(init || {}));
+  return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: k => { m.delete(k); }, _m: m };
+}
+const fixture = n => JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", n), "utf8"));
+function loadWith(storage) { const ls = fakeStorage(storage), U = require("./charger").charger({ localStorage: ls }); return { U, ls, st: U.loadState() }; }
+test("SCHEMA_VERSION = 1 ; migrate ne transforme pas une donnée v1 et ne modifie jamais l'objet reçu", () => {
+  assert.strictEqual(G.SCHEMA_VERSION, 1);
+  const o = { v: 1, profile: { prenom: "Zoé" }, historique: [{ id: "a", date: "2026-01-01" }] }, copy = JSON.stringify(o);
+  const m = G.migrate(o);
+  assert.strictEqual(m.from, 1); assert.strictEqual(m.error, undefined);
+  assert.strictEqual(JSON.stringify(m.data), copy); assert.strictEqual(JSON.stringify(o), copy);
+  assert.strictEqual(G.migrate({ profile: {} }).from, 1, "sans v : premières versions = v1");
+  assert.strictEqual(G.migrate(null).error, "illisible");
+  assert.strictEqual(G.migrate([1, 2]).error, "illisible");
+});
+test("migrate : un format plus récent que l'appli est refusé", () => {
+  const m = G.migrate({ v: 2, profiles: [] });
+  assert.strictEqual(m.error, "plus-recent"); assert.strictEqual(m.data, null); assert.strictEqual(m.from, 2);
+});
+test("loadState : chaque jeu de données v1 de référence se charge sans perte (séances, mesures, notes, références, profil)", () => {
+  ["v1-ancien-sans-objectifs.json", "v1-usage-typique.json", "v1-gros-historique.json", "v1-seance-en-cours.json"].forEach(f => {
+    const storage = fixture(f).storage, raw = JSON.parse(storage["fonte:v1"]), { st, U, ls } = loadWith(storage);
+    assert.strictEqual(U.STORE_BLOCK, null, f);
+    assert.strictEqual(st.historique.length, raw.historique.length, f + " : séances");
+    same(st.historique, raw.historique, f + " : historique identique");
+    same(st.lastPerf, raw.lastPerf || {}, f + " : références");
+    same(st.notes, raw.notes || {}, f + " : notes");
+    same(st.mesures, raw.mesures || [], f + " : mesures");
+    same(st.mesSeances, raw.mesSeances || [], f + " : séances perso");
+    Object.keys(raw.profile).forEach(k => same(st.profile[k], raw.profile[k], f + " : profil." + k));
+    assert.ok(Array.isArray(st.profile.objectifs) && st.profile.objectifs[0] === st.profile.objectif, f + " : objectifs");
+    assert.strictEqual(ls.getItem("fonte:v1"), storage["fonte:v1"], f + " : rien d'écrit pendant la lecture");
+  });
+});
+test("loadState : premier lancement (vide) → état par défaut, rien d'écrit", () => {
+  const { st, U, ls } = loadWith(fixture("v1-vide.json").storage);
+  assert.strictEqual(U.STORE_BLOCK, null); assert.strictEqual(st.historique.length, 0); assert.strictEqual(ls._m.size, 0);
+});
+test("loadState : JSON abîmé → copie brute gardée dans fonte:v1-illisible, jamais écrasée ensuite", () => {
+  const storage = fixture("v1-json-abime.json").storage, { st, U, ls } = loadWith(storage);
+  assert.strictEqual(U.STORE_BLOCK.reason, "illisible");
+  assert.strictEqual(ls.getItem("fonte:v1-illisible"), storage["fonte:v1"]);
+  assert.strictEqual(st.historique.length, 0);
+  ls.setItem("fonte:v1", "{abîmé une deuxième fois"); U.loadState();
+  assert.strictEqual(ls.getItem("fonte:v1-illisible"), storage["fonte:v1"], "la première copie est conservée");
+});
+test("loadState : données d'un format plus récent → refusées, STORE_BLOCK posé, rien n'est écrasé", () => {
+  const newer = JSON.stringify({ v: 2, profiles: { list: [] } }), { st, U, ls } = loadWith({ "fonte:v1": newer });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(U.STORE_BLOCK)), { reason: "plus-recent", v: 2 });
+  assert.strictEqual(st.historique.length, 0);
+  assert.strictEqual(ls.getItem("fonte:v1"), newer);
+});
+test("sauvegarde FONTEDATA1. de référence : décodée puis migrée sans perte", () => {
+  const code = fixture("v1-sauvegarde-fontedata1.json").code, m = code.match(/FONTEDATA1\.([A-Za-z0-9_-]+)/);
+  const o = JSON.parse(Buffer.from(m[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")), r = G.migrate(o);
+  assert.strictEqual(r.error, undefined); assert.strictEqual(r.from, 1);
+  assert.strictEqual(r.data.historique.length, JSON.parse(fixture("v1-usage-typique.json").storage["fonte:v1"]).historique.length);
+});
+
+console.log("Fichiers de l'appli et hors ligne");
+test("sw.js : tous les fichiers chargés par index.html et tous les fichiers de js/ sont dans SHELL", () => {
+  const sw = fs.readFileSync(path.join(__dirname, "..", "sw.js"), "utf8"), html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const shell = JSON.parse(sw.match(/const SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => "./" + m[1]);
+  const files = fs.readdirSync(path.join(__dirname, "..", "js")).filter(f => f.endsWith(".js")).map(f => "./js/" + f);
+  assert.ok(srcs.length >= 5, "index.html charge les moteurs");
+  srcs.concat(files).forEach(f => assert.ok(shell.indexOf(f) >= 0, f + " absent de SHELL"));
+  same(srcs, ["./js/engine-pedago.js", "./js/engine-training.js", "./js/engine-analytics.js", "./js/engine-user.js", "./js/app.js"], "ordre de chargement");
+  assert.ok(/window\.FONTE_PWA = true/.test(html), "mode PWA conservé");
 });
 
 console.log("\n" + pass + " réussis, " + fail + " en échec");

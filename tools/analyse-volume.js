@@ -1,12 +1,7 @@
 /* Outil d’audit (phase 1) : séries hebdomadaires par muscle et fréquence pour chaque objectif / niveau / nombre de jours / palier.
    Usage : node tools/analyse-volume.js   (lecture seule, ne modifie rien). Profil de référence : homme 30 ans, 180 cm, 80 kg.
    Séries comptées : 1 par série pour un muscle principal, ½ pour un secondaire ; « (n×) » = séances où le muscle est principal. */
-const fs=require("fs"),vm=require("vm");
-const html=fs.readFileSync(require("path").join(__dirname,"..","index.html"),"utf8");
-const data=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]).find(s=>s.indexOf("/* ===== Base d'exercices")===0);
-const ctx=vm.createContext({console});
-vm.runInContext(data+";globalThis.X_={EX_BY_ID,TPL_BY_ID,programme,prescribe,profFor,estCharge,progress,weekVariant,MAJOR_MUSCLES,e1rm,estDuree,EX};",ctx);
-const G=ctx.X_;
+const G=require("../tests/charger").charger(); /* moteurs js/engine-*.js (phase 3A) */
 const M=["pecs","dorsaux","rhomboides","epaules_ant","epaules_lat","epaules_post","biceps","triceps","quadriceps","ischios","fessiers","mollets","abdos"];
 function week(p,iso){const pr=G.programme(p);const v={},f={};const days=[];
  pr.ids.forEach((id0,j)=>{const id=G.weekVariant(id0,iso);const se=G.prescribe(G.TPL_BY_ID[id],G.profFor(p,pr.objs[j]));days.push(id+"("+Math.round(G.estDuree(se)/60)+"min)");const hit={};

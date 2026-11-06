@@ -5,7 +5,9 @@
    aucune erreur JavaScript, fonctionnement hors ligne (réseau coupé + rechargement), mise à jour du service worker. */
 "use strict";
 const assert = require("assert");
-const { serve, openApp, fixture } = require("./outils");
+const { serve, openApp, fixture, ROOT } = require("./outils");
+/* Ancienne version de référence (celle installée sur les téléphones avant la phase 3A) */
+const OLD_REV = process.env.FONTE_OLD_REV || "029e2da";
 
 const DEVICES = (process.env.FONTE_DEVICES || "iPhone 13,iPad Pro 11").split(",");
 const only = process.argv[2] || "";
@@ -286,6 +288,76 @@ test("hors ligne : réseau coupé puis rechargement, l'appli s'ouvre et fonction
   for (const t of ["exercices", "seances", "agenda", "profil", "accueil"]) await tab(page, t);
   assert.ok((await page.textContent("#hdr")).length > 0);
   await ctx.setOffline(false);
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+
+test("mise à jour depuis l'ancienne version en cache (main, fichier unique) : nouvelle version avec moteurs, données intactes, puis hors ligne", async (b, srv, dev) => {
+  const fs = require("fs"), os = require("os"), path = require("path"), { execSync } = require("child_process");
+  const old = fs.mkdtempSync(path.join(os.tmpdir(), "fonte-ancienne-"));
+  ["index.html", "sw.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png"].forEach(f => {
+    fs.writeFileSync(path.join(old, f), execSync("git show " + OLD_REV + ":" + f, { cwd: ROOT, maxBuffer: 64 << 20 }));
+  });
+  const s2 = await serve(old);
+  try {
+    const st = typ(), n = JSON.parse(st["fonte:v1"]).historique.length;
+    const { ctx, page, errors } = await openApp(b, s2.url, { device: dev, storage: st, sw: true });
+    await swReady(page);
+    assert.strictEqual(await page.$('script[src="js/app.js"]'), null, "ancienne version (fichier unique) en service");
+    s2.setRoot(ROOT); /* le serveur publie la nouvelle version */
+    await page.reload(); await page.waitForSelector("#view .card");
+    await page.waitForFunction(() => navigator.serviceWorker.getRegistration().then(r => r && r.active && r.active.scriptURL && !r.installing && !r.waiting), null, { timeout: 15000 });
+    await page.waitForFunction(() => caches.keys().then(k => k.indexOf("fonte-2026-11-06-moteurs") >= 0 && k.indexOf("fonte-2026-11-05-rouge") < 0), null, { timeout: 15000 });
+    await page.reload(); await page.waitForSelector("#view .card");
+    assert.ok(await page.$('script[src="js/app.js"]'), "nouvelle version (moteurs séparés) chargée");
+    assert.strictEqual(JSON.parse(await ls(page, "fonte:v1")).historique.length, n, "historique intact");
+    await ctx.setOffline(true);
+    await page.reload(); await page.waitForSelector("#view .card");
+    assert.ok(await page.$('script[src="js/app.js"]'), "hors ligne : nouvelle version servie depuis le cache");
+    for (const t of ["exercices", "seances", "profil", "accueil"]) await tab(page, t);
+    await ctx.setOffline(false);
+    assert.deepStrictEqual(errors, []);
+    await ctx.close();
+  } finally { await s2.close(); fs.rmSync(old, { recursive: true, force: true }); }
+});
+test("fichier unique assemblé (tools/assemble.js) : s'ouvre sans erreur en mode artifact Claude et en mode PWA", async (b, srv, dev) => {
+  const fs = require("fs"), os = require("os"), path = require("path"), { assemble } = require("../../tools/assemble");
+  for (const pwa of [false, true]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fonte-assemble-"));
+    fs.writeFileSync(path.join(dir, "index.html"), assemble({ pwa }).html);
+    const s3 = await serve(dir);
+    try {
+      const { ctx, page, errors } = await openApp(b, s3.url, { device: dev, storage: typ() });
+      assert.strictEqual(await page.$("script[src]"), null, "aucun fichier externe");
+      assert.strictEqual(await page.evaluate(() => !!window.FONTE_PWA), pwa);
+      for (const t of ["exercices", "seances", "agenda", "profil", "accueil"]) await tab(page, t);
+      assert.ok((await page.textContent("#hdr")).indexOf("Salut") >= 0 || (await page.textContent("#hdr")).length > 0);
+      assert.deepStrictEqual(errors, [], pwa ? "PWA" : "artifact");
+      await ctx.close();
+    } finally { await s3.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+test("D8 : données d'une version plus récente → « Mets Fonte à jour », rien n'est écrasé", async (b, srv, dev) => {
+  const newer = JSON.stringify({ v: 2, profiles: { active: "p1", list: [{ id: "p1", prenom: "Test" }] } });
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": newer } });
+  await page.waitForSelector("#store-block");
+  assert.ok(await page.$eval("#onb", e => e.hidden), "pas de questionnaire d'accueil");
+  await tab(page, "profil"); await tab(page, "accueil");
+  await page.waitForTimeout(200);
+  assert.strictEqual(await ls(page, "fonte:v1"), newer, "données non modifiées");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("D8 : une sauvegarde d'une version plus récente est refusée à la restauration", async (b, srv, dev) => {
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: typ() });
+  const A = await ls(page, "fonte:v1");
+  await tab(page, "profil");
+  await page.click('[data-a="data-import"]');
+  await page.fill("#imp-data", JSON.stringify({ v: 2, app: "fonte", profile: { prenom: "Futur" }, historique: [] }));
+  await twice(page, '.sheet [data-a="data-restore"]');
+  await page.waitForSelector("#imp-derr:text('version plus récente')");
+  assert.strictEqual(await ls(page, "fonte:v1"), A);
+  assert.strictEqual(await ls(page, "fonte:undo"), null, "aucune copie inutile");
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });

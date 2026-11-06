@@ -8,21 +8,19 @@ const path = require("path");
 const ROOT = path.join(__dirname, "..", "..");
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png", ".css": "text/css" };
 
-/* Sert le dossier root. opts.override(urlPath) peut renvoyer un contenu de remplacement (test de mise à jour). */
+/* Sert le dossier root ; setRoot(dossier) change le dossier servi (test de mise à jour d'une version à l'autre). */
 function serve(root, opts) {
   root = root || ROOT; opts = opts || {};
   const hits = [];
   const srv = http.createServer((req, res) => {
     const u = decodeURIComponent(new URL(req.url, "http://x").pathname);
     hits.push(u);
-    const o = opts.override && opts.override(u);
-    if (o != null) { res.writeHead(200, { "Content-Type": TYPES[path.extname(u) || ".html"] || "text/plain", "Cache-Control": "no-cache" }); res.end(o); return; }
     let f = path.join(root, u === "/" ? "index.html" : u);
     if (!f.startsWith(root) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); res.end("absent"); return; }
     res.writeHead(200, { "Content-Type": TYPES[path.extname(f)] || "application/octet-stream", "Cache-Control": "no-cache" });
     fs.createReadStream(f).pipe(res);
   });
-  return new Promise(ok => srv.listen(0, "127.0.0.1", () => ok({ url: "http://127.0.0.1:" + srv.address().port + "/", hits, close: () => new Promise(c => srv.close(c)) })));
+  return new Promise(ok => srv.listen(0, "127.0.0.1", () => ok({ url: "http://127.0.0.1:" + srv.address().port + "/", hits, setRoot: r => { root = r; }, close: () => new Promise(c => srv.close(c)) })));
 }
 
 /* Polices Google et Firebase : jamais demandées au réseau pendant les tests (environnement sans accès, résultats reproductibles) */
