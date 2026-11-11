@@ -12,7 +12,7 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 | 3A — Filet de sécurité (D2, D5, D6, D1-a, S1-a, tests navigateur) **puis** moteurs en fichiers séparés (A1, A3, D8 cadre) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) | `claude/phase-3a-securite-moteurs` (part de `claude/plan-phase-2`) | `js/engine-*.js`, `js/app.js`, `tests/e2e/`, `tests/fixtures/`, `tools/assemble.js`, `docs/CHECKLIST_PHASE3A.md`, `docs/PROMPT_PHASE3B.md` |
 | 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ✅ Terminée le 6 nov. 2026 (parties 1, 2 et 3), **fusionnée dans `main`** (pull request n° 12, `b165012`) | `claude/phase-3b-format-profils` (part de `main` `434b292`) | `js/engine-user.js` (format v2, migration, profils), `js/engine-training.js` (D3), `docs/FORMAT_DONNEES.md`, `docs/CHECKLIST_PHASE3B.md`, `docs/PROMPT_PHASE3C.md` |
 | 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2), **fusionnée dans `main`** (pull request n° 13, `d94a720`) | `claude/eloquent-goldberg-l5gn8b` (branche imposée par la session ; part de `main` `b165012`) | `js/engine-sync.js`, `Acct` et `RULES` dans `js/app.js`, `tests/synchro.js`, `tests/faux-firestore.js`, `tests/regles/run.js`, `tests/e2e/faux-firebase.js`, `docs/FORMAT_DONNEES.md` (section 5), `docs/CHECKLIST_PHASE3C.md`, `docs/PROMPT_PHASE3D.md` |
-| 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2) — **à vérifier avec `docs/CHECKLIST_PHASE3D.md` avant 3E** | `claude/phase-3d-charges-regles-q5qo4n` (branche imposée par la session ; part de `main` `d94a720`) | `histSave` (`engine-user.js`), `refFor`, `s8Load`, `rirFor`, `progressBW` (`engine-training.js`), `logVolume`, `plateauInfo`, `levelSuggest` (`engine-analytics.js`), écran « Modifier / Ajouter une séance passée » (`app.js`), `docs/REGLES_SPORTIVES.md`, `docs/PROPOSITIONS_PROGRAMMES.md`, `tools/propositions-programmes.js`, `docs/CHECKLIST_PHASE3D.md`, `docs/PROMPT_PHASE3E.md` |
+| 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2), **fusionnée dans `main`** (pull request n° 14, `2498d17`) — **à vérifier avec `docs/CHECKLIST_PHASE3D.md` avant 3E** | `claude/phase-3d-charges-regles-q5qo4n` (branche imposée par la session ; part de `main` `d94a720`) | `histSave` (`engine-user.js`), `refFor`, `s8Load`, `rirFor`, `progressBW` (`engine-training.js`), `logVolume`, `plateauInfo`, `levelSuggest` (`engine-analytics.js`), écran « Modifier / Ajouter une séance passée » (`app.js`), `docs/REGLES_SPORTIVES.md`, `docs/PROPOSITIONS_PROGRAMMES.md`, `tools/propositions-programmes.js`, `docs/CHECKLIST_PHASE3D.md`, `docs/PROMPT_PHASE3E.md` |
 | 3E — Expérience de séance, iPad (U1, U2, U3, U5) **puis**, si validé, programmes (S2/S3) | À faire | — | — |
 | 4 — Tests complets | À faire | — | — |
 | 5 — Validation et documentation | À faire | — | — |
@@ -23,8 +23,8 @@ Le détail de chaque session (contenu, taille, critères « terminé », tests) 
 
 ## Version du code de l’appli
 
-- Version dans `main` : commit `d94a720` (phase 3C, fusionnée par la pull request n° 13 ; avant : 3B, pull request n° 12).
-- Version de développement : branche `claude/phase-3d-charges-regles-q5qo4n` (phase 3D), **pas encore fusionnée** : la fusion attend l’accord du propriétaire.
+- Version dans `main` : commit `2498d17` (phase 3D, fusionnée par la pull request n° 14 avec l’accord du propriétaire, le 7 nov. 2026 ; avant : 3C, pull request n° 13).
+- Ce fichier, les propositions et le prompt 3E ont ensuite été mis à jour avec les décisions sur les programmes (commit de documentation sur la branche 3D, à fusionner à son tour).
 - Attention : dans un clone, la branche locale `main` peut être périmée ; comparer avec `origin/main`. GitHub signale que le dépôt s’appelle désormais `06quentin03-pixel/Fonte` (l’ancienne adresse redirige).
 
 ## Phase 3D — résumé (6 nov. 2026)
@@ -216,7 +216,7 @@ Décisions techniques : 4 moteurs en fichiers séparés sans outil de constructi
 
 ## Décisions en attente
 
-Aucune bloquante. **Accord attendu : fusion de la branche 3D (`claude/phase-3d-charges-regles-q5qo4n`) dans `main`.** **Réponses attendues : propositions P1 à P10 de `docs/PROPOSITIONS_PROGRAMMES.md`** (✅ / ❌ / ❓), avant 3E. À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
+Aucune bloquante. **Propositions de programmes décidées le 7 nov. 2026** : le propriétaire a délégué le choix à Claude ; P1, P2, P4, P5, P7, P8, P9, P10 acceptées, P3 et P6 refusées (raisons : `docs/PROPOSITIONS_PROGRAMMES.md`, section 2 « Décisions ») ; application en 3E, le propriétaire peut encore revenir sur un choix. À trancher plus tard : suppression d’un profil et bouton « Libérer de la place » (suppression de `fonte:v1`, avec sauvegarde d’abord) ; code de verrouillage des profils (optionnel) ; ouverture à d’autres utilisateurs (page confidentialité, suppression de compte).
 
 ## Problèmes ouverts connus
 
@@ -224,7 +224,5 @@ Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PH
 
 ## Prochaine étape
 
-1. Le propriétaire lit ce résumé et donne (ou non) son accord pour fusionner `claude/phase-3d-charges-regles-q5qo4n` dans `main` (GitHub › Pull requests › New pull request › base `main` ← `claude/phase-3d-charges-regles-q5qo4n` › Create › Merge).
-2. **Avant la mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3D.md` (corriger une séance 600 → 60 kg et vérifier sur l’autre appareil, ajouter une séance passée, cibles « répétitions en réserve »).
-3. Lire `docs/PROPOSITIONS_PROGRAMMES.md` et cocher P1 à P10.
-4. Seulement ensuite, ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3E.md`, réponses aux propositions collées à la fin.
+1. **Avant d’ouvrir l’appli mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3D.md` (corriger une séance 600 → 60 kg et vérifier sur l’autre appareil, ajouter une séance passée, cibles « répétitions en réserve »). La section 6 de la checklist (cocher les propositions) est déjà faite.
+2. Ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3E.md` (les décisions sur les programmes y sont déjà écrites).
