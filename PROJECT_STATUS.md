@@ -13,6 +13,7 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 | 3B — Format v2 + profils multiples + migration (U4, S1-b format, D3) | ✅ Terminée le 6 nov. 2026 (parties 1, 2 et 3), **fusionnée dans `main`** (pull request n° 12, `b165012`) | `claude/phase-3b-format-profils` (part de `main` `434b292`) | `js/engine-user.js` (format v2, migration, profils), `js/engine-training.js` (D3), `docs/FORMAT_DONNEES.md`, `docs/CHECKLIST_PHASE3B.md`, `docs/PROMPT_PHASE3C.md` |
 | 3C — Sauvegarde/synchro Firebase par compte (D1, D7, D9) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2), **fusionnée dans `main`** (pull request n° 13, `d94a720`) | `claude/eloquent-goldberg-l5gn8b` (branche imposée par la session ; part de `main` `b165012`) | `js/engine-sync.js`, `Acct` et `RULES` dans `js/app.js`, `tests/synchro.js`, `tests/faux-firestore.js`, `tests/regles/run.js`, `tests/e2e/faux-firebase.js`, `docs/FORMAT_DONNEES.md` (section 5), `docs/CHECKLIST_PHASE3C.md`, `docs/PROMPT_PHASE3D.md` |
 | 3D — Charges et historique (S1-b, S8, D4, D10, S9) **puis** règles sportives (S5, S6, S7, S4, S10) + propositions de programmes (S2/S3, sans application) | ✅ Terminée le 6 nov. 2026 (parties 1 et 2), **fusionnée dans `main`** (pull request n° 14, `2498d17`) — **à vérifier avec `docs/CHECKLIST_PHASE3D.md` avant 3E** | `claude/phase-3d-charges-regles-q5qo4n` (branche imposée par la session ; part de `main` `d94a720`) | `histSave` (`engine-user.js`), `refFor`, `s8Load`, `rirFor`, `progressBW` (`engine-training.js`), `logVolume`, `plateauInfo`, `levelSuggest` (`engine-analytics.js`), écran « Modifier / Ajouter une séance passée » (`app.js`), `docs/REGLES_SPORTIVES.md`, `docs/PROPOSITIONS_PROGRAMMES.md`, `tools/propositions-programmes.js`, `docs/CHECKLIST_PHASE3D.md`, `docs/PROMPT_PHASE3E.md` |
+| Hors plan — Machines guidées pour débutants + « Faire cet exercice » (demande du propriétaire, 9 nov. 2026) | ✅ Développé le 11 nov. 2026, **pull request à valider par le propriétaire** | `claude/sharp-franklin-9sa0iz` (part de `main` `0e9b351`) | `docs/REGLES_SPORTIVES.md` section 10, `docs/CHECKLIST_MACHINES_GUIDEES.md` |
 | 3E — Expérience de séance, iPad (U1, U2, U3, U5) **puis**, si validé, programmes (S2/S3) | À faire | — | — |
 | 4 — Tests complets | À faire | — | — |
 | 5 — Validation et documentation | À faire | — | — |
@@ -20,6 +21,30 @@ Règle : une phase = une session. On ne commence jamais la phase suivante dans l
 Le détail de chaque session (contenu, taille, critères « terminé », tests) est dans `docs/PLAN_PHASE2.md`, sections 4 à 6.
 
 **6 nov. 2026 — regroupement demandé par le propriétaire** : les 8 sessions prévues (3a à 3h) deviennent 5 (3A à 3E). Correspondance : 3a + 3b → 3A ; 3c → 3B ; 3d → 3C ; 3e + 3f → 3D ; 3g + 3h → 3E. La migration (3B) et Firebase (3C) restent séparées : vérification des données sur les deux iPhone entre les deux. Chaque session regroupée est faite en parties, un commit par partie ; une partie non terminée passe au début de la session suivante et est notée ici.
+
+## Machines guidées pour débutants et « Faire cet exercice » — résumé (9 au 11 nov. 2026)
+
+**Décisions du propriétaire (9 nov. 2026)** :
+- Débutant : les exercices libres techniques/risqués sont **remplacés par leur équivalent machine guidée**, dans tous les objectifs (force compris), à tous les paliers ; haltères légers et poids du corps permis. Cela modifie volontairement les programmes débutant (exception écrite à la décision 2 « aucune modification automatique des programmes ») et la photographie des programmes.
+- Soulevé de terre (pas de machine) : version légère au kettlebell ou aux haltères.
+- Palier 3 : un débutant **reste sur machine** pour les gros mouvements (pas de passage machine → haltères).
+- Exercice à la barre ajouté à la main par un débutant : **mise en garde sans blocage**.
+- Exercice lancé seul : **ne compte pas** pour le palier ni pour le passage de niveau (`solo`).
+- L’idée d’une équipe de sous-agents Claude Code a été **abandonnée** le 11 nov. 2026 (pull request n° 1 à fermer sans fusion ; commit annulé sur la branche).
+
+**Ce qui a été fait** :
+- Étape 0 — tests navigateur réparés (8 échecs sur `main`, sans lien avec l’appli) : anciennes versions `029e2da` et `434b292` figées dans `tests/fixtures/anciennes-versions/` (récupérées dans l’ancien dépôt `06quentin03-pixel/Fonte`, absentes de l’historique de ce dépôt) ; 2 tests qui dépendaient du jour (séance de reprise après 10 jours, semaine A/B) rendus indépendants de la date.
+- `js/engine-training.js` : `DEB_GUIDE` (remplaçants dans l’ordre de préférence) appliqué dans `resolveEx` (séances en séries, circuits, zones prioritaires) avec anti-doublon ; `EASIER` supprimé (remplacé) ; `harderEx` : pour un débutant, jamais de cible de `DEB_GUIDE` et un exercice guidé reste guidé ; `altsFor` option `deb` ; `countable` exclut `solo`.
+- `js/engine-pedago.js` : 3 machines ajoutées (`dc-smith`, `dm-smith`, `hip-thrust-machine`) avec charges de départ et animations reprises de gestes existants.
+- `js/app.js` : bouton « Faire cet exercice » (`ex-solo`, bloqué pendant une séance en cours), mise en garde débutant sur la fiche, remplacement en séance sans barre pour un débutant, texte de la carte de passage de niveau ; modifier une séance garde les exercices inconnus. `js/engine-analytics.js` : `levelSuggest` utilise `countable`. `js/engine-user.js` : `histCleanLog` garde les exercices inconnus. `index.html` : bouton sur 2 lignes si l’écran est étroit. `sw.js` : `VERSION = "fonte-2026-11-11-machines-guidees"`.
+- Photographie des programmes refaite : **1 194 programmes débutant sur 1 500 modifiés, 0 sur 3 000 chez les intermédiaires et avancés** (prouvé par 2 empreintes calculées avant le changement).
+
+**Tests (réellement exécutés le 11 nov. 2026)** : `node tests/run.js` → **150 réussis, 0 en échec** (dont 18 480 séances débutant vérifiées : aucun exercice de `DEB_GUIDE`, aucun doublon, aucune séance vide) ; `node tests/e2e/run.js` → **80 réussis, 0 en échec** (iPhone 13 et iPad Pro 11 ; les 2 nouveaux tests aussi sur iPhone SE). Non testé ici : vrai Safari, vrais appareils, charges sur de vraies machines → `docs/CHECKLIST_MACHINES_GUIDEES.md`.
+
+**Points ouverts** :
+- 2 tests navigateur S5/S10 visent maintenant « Full body haltères » (premier exercice libre) : sur machine, la cible débutant est 2 en réserve (tableau S5), pas 3.
+- La phase 3E (propositions de programmes P1…P10) devra tenir compte de `DEB_GUIDE` : les programmes débutant y passent tous.
+- Les ratios de charge des 3 nouvelles machines sont des choix prudents, à ajuster d’après tes essais en salle.
 
 ## Version du code de l’appli
 
@@ -223,6 +248,8 @@ Aucune bloquante. **Propositions de programmes décidées le 7 nov. 2026** : le 
 Ceux de `docs/AUDIT_PHASE1.md` section 2, avec les compléments de `docs/PLAN_PHASE2.md` section 1. **Corrigés en 3A** : D2, D5, D6, D1-a (rappel renforcé ; D1 complet en 3C), S1-a (garde-fou ; S1-b en 3B/3D), D8 (cadre), A1/A3. Abandonné : notification de fin de repos écran verrouillé (demande un serveur d’envoi). **Corrigés en 3B** : D8 (migration réelle v1 → v2), U4 (profils), S1-b (format : références par zone ; usage en 3D), D3. **Corrigés en 3C** (à vérifier sur les téléphones) : D1 (sauvegarde en ligne récupérable après perte ou réinstallation), D7 (conflits entre appareils), D9 (données personnelles en ligne protégées par compte et règles). **Corrigés en 3D** (à vérifier sur les téléphones) : S1-b (usage), S8, D4, D10, S9, S5, S6, S7, S4, S10 ; S2/S3 : propositions écrites, non appliquées.
 
 ## Prochaine étape
+
+0. **Machines guidées** : relire la pull request de la branche `claude/sharp-franklin-9sa0iz`, la fusionner si elle convient, puis faire `docs/CHECKLIST_MACHINES_GUIDEES.md` (sauvegarde fichier d’abord). Fermer la pull request n° 1 (équipe d’agents, abandonnée).
 
 1. **Avant d’ouvrir l’appli mise à jour : sauvegarde fichier sur chaque iPhone.** Puis checklist `docs/CHECKLIST_PHASE3D.md` (corriger une séance 600 → 60 kg et vérifier sur l’autre appareil, ajouter une séance passée, cibles « répétitions en réserve »). La section 6 de la checklist (cocher les propositions) est déjà faite.
 2. Ouvrir une **nouvelle session** Claude Code avec le contenu de `docs/PROMPT_PHASE3E.md` (les décisions sur les programmes y sont déjà écrites).

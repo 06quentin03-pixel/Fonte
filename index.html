@@ -400,6 +400,7 @@ html.lock, html.lock body { overflow: hidden; }
 .sheet-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 6px max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 18px; }
 .sheet-foot { flex-shrink: 0; padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--line); background: var(--bg); display: flex; gap: 10px; }
 .sheet-foot > .btn { flex: 1; }
+.sheet-foot > .btn-wrap { min-width: 0; white-space: normal; line-height: 1.15; text-align: center; } /* libellé sur 2 lignes plutôt que de déborder (petits écrans) */
 .steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 10px; }
 .steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
 .steps li::before { content: counter(s); font-family: var(--font-display); font-weight: 800; font-size: 18px; width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; line-height: 1; }

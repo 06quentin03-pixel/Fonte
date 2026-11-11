@@ -8,7 +8,7 @@ const vm = require("vm");
 const ROOT = path.join(__dirname, "..");
 /* Les const/let de haut niveau ne deviennent pas des propriétés du contexte : on les expose explicitement */
 const NAMES = ["EX", "EX_BY_ID", "TPL", "TPL_BY_ID", "LOAD", "DB_KG", "KB_KG", "OBJECTIFS", "NIV_KEYS", "HIST_FULL", "HIST_MAX", "echOn", "etirOn",
-  "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "EASIER", "weekVariant", "zoneList", "groupStations", "stationOf",
+  "MAJOR_MUSCLES", "LEVEL_UP_PHASES", "PHASE_WEEKS", "HARDER", "PLANS", "WEEK_B", "ZONES", "DEB_GUIDE", "DEB_GUIDE_NOTE", "debGuide", "isGuided", "weekVariant", "zoneList", "groupStations", "stationOf",
   "isAssist", "clone", "LS", "DEF", "DEF_PROFILE", "isObj", "CONV_GAP", "CONV_MARGIN", "BK_SESSIONS", "BK_DAYS", "BK_SNOOZE_DAYS", "nearestOf", "SCHEMA_VERSION", "MIGRATIONS", "STORE_BLOCK",
   "STORE", "LS_PROFILES", "PROFILE_SFX", "REF_ZONES", "countable", "pKey", "rid", "b64e", "b64d", "dayMs", "isQuota", "newProfileId", "LS_BROKEN",
   "CS_TRASH_MS", "CS_LIM_MIN", "CS_LIM_DAY", "CS_SECTIONS", "CS_BATCH", "CS_SEC_MAX", "csSig", "csSeSig", "csParse", "csSameU", "csDel36", "csSeOk", "HE_MAX", "ECH"];

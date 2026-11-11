@@ -185,13 +185,63 @@ test("semaines A/B : une semaine sur deux, variantes réciproques", () => {
   assert.strictEqual(G.weekVariant("force-squat", b), "force-squat-b");
   assert.strictEqual(G.TPL_BY_ID["force-squat-b"].items[0][0], G.TPL_BY_ID["force-squat"].items[0][0], "même mouvement principal");
 });
-test("débutant : haltères aux paliers 1 et 2, barre au palier 3", () => {
+/* Machines guidées pour les débutants (décision du propriétaire du 9 nov. 2026 : remplace « haltères aux paliers 1 et 2, barre au palier 3 ») */
+test("débutant : machines guidées à la place de la barre libre, à tous les paliers ; intermédiaire : barre inchangée", () => {
   const t = G.TPL_BY_ID["force-squat"], deb = Object.assign({}, P_H, { niveau: "debutant", objectif: "force" });
-  assert.strictEqual(G.prescribe(t, deb).items[0].id, "goblet-squat");
-  assert.strictEqual(G.prescribe(t, Object.assign({}, deb, { phase: 3 })).items[0].id, "squat-barre");
+  [1, 2, 3, 4, 5].forEach(ph => assert.strictEqual(G.prescribe(t, Object.assign({}, deb, { phase: ph })).items[0].id, "squat-smith", "palier " + ph));
   assert.strictEqual(G.prescribe(t, Object.assign({}, P_H, { objectif: "force" })).items[0].id, "squat-barre", "intermédiaire : barre tout de suite");
+  assert.strictEqual(G.prescribe(G.TPL_BY_ID["force-dc"], deb).items[0].id, "dc-smith");
+  assert.ok(G.prescribe(G.TPL_BY_ID["fb-barre"], deb).items.some(i => i.id === "hip-thrust-machine"), "hip thrust à la machine");
+  assert.ok(G.prescribe(G.TPL_BY_ID["fb-barre"], deb).notes.indexOf(G.DEB_GUIDE_NOTE) >= 0, "note expliquée");
   const uniq = x => new Set(x.items.map(i => i[0])).size === x.items.length; /* cardio-fractionne : vélo au début et à la fin, voulu */
   G.TPL.filter(uniq).forEach(x => { const ids = G.prescribe(x, deb).items.map(i => i.id); assert.strictEqual(new Set(ids).size, ids.length, x.id + " doublon"); });
+});
+test("débutant : aucune séance (toutes les séances types × paliers 1 à 5 × semaines A/B × profils variés et zones) ne contient un exercice libre risqué, sans doublon ni séance vide", () => {
+  const deb = Object.assign({}, P_H, { niveau: "debutant", objectif: "muscle", objectifs: ["muscle"], jours: 3, phaseDone: 0 });
+  const variants = [{}, { sexe: "F", age: 25, taille: 165, poids: 58 }, { sansSaut: true }, { poids: 105 }, { age: 60 }], zl = Object.keys(G.ZONES);
+  zl.forEach((a, i) => { variants.push({ zones: [a] }); zl.slice(i + 1).forEach(b => variants.push({ zones: [a, b] })); });
+  let n = 0;
+  G.TPL.forEach(t => [1, 2, 3, 4, 5].forEach(ph => ["2026-11-02", "2026-11-09"].forEach(d => variants.forEach(v => {
+    const tp = G.TPL_BY_ID[G.weekVariant(t.id, d)], ids = G.prescribe(tp, Object.assign({}, deb, v, { phase: ph })).items.map(i => i.id), raw = tp.items.map(x => x[0]), why = tp.id + " palier " + ph + " " + JSON.stringify(v);
+    ids.forEach(id => assert.ok(!G.DEB_GUIDE[id], why + " : " + id));
+    if (new Set(raw).size === raw.length) assert.strictEqual(new Set(ids).size, ids.length, why + " : doublon");
+    assert.ok(ids.length, why + " : séance vide"); n++;
+  }))));
+  console.log("        (" + n + " séances débutant vérifiées)");
+});
+test("DEB_GUIDE : remplaçants existants, de niveau débutant, même façon de compter, mêmes muscles principaux ; nouvelles machines avec charge de départ", () => {
+  Object.keys(G.DEB_GUIDE).forEach(k => { const a = G.EX_BY_ID[k]; assert.ok(a, k); G.DEB_GUIDE[k].forEach(r => { const b = G.EX_BY_ID[r];
+    assert.ok(b, k + " → " + r); assert.ok(!G.DEB_GUIDE[r], r + " est lui-même remplacé"); assert.ok(b.l <= 2, r + " niveau"); assert.strictEqual(a.t, b.t, k + " → " + r);
+    assert.ok(a.p.some(m => b.p.indexOf(m) >= 0 || b.s.indexOf(m) >= 0), k + " → " + r + " : muscles"); }); });
+  ["dc-smith", "dm-smith", "hip-thrust-machine"].forEach(id => { const e = G.EX_BY_ID[id]; assert.ok(e && G.isGuided(e) && e.l === 1 && G.LOAD[id], id); });
+  assert.ok(G.estCharge("dc-smith", 10, P_H) >= 15, "charge Smith");
+});
+test("débutant : au palier 3, un exercice guidé reste guidé (chest press, squat Smith) ; les autres niveaux progressent comme avant", () => {
+  const fb = G.TPL_BY_ID["fb-machines"], deb = Object.assign({}, P_H, { niveau: "debutant", objectif: "muscle", phase: 3 });
+  const ids = G.prescribe(fb, deb).items.map(i => i.id);
+  assert.ok(ids.indexOf("presse-pecs") >= 0 && ids.indexOf("dc-halteres") < 0, ids.join(","));
+  ids.forEach(id => assert.ok(!G.DEB_GUIDE[id], id));
+  assert.ok(G.harderEx("presse-pecs", { lvl: 2 }, []), "intermédiaire : la version plus dure existe toujours");
+  assert.strictEqual(G.harderEx("goblet-squat", { lvl: 1 }, []), null, "débutant : jamais le squat à la barre");
+});
+test("remplacement en séance : un débutant ne se voit pas proposer la barre libre", () => {
+  ["presse-pecs", "squat-smith", "rowing-machine", "presse-epaules"].forEach(id => {
+    const a = G.altsFor(id, { lvl: 2, deb: true, n: 8 }); assert.ok(a.length, id); a.forEach(x => assert.ok(!G.DEB_GUIDE[x], id + " → " + x));
+  });
+  assert.ok(G.altsFor("presse-pecs", { lvl: 3, n: 20 }).some(x => G.DEB_GUIDE[x]), "sans deb : la barre reste proposée");
+});
+test("exercice fait seul (solo) : dans l'historique, mais ne compte ni pour le palier ni pour le passage de niveau", () => {
+  assert.strictEqual(G.countable({ kind: "muscu", solo: 1 }), false); assert.strictEqual(G.countable({ kind: "muscu" }), true);
+  const T = "2026-11-06", hist = [];
+  for (let w = 30; w >= 1; w--) for (let k = 0; k < 3; k++) { const date = G.isoAdd(G.isoMon(T), -7 * w + k * 2), n = (30 - w) * 3 + k; hist.push({ id: "h" + n, date, ts: new Date(date).getTime(), kind: "muscu", solo: 1, log: ["squat-barre", "dc-barre", "rowing-barre"].map(id => ({ id, sets: [{ r: 8, kg: Math.min(80, 40 + n * 2.5) }] })) }); }
+  const p = { niveau: "debutant", jours: 3, phase: 2, phaseDone: 3, phases: [{ n: 1, niv: "debutant" }, { n: 2, niv: "debutant" }, { n: 3, niv: "debutant" }] };
+  assert.ok(!G.levelSuggest(p, hist, T).ok, "que des exercices seuls : pas de proposition de niveau");
+  assert.ok(G.levelSuggest(p, hist.map(h => Object.assign({}, h, { solo: undefined })), T).ok, "les mêmes séances complètes : proposition");
+});
+test("modifier une séance garde un exercice inconnu de cette version (ajouté par une version plus récente)", () => {
+  const st = { profile: { niveau: "debutant", phase: 1, phaseDone: 0, jours: 3, objectif: "muscle" }, historique: [{ id: "s1", date: "2026-11-01", ts: new Date(2026, 10, 1, 18).getTime(), kind: "muscu", nom: "X", log: [{ id: "dc-halteres", sets: [{ r: 10, kg: 20 }] }, { id: "machine-du-futur", sets: [{ r: 8, kg: 50 }] }] }], lastPerf: {}, refs: {} };
+  const r = G.histSave(st, { id: "s1", date: "2026-11-01", heure: "18:00", log: [{ id: "dc-halteres", sets: [{ r: 12, kg: 20 }] }, { id: "machine-du-futur", sets: [{ r: 8, kg: 50 }] }] }, Date.now());
+  assert.ok(r.ok); same(st.historique[0].log.map(l => l.id), ["dc-halteres", "machine-du-futur"]);
 });
 test("zone prioritaire : un exercice en plus pour la zone, sans doublon", () => {
   const t = G.TPL_BY_ID["force-squat"], a = G.prescribe(t, P_H), b = G.prescribe(t, Object.assign({}, P_H, { zones: ["bras"] }));
@@ -677,12 +727,23 @@ test("programmes identiques à la photographie (objectifs × niveau × jours × 
   console.log("        (" + keys.length + " programmes, " + ref.seances.length + " séances différentes)");
 });
 
-test("S5 : hors cibles de répétitions en réserve et échec, les programmes sont identiques à ceux de la phase 3C (empreinte)", () => {
-  /* empreinte calculée sur la photographie de 3C (commit d94a720) une fois retirés rir, rirLast, echec et les notes sur l'échec et la réserve */
+test("S5 : hors cibles de répétitions en réserve et échec, les programmes intermédiaire et avancé sont identiques à ceux de la phase 3C (empreinte)", () => {
+  /* empreinte calculée sur la photographie de 3C (commit d94a720) une fois retirés rir, rirLast, echec et les notes sur l'échec et la réserve ;
+     depuis les machines guidées (11 nov. 2026), les programmes débutant changent volontairement : l'empreinte porte sur les autres niveaux
+     (d5b782b5… sur tous les niveaux avant ce changement ; a29d727f… calculée sur le même code, débutants exclus) */
   const cur = require("./photo-programmes").photo(G), NOTE = /échec|réserve/;
+  Object.keys(cur.programmes).filter(k => k.split(" · ")[1] === "debutant").forEach(k => delete cur.programmes[k]);
   const strip = j => { const o = JSON.parse(j); o.items.forEach(it => { delete it.rir; delete it.rirLast; delete it.echec; }); o.notes = o.notes.filter(n => !NOTE.test(n)); return JSON.stringify(o); };
   const txt = Object.keys(cur.programmes).sort().map(k => { const a = cur.programmes[k]; return k + "=" + JSON.stringify([a.ids, a.objs, a.offsets]) + a.seances.map(i => strip(cur.seances[i])).join("|"); }).join("\n");
-  assert.strictEqual(require("crypto").createHash("sha256").update(txt).digest("hex"), "d5b782b511a0c2ee9eaa7de56099e723f11c8b10d5a9912ca49a194f1bf8bd70");
+  assert.strictEqual(require("crypto").createHash("sha256").update(txt).digest("hex"), "a29d727f750253fc4bd59fc723f99f13dcf2139cd059f4f8e655d43eef3ef25f");
+});
+test("machines guidées : les programmes intermédiaire et avancé sont identiques à ceux d'avant le changement (empreinte complète)", () => {
+  /* empreinte calculée le 11 nov. 2026 sur le code d'avant les machines guidées (commit 3d42212), débutants exclus, sans rien retirer */
+  const cur = require("./photo-programmes").photo(G);
+  const keys = Object.keys(cur.programmes).filter(k => k.split(" · ")[1] !== "debutant").sort();
+  assert.strictEqual(keys.length, 3000);
+  const txt = keys.map(k => { const a = cur.programmes[k]; return k + "=" + JSON.stringify([a.ids, a.objs, a.offsets]) + a.seances.map(i => cur.seances[i]).join("|"); }).join("\n");
+  assert.strictEqual(require("crypto").createHash("sha256").update(txt).digest("hex"), "7ad4b2814024dc9a01df4a796e0632dce671ed4f906f61863452029aebb601de");
 });
 test("S5 : aucune série à l'échec pour un débutant ; cibles de réserve conformes au tableau (plan 9.3) sur toutes les combinaisons", () => {
   const cur = require("./photo-programmes").photo(G); let n = 0;

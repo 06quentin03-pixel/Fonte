@@ -583,7 +583,9 @@ async function startTpl(page, id) {
 const debStorage = simple => ({ "fonte:v1": JSON.stringify({ v: 1, profile: { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau: "debutant", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple, phase: 1, phaseDone: 0, phases: [] }, historique: [] }), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "types" }) });
 test("S5 : débutante, la séance affiche « Garde 3 répétitions en réserve », jamais « jusqu’à l’échec »", async (b, srv, dev) => {
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(false) });
-  await startTpl(page, "force-squat");
+  /* depuis les machines guidées, « Force : squat » commence par le squat à la Smith (machine : 2 en réserve, tableau S5) ;
+     « Full body haltères » garde un grand mouvement libre en premier (goblet squat : 3 en réserve au palier 1) */
+  await startTpl(page, "fb-halteres");
   const note = await page.textContent("#runner .note-rir");
   assert.ok(/Garde 3 répétitions en réserve/.test(note), note);
   assert.strictEqual(await page.$("#runner .note-f"), null, "pas de note « échec »");
@@ -594,7 +596,7 @@ test("S5 : débutante, la séance affiche « Garde 3 répétitions en réserve �
 });
 test("S10 : en mode simple, « C’était facile / juste / très dur » devient la réserve (3 / 1 / 0) enregistrée avec la cible", async (b, srv, dev) => {
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(true) });
-  await startTpl(page, "force-squat");
+  await startTpl(page, "fb-halteres"); /* premier exercice libre : cible de 3 en réserve (voir S5) */
   const lbl = await page.textContent("#runner .rir");
   assert.ok(/Facile/.test(lbl) && /Juste/.test(lbl) && /Très dur/.test(lbl), lbl);
   assert.ok(!/3 et \+/.test(lbl), "pas de chiffres en mode simple");
@@ -642,6 +644,48 @@ test("S4 : passage de niveau proposé (jamais automatique) : « Plus tard » le 
   assert.strictEqual(await page.$("#lvl-card"), null);
   assert.deepStrictEqual(errors, []);
   await ctx.close();
+});
+
+/* ---------- Exercice seul et machines guidées (11 nov. 2026) ---------- */
+test("exercice seul : fiche › « Faire cet exercice » → séance d'un exercice enregistrée (solo), le palier n'avance pas", async (b, srv, dev) => {
+  const prof = { prenom: "Test", sexe: "H", age: 30, taille: 180, poids: 80, niveau: "intermediaire", objectif: "muscle", objectifs: ["muscle"], jours: 3, onb: 1, simple: false, phase: 1, phaseDone: 0, phases: [] };
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: [] }), "fonte:backup": String(Date.now()) } });
+  await tab(page, "exercices"); await page.fill("#ex-q", "presse à cuisses");
+  await page.click('[data-a="ex-open"][data-id="presse-cuisses"]');
+  const btn = await page.waitForSelector('.sheet [data-a="ex-solo"]');
+  const box = await btn.boundingBox(), vw = page.viewportSize().width;
+  assert.ok(box.height >= 44, "bouton d'au moins 44 px de haut : " + box.height);
+  assert.ok(box.x >= 0 && box.x + box.width <= vw, "bouton entièrement visible : " + JSON.stringify(box));
+  assert.ok(await page.$eval('.sheet [data-a="ex-solo"]', e => e.scrollWidth <= e.clientWidth), "libellé qui ne déborde pas");
+  await btn.click();
+  await page.click('[data-a="ed-go"]');
+  await page.waitForSelector("#runner:not([hidden])");
+  await page.click('#runner [data-a="run-next"]');
+  await page.click('#runner [data-a="run-quit"]'); await page.click('.sheet [data-a="run-end"]');
+  await page.click('#runner [data-a="run-save"]'); await page.waitForSelector("#toast:text('Séance enregistrée')");
+  const st = await state(page), h = st.historique[0];
+  assert.strictEqual(st.historique.length, 1); assert.strictEqual(h.solo, 1, "marquée solo"); assert.strictEqual(h.nom, "Presse à cuisses");
+  assert.strictEqual(st.profile.phaseDone || 0, 0, "le palier n'avance pas");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("débutant : la fiche d'un exercice à la barre conseille la version guidée (sans bloquer) ; rien pour un intermédiaire", async (b, srv, dev) => {
+  for (const [niveau, attendu] of [["debutant", true], ["intermediaire", false]]) {
+    const prof = { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau, objectif: "muscle", objectifs: ["muscle"], jours: 3, onb: 1, simple: false, phase: 1, phaseDone: 0, phases: [] };
+    const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: [] }), "fonte:backup": String(Date.now()) } });
+    await tab(page, "exercices"); await page.fill("#ex-q", "squat barre");
+    await page.click('[data-a="ex-open"][data-id="squat-barre"]'); await page.waitForSelector(".sheet .sheet-body");
+    assert.strictEqual(!!(await page.$("#ex-guide")), attendu, niveau);
+    assert.ok(await page.$('.sheet [data-a="ex-solo"]'), "toujours possible de le faire");
+    if (attendu) { await page.click('#ex-guide [data-a="ex-open"]'); await page.waitForSelector('.sheet [data-a="ex-solo"][data-id="squat-smith"]'); }
+    if (attendu) for (const id of ["dc-smith", "dm-smith", "hip-thrust-machine"]) { /* nouvelles machines : fiche, animation, sans erreur */
+      while (await page.$(".sheet")) { await page.click('.sheet .sheet-top [data-a="sheet-close"]'); await page.waitForTimeout(350); }
+      await page.fill("#ex-q", ""); await page.fill("#ex-q", { "dc-smith": "développé couché smith", "dm-smith": "militaire smith", "hip-thrust-machine": "hip thrust machine" }[id]);
+      await page.click('[data-a="ex-open"][data-id="' + id + '"]'); await page.waitForSelector('.sheet [data-a="ex-solo"][data-id="' + id + '"]');
+    }
+    assert.deepStrictEqual(errors, []);
+    await ctx.close();
+  }
 });
 
 /* ---------- Prochaine séance du programme ---------- */

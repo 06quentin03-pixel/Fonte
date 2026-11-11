@@ -136,7 +136,7 @@ function plateau(pts, today) { return plateauInfo(pts, today).plateau; }
 const LEVEL_RULES = { debutant: { to: "intermediaire", days: 182, phases: 3 }, intermediaire: { to: "avance", days: 730, phases: 6 } };
 function levelSuggest(p, hist, today) {
   p = p || {}; const rule = LEVEL_RULES[p.niveau || "debutant"]; if (!rule) return null;
-  const list = (hist || []).filter(h => h && h.kind !== "mob" && typeof h.date === "string");
+  const list = (hist || []).filter(h => countable(h) && typeof h.date === "string");
   const first = list.reduce((m, h) => (h.date < m ? h.date : m), "9999-12-31");
   const since = list.length ? Math.round((new Date(today) - new Date(first)) / 864e5) : 0;
   const mon = isoMon(today), from = isoAdd(mon, -56), last8 = list.filter(h => h.date >= from && h.date < mon).length;
