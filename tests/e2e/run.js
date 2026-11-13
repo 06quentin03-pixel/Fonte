@@ -17,6 +17,22 @@ function test(name, fn) { tests.push({ name, fn }); }
 const DAY = 864e5;
 
 const typ = () => fixture("v1-usage-typique.json").storage;
+/* Les tests ne doivent pas dépendre du jour où ils tournent. */
+const isoOf = t => t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+/* Décale toutes les séances d'un historique v1 pour que la plus récente date d'il y a 2 jours (même écart entre les séances). */
+function recent(v1) {
+  const h = v1.historique || []; if (!h.length) return v1;
+  const last = h.reduce((m, x) => (x.date > m ? x.date : m), h[0].date), [y, m, d] = last.split("-").map(Number);
+  const now = new Date(); now.setHours(12, 0, 0, 0);
+  const shift = Math.round((now - 2 * DAY - new Date(y, m - 1, d, 12)) / DAY);
+  h.forEach(x => { const [a, b, c] = x.date.split("-").map(Number); x.date = isoOf(new Date(a, b - 1, c + shift, 12)); if (x.ts) x.ts += shift * DAY; });
+  return v1;
+}
+/* Semaine A ou B (même calcul que weekB dans js/engine-training.js) : les séances du programme changent de variante une semaine sur deux. */
+function weekBOf(t) {
+  const mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() - (t.getDay() + 6) % 7);
+  return Math.round((mon - new Date(2024, 0, 1)) / 6048e5) % 2 === 1;
+}
 /* Séance terminée il y a 20 min, à enregistrer (écran de fin), avec 3 séries */
 function doneRun() {
   const r = JSON.parse(fixture("v1-seance-en-cours.json").storage["fonte:run"]);
@@ -268,6 +284,7 @@ test("D1-a : « Sauvegarder » produit un fichier qui se restaure à l'identique
 /* ---------- S1-a dans l'appli ---------- */
 test("S1-a : après 5 × 5 à 100 kg au squat, une séance à 10 répétitions propose ≈ 82,5 kg", async (b, srv, dev) => {
   const s = JSON.parse(typ()["fonte:v1"]);
+  recent(s); /* sinon, plus de 10 jours après la dernière séance du jeu de données, la séance de reprise (charges à 90 %) fausse la mesure */
   s.lastPerf = { "squat-barre": { d: "2026-10-01", ts: Date.now() - 3 * DAY, sets: [1, 2, 3, 4, 5].map(() => ({ r: 5, kg: 100 })), target: 5, base: 5, feel: 2, fails: 0 } };
   s.mesSeances = [{ id: "fxs1a", nom: "Squat 10", kind: "muscu", items: [{ id: "squat-barre", series: 3, reps: 10, duree: 0, repos: 120, charge: 0 }], upd: Date.now() - 5 * DAY }];
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: Object.assign(typ(), { "fonte:v1": JSON.stringify(s), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "mes" }) }) });
@@ -302,8 +319,19 @@ const CUR_VERSION = require("fs").readFileSync(require("path").join(ROOT, "sw.js
 OLD_REVS.forEach(OLD_REV => test("mise à jour depuis l'ancienne version en cache (" + OLD_REV + ") : nouvelle version, données migrées intactes, fonte:v1 conservé, puis hors ligne", async (b, srv, dev) => {
   const fs = require("fs"), os = require("os"), path = require("path"), { execSync } = require("child_process");
   const old = fs.mkdtempSync(path.join(os.tmpdir(), "fonte-ancienne-"));
-  const files = execSync("git ls-tree -r --name-only " + OLD_REV, { cwd: ROOT }).toString().split("\n").filter(f => /^(index\.html|sw\.js|manifest\.webmanifest|icon-[^/]+\.png|js\/[^/]+\.js)$/.test(f));
-  files.forEach(f => { fs.mkdirSync(path.dirname(path.join(old, f)), { recursive: true }); fs.writeFileSync(path.join(old, f), execSync("git show " + OLD_REV + ":" + f, { cwd: ROOT, maxBuffer: 64 << 20 })); });
+  /* Les anciennes versions sont figées dans tests/fixtures/anciennes-versions/<version>/ (index.html, sw.js, js/) : l'historique Git
+     de ce dépôt ne les contient plus (dépôt recréé). Icônes et manifeste, identiques, viennent de la version actuelle.
+     Une autre version (FONTE_OLD_REV) est encore lue dans l'historique Git si elle s'y trouve. */
+  const snap = path.join(ROOT, "tests", "fixtures", "anciennes-versions", OLD_REV);
+  const keep = f => /^(index\.html|sw\.js|manifest\.webmanifest|icon-[^/]+\.png|js\/[^/]+\.js)$/.test(f);
+  if (fs.existsSync(snap)) {
+    const walk = d => fs.readdirSync(path.join(snap, d), { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+    walk("").forEach(f => { fs.mkdirSync(path.dirname(path.join(old, f)), { recursive: true }); fs.copyFileSync(path.join(snap, f), path.join(old, f)); });
+    fs.readdirSync(ROOT).filter(f => /^(manifest\.webmanifest|icon-[^/]+\.png)$/.test(f)).forEach(f => fs.copyFileSync(path.join(ROOT, f), path.join(old, f)));
+  } else {
+    const files = execSync("git ls-tree -r --name-only " + OLD_REV, { cwd: ROOT }).toString().split("\n").filter(keep);
+    files.forEach(f => { fs.mkdirSync(path.dirname(path.join(old, f)), { recursive: true }); fs.writeFileSync(path.join(old, f), execSync("git show " + OLD_REV + ":" + f, { cwd: ROOT, maxBuffer: 64 << 20 })); });
+  }
   const oldVersion = fs.readFileSync(path.join(old, "sw.js"), "utf8").match(/const VERSION = "([^"]+)"/)[1];
   const s2 = await serve(old);
   try {
@@ -555,7 +583,9 @@ async function startTpl(page, id) {
 const debStorage = simple => ({ "fonte:v1": JSON.stringify({ v: 1, profile: { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau: "debutant", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple, phase: 1, phaseDone: 0, phases: [] }, historique: [] }), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "types" }) });
 test("S5 : débutante, la séance affiche « Garde 3 répétitions en réserve », jamais « jusqu’à l’échec »", async (b, srv, dev) => {
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(false) });
-  await startTpl(page, "force-squat");
+  /* depuis les machines guidées, « Force : squat » commence par le squat à la Smith (machine : 2 en réserve, tableau S5) ;
+     « Full body haltères » garde un grand mouvement libre en premier (goblet squat : 3 en réserve au palier 1) */
+  await startTpl(page, "fb-halteres");
   const note = await page.textContent("#runner .note-rir");
   assert.ok(/Garde 3 répétitions en réserve/.test(note), note);
   assert.strictEqual(await page.$("#runner .note-f"), null, "pas de note « échec »");
@@ -566,7 +596,7 @@ test("S5 : débutante, la séance affiche « Garde 3 répétitions en réserve �
 });
 test("S10 : en mode simple, « C’était facile / juste / très dur » devient la réserve (3 / 1 / 0) enregistrée avec la cible", async (b, srv, dev) => {
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: debStorage(true) });
-  await startTpl(page, "force-squat");
+  await startTpl(page, "fb-halteres"); /* premier exercice libre : cible de 3 en réserve (voir S5) */
   const lbl = await page.textContent("#runner .rir");
   assert.ok(/Facile/.test(lbl) && /Juste/.test(lbl) && /Très dur/.test(lbl), lbl);
   assert.ok(!/3 et \+/.test(lbl), "pas de chiffres en mode simple");
@@ -616,15 +646,58 @@ test("S4 : passage de niveau proposé (jamais automatique) : « Plus tard » le 
   await ctx.close();
 });
 
+/* ---------- Exercice seul et machines guidées (11 nov. 2026) ---------- */
+test("exercice seul : fiche › « Faire cet exercice » → séance d'un exercice enregistrée (solo), le palier n'avance pas", async (b, srv, dev) => {
+  const prof = { prenom: "Test", sexe: "H", age: 30, taille: 180, poids: 80, niveau: "intermediaire", objectif: "muscle", objectifs: ["muscle"], jours: 3, onb: 1, simple: false, phase: 1, phaseDone: 0, phases: [] };
+  const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: [] }), "fonte:backup": String(Date.now()) } });
+  await tab(page, "exercices"); await page.fill("#ex-q", "presse à cuisses");
+  await page.click('[data-a="ex-open"][data-id="presse-cuisses"]');
+  const btn = await page.waitForSelector('.sheet [data-a="ex-solo"]');
+  const box = await btn.boundingBox(), vw = page.viewportSize().width;
+  assert.ok(box.height >= 44, "bouton d'au moins 44 px de haut : " + box.height);
+  assert.ok(box.x >= 0 && box.x + box.width <= vw, "bouton entièrement visible : " + JSON.stringify(box));
+  assert.ok(await page.$eval('.sheet [data-a="ex-solo"]', e => e.scrollWidth <= e.clientWidth), "libellé qui ne déborde pas");
+  await btn.click();
+  await page.click('[data-a="ed-go"]');
+  await page.waitForSelector("#runner:not([hidden])");
+  await page.click('#runner [data-a="run-next"]');
+  await page.click('#runner [data-a="run-quit"]'); await page.click('.sheet [data-a="run-end"]');
+  await page.click('#runner [data-a="run-save"]'); await page.waitForSelector("#toast:text('Séance enregistrée')");
+  const st = await state(page), h = st.historique[0];
+  assert.strictEqual(st.historique.length, 1); assert.strictEqual(h.solo, 1, "marquée solo"); assert.strictEqual(h.nom, "Presse à cuisses");
+  assert.strictEqual(st.profile.phaseDone || 0, 0, "le palier n'avance pas");
+  assert.deepStrictEqual(errors, []);
+  await ctx.close();
+});
+test("débutant : la fiche d'un exercice à la barre conseille la version guidée (sans bloquer) ; rien pour un intermédiaire", async (b, srv, dev) => {
+  for (const [niveau, attendu] of [["debutant", true], ["intermediaire", false]]) {
+    const prof = { prenom: "Léa", sexe: "F", age: 28, taille: 165, poids: 60, niveau, objectif: "muscle", objectifs: ["muscle"], jours: 3, onb: 1, simple: false, phase: 1, phaseDone: 0, phases: [] };
+    const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: [] }), "fonte:backup": String(Date.now()) } });
+    await tab(page, "exercices"); await page.fill("#ex-q", "squat barre");
+    await page.click('[data-a="ex-open"][data-id="squat-barre"]'); await page.waitForSelector(".sheet .sheet-body");
+    assert.strictEqual(!!(await page.$("#ex-guide")), attendu, niveau);
+    assert.ok(await page.$('.sheet [data-a="ex-solo"]'), "toujours possible de le faire");
+    if (attendu) { await page.click('#ex-guide [data-a="ex-open"]'); await page.waitForSelector('.sheet [data-a="ex-solo"][data-id="squat-smith"]'); }
+    if (attendu) for (const id of ["dc-smith", "dm-smith", "hip-thrust-machine"]) { /* nouvelles machines : fiche, animation, sans erreur */
+      while (await page.$(".sheet")) { await page.click('.sheet .sheet-top [data-a="sheet-close"]'); await page.waitForTimeout(350); }
+      await page.fill("#ex-q", ""); await page.fill("#ex-q", { "dc-smith": "développé couché smith", "dm-smith": "militaire smith", "hip-thrust-machine": "hip thrust machine" }[id]);
+      await page.click('[data-a="ex-open"][data-id="' + id + '"]'); await page.waitForSelector('.sheet [data-a="ex-solo"][data-id="' + id + '"]');
+    }
+    assert.deepStrictEqual(errors, []);
+    await ctx.close();
+  }
+});
+
 /* ---------- Prochaine séance du programme ---------- */
 /* Bug signalé après 3B : une séance du programme lancée hors du programme (Séances types, « Refaire cette séance »)
    n'était pas reconnue : l'accueil reproposait la même séance. */
 test("prochaine séance : « Force : squat » faite depuis les séances types → l'accueil propose la séance suivante du programme", async (b, srv, dev) => {
   const prof = { prenom: "Test", sexe: "H", age: 30, taille: 180, poids: 80, niveau: "intermediaire", objectif: "force", objectifs: ["force"], jours: 3, onb: 1, simple: false };
   const { ctx, page, errors } = await openApp(b, srv.url, { device: dev, storage: { "fonte:v1": JSON.stringify({ v: 1, profile: prof, historique: [] }), "fonte:backup": String(Date.now()), "fonte:ui": JSON.stringify({ seg: "types" }) } });
-  assert.strictEqual((await page.textContent(".hero .hero-t")).trim(), "Force : squat");
+  const B = weekBOf(new Date()); /* semaine B : le programme propose les variantes « … B » */
+  assert.strictEqual((await page.textContent(".hero .hero-t")).trim(), "Force : squat" + (B ? " B" : ""));
   await tab(page, "seances");
-  await page.click('[data-a="tpl-open"][data-id="force-squat"]');
+  await page.click('[data-a="tpl-open"][data-id="force-squat' + (B ? "-b" : "") + '"]');
   await page.click('.sheet [data-a="tpl-start"]');
   await page.click('[data-a="ed-go"]');
   await page.waitForSelector("#runner:not([hidden])");
@@ -636,7 +709,7 @@ test("prochaine séance : « Force : squat » faite depuis les séances types �
   await page.evaluate(k => { const s = JSON.parse(localStorage.getItem(k)), d = new Date(Date.now() - 2 * 864e5); s.historique[0].ts = d.getTime(); s.historique[0].date = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); localStorage.setItem(k, JSON.stringify(s)); }, k);
   await page.reload(); await page.waitForSelector("#hdr h1");
   await tab(page, "accueil"); await page.waitForSelector(".hero .hero-t");
-  assert.strictEqual((await page.textContent(".hero .hero-t")).trim(), "Force : développé couché", "plus le squat une deuxième fois");
+  assert.strictEqual((await page.textContent(".hero .hero-t")).trim(), "Force : développé couché" + (B ? " B" : ""), "plus le squat une deuxième fois");
   assert.deepStrictEqual(errors, []);
   await ctx.close();
 });

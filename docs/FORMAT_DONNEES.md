@@ -25,7 +25,7 @@ Contenu de `fonte:v1` (état `S`) :
 | `v` | `1` |
 | `upd`, `agUpd` | Dates (ms) de dernière modification des données personnelles et de l’agenda. |
 | `profile` | Prénom, sexe, âge, taille, poids, niveau, objectif(s), jours, zones, barre, mode simple ; palier : `phase`, `phaseDone`, `phaseStart`, `phases` (bilans), `bilanNew`. |
-| `historique` | Séances faites, de la plus récente à la plus ancienne : `{ id, date, ts, nom, kind, ref, duree, volume, kcal, sets, ressenti, log: [{ id, warm?, cool?, sets: [{ r, kg, rir? } ou { d }] }], pr?, pj?, pk?, dl? }`. Au-delà de 300 séances : résumées (`c: 1`, meilleures séries seulement). 3 000 au plus. |
+| `historique` | Séances faites, de la plus récente à la plus ancienne : `{ id, date, ts, nom, kind, ref, duree, volume, kcal, sets, ressenti, log: [{ id, warm?, cool?, sets: [{ r, kg, rir? } ou { d }] }], pr?, pj?, pk?, dl?, solo? }`. Au-delà de 300 séances : résumées (`c: 1`, meilleures séries seulement). 3 000 au plus. |
 | `lastPerf` | Dernière performance par exercice : `{ d, ts, sets, target, base, feel, fails }` (sert au conseil de charge). |
 | `mesSeances`, `notes`, `mesures`, `deload`, `agenda`, `imports` | Séances perso, notes par exercice, poids/tour de taille, semaine allégée, agenda personnel, agendas importés. |
 | `histDel`, `histClear` | Séances supprimées (identifiant → date) et date d’effacement complet (synchro). |
@@ -161,3 +161,11 @@ Quand : à l’ouverture de l’appli, 2 s après chaque changement, au retour d
 - « Restaurer » une sauvegarde fichier remplace les données du téléphone mais n’efface pas les séances déjà en ligne : celles qui ne sont pas dans la sauvegarde restent en ligne (un nouvel appareil les récupérerait).
 - Les séances effacées par « Effacer l’historique » ou « Tout réinitialiser » restent en ligne (ignorées par tous les appareils) ; elles ne sont pas dans la corbeille (la copie de sécurité D5 permet de revenir en arrière).
 - Une rubrique trop grosse pour les règles reste sur le téléphone (message à l’écran).
+
+---
+
+## Ajout du 11 nov. 2026 : `solo` (exercice fait seul) et exercices inconnus
+
+- `solo: 1` dans une séance de l’historique : exercice lancé seul depuis sa fiche (« Faire cet exercice »). La séance compte pour l’historique, les courbes, les records et les charges, mais **pas** pour le palier ni pour le passage de niveau (`countable`). Champ facultatif dans le texte JSON de la séance : pas de nouvelle version de format (`SCHEMA_VERSION` reste 2), rien à changer dans les règles Firestore. Une version plus ancienne qui reçoit une séance `solo` la compte pour le palier (écart sans gravité, corrigé dès la mise à jour, puisque le palier est recalculé depuis l’historique).
+- Modifier une séance garde désormais les exercices inconnus de la version de l’appli (ajoutés par une version plus récente) au lieu de les retirer (`histCleanLog`, `heFromHist`). Nouveaux exercices du 11 nov. 2026 : `dc-smith`, `dm-smith`, `hip-thrust-machine` — une version antérieure les ignore à l’affichage, et les effacerait si l’on modifiait la séance sur elle : mettre à jour tous les appareils.
+

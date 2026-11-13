@@ -2,7 +2,7 @@
 
 **Rien de ce document n’est appliqué** (décision 2 : aucune modification de programme sans ton accord). Les séances que Fonte te propose aujourd’hui sont exactement celles de la phase 3C, à une seule différence près, validée par la décision 3 : les cibles « répétitions en réserve » à la place de « jusqu’à l’échec » (S5). Un test le garantit (empreinte des programmes, `tests/run.js`).
 
-**Ce qu’on te demande** : lire les propositions ci-dessous et cocher celles que tu acceptes (✅), refuses (❌) ou veux discuter (❓). Seules les propositions cochées ✅ seront appliquées, en phase 3E, puis revérifiées avec l’outil d’analyse ; tous les autres programmes resteront identiques.
+**Décisions prises** (voir la fin de la section 2) : P1, P2, P4, P5, P7, P8, P9, P10 acceptées ; P3 et P6 refusées. Seules les propositions acceptées seront appliquées, en phase 3E, puis revérifiées avec l’outil d’analyse ; tous les autres programmes resteront identiques.
 
 Comment les chiffres sont calculés : `node tools/propositions-programmes.js` (lecture seule). Profil de référence : homme, 30 ans, 180 cm, 80 kg, palier 1, moyenne des semaines A et B. Une série compte 1 pour un muscle principal, ½ pour un muscle secondaire. Les repères (plan section 9.1–9.2, `docs/REGLES_SPORTIVES.md`) :
 - **prise de muscle** : au moins **10 séries par semaine** pour chaque grand muscle (Schoenfeld 2017, Pelland 2026, ACSM 2026) ; au-delà de 20 sur un muscle pendant que d’autres sont sous 10 : **déséquilibre** (ce n’est pas un plafond, c’est la répartition qui pose question) ;
@@ -31,18 +31,37 @@ Le détail des 75 combinaisons (5 objectifs × 3 niveaux × 2 à 6 jours) est da
 
 | # | Pour qui | Proposition précise | Pourquoi | Ce qui change pour toi | Ton choix |
 |---|---|---|---|---|---|
-| P1 | Muscle, intermédiaire et avancé, 3 jours | Remplacer Push / Pull / Legs par **Haut du corps / Bas du corps / Full body** (séances existantes `haut`, `bas`, `fb-barre` ; semaine B : `haut-b`, `bas-b`, `fb-barre-b`) | Chaque grand muscle passe de 1 à 2 séances par semaine, à volume à peu près égal (S3) | Les 3 séances de la semaine changent | ☐ |
-| P2 | Muscle, tous niveaux à partir de 4 jours | Ajouter **élévations latérales** dans `haut` et `haut-b` (elles n’y sont pas), et **oiseau** dans `haut` (aucun travail direct de l’arrière d’épaule) ; `pull` (face pull) et `pull-b` (reverse pec deck) en ont déjà un | Deltoïdes latéraux et arrière sous 10 séries partout (4,5 à 9) | Un exercice de plus (≈ 5 min) dans ces séances | ☐ |
-| P3 | Muscle, intermédiaire et avancé, 4–6 jours | Retirer un exercice de jambes dans `bas` / `bas-b` / `legs` / `legs-b` (par exemple les fentes, ou une série de moins sur la presse) | Quadriceps, ischios, fessiers à 20–33 séries alors que d’autres muscles sont sous 10 : rééquilibrer sans allonger les séances | Séances jambes un peu plus courtes | ☐ |
-| P4 | Muscle, Haut/Bas (4 jours) | Remplacer un tirage par un **développé** (par exemple `tirage-serre` → `pompes` ou `di-halteres` dans `haut-b`) | 2 fois plus de dos que de pectoraux ; pectoraux à 6–10 séries | Un exercice remplacé | ☐ |
-| P5 | Muscle, tous niveaux | Ajouter **mollets** (3 séries) une fois de plus par semaine (`bas` ou `legs`) | Mollets entre 0 et 9 séries | Un exercice de plus dans une séance jambes | ☐ |
-| P6 | Muscle, débutant 2–3 jours | Rien d’urgent : volume faible voulu au début (Fonte raccourcit les séances débutant). **Option** : garder 6 exercices au lieu de 5 à partir du palier 2 | Débutant sous 10 séries presque partout ; la progression par palier compense en partie | Séances un peu plus longues dès le palier 2 | ☐ |
-| P7 | Force, 3 et 4 jours | Ajouter un **goblet squat** (3 séries) dans `force-sdt` ; à 3 jours (pas de séance développé militaire, donc pas de développé haltères en appoint), ajouter aussi un **développé couché haltères** dans `force-squat` | Squat et soulevé (quadriceps, ischios) une fois par semaine, développé couché aussi à 3 jours ; Grgic 2018 et Pelland 2026 : la fréquence aide surtout la force | Un exercice de plus dans 1 ou 2 séances | ☐ |
-| P8 | Perte de poids, intermédiaire et avancé, 2–4 jours | Dans `metab-haut` / `metab-haut-b`, remplacer un exercice de poussée par un **tirage** (rowing ou tirage élastique) ; dans `hiit-20` (sans matériel), remplacer les pompes par un exercice de dos au poids du corps (**superman**) | Dos ÷ pecs = 0,4 (beaucoup de poussée, peu de tirage) | Un exercice remplacé dans ces circuits | ☐ |
-| P9 | Remise en forme, 3 jours et plus | Ajouter un **pont fessier ou leg curl** dans `forme-mobi` | Ischios une seule fois par semaine | Un exercice léger de plus | ☐ |
-| P10 | Tous | Repères visibles dans « Ce que ton profil change » (« tes pectoraux : 8 séries par semaine, repère 10 ») — **information seulement**, pas de changement de séance | Transparence | Une ligne de plus dans le profil | ☐ |
+| P1 | Muscle, intermédiaire et avancé, 3 jours | Remplacer Push / Pull / Legs par **Haut du corps / Bas du corps / Full body** (séances existantes `haut`, `bas`, `fb-barre` ; semaine B : `haut-b`, `bas-b`, `fb-barre-b`) | Chaque grand muscle passe de 1 à 2 séances par semaine, à volume à peu près égal (S3) | Les 3 séances de la semaine changent | ✅ |
+| P2 | Muscle, tous niveaux à partir de 4 jours | Ajouter **élévations latérales** dans `haut` et `haut-b` (elles n’y sont pas), et **oiseau** dans `haut` (aucun travail direct de l’arrière d’épaule) ; `pull` (face pull) et `pull-b` (reverse pec deck) en ont déjà un | Deltoïdes latéraux et arrière sous 10 séries partout (4,5 à 9) | Un exercice de plus (≈ 5 min) dans ces séances | ✅ |
+| P3 | Muscle, intermédiaire et avancé, 4–6 jours | Retirer un exercice de jambes dans `bas` / `bas-b` / `legs` / `legs-b` (par exemple les fentes, ou une série de moins sur la presse) | Quadriceps, ischios, fessiers à 20–33 séries alors que d’autres muscles sont sous 10 : rééquilibrer sans allonger les séances | Séances jambes un peu plus courtes | ❌ |
+| P4 | Muscle, Haut/Bas (4 jours) | Remplacer un tirage par un **développé** (par exemple `tirage-serre` → `pompes` ou `dc-halteres` dans `haut-b` ; `di-halteres` y est déjà) | 2 fois plus de dos que de pectoraux ; pectoraux à 6–10 séries | Un exercice remplacé | ✅ |
+| P5 | Muscle, tous niveaux | Ajouter **mollets** (3 séries) une fois de plus par semaine (`bas` ou `legs`) | Mollets entre 0 et 9 séries | Un exercice de plus dans une séance jambes | ✅ |
+| P6 | Muscle, débutant 2–3 jours | Rien d’urgent : volume faible voulu au début (Fonte raccourcit les séances débutant). **Option** : garder 6 exercices au lieu de 5 à partir du palier 2 | Débutant sous 10 séries presque partout ; la progression par palier compense en partie | Séances un peu plus longues dès le palier 2 | ❌ |
+| P7 | Force, 3 et 4 jours | Ajouter un **goblet squat** (3 séries) dans `force-sdt` ; à 3 jours (pas de séance développé militaire, donc pas de développé haltères en appoint), ajouter aussi un **développé couché haltères** dans `force-squat` | Squat et soulevé (quadriceps, ischios) une fois par semaine, développé couché aussi à 3 jours ; Grgic 2018 et Pelland 2026 : la fréquence aide surtout la force | Un exercice de plus dans 1 ou 2 séances | ✅ |
+| P8 | Perte de poids, intermédiaire et avancé, 2–4 jours | Dans `metab-haut` / `metab-haut-b`, remplacer un exercice de poussée par un **tirage** (rowing ou tirage élastique) ; dans `hiit-20` (sans matériel), remplacer les pompes par un exercice de dos au poids du corps (**superman**) | Dos ÷ pecs = 0,4 (beaucoup de poussée, peu de tirage) | Un exercice remplacé dans ces circuits | ✅ |
+| P9 | Remise en forme, 3 jours et plus | Ajouter un **pont fessier ou leg curl** dans `forme-mobi` | Ischios une seule fois par semaine | Un exercice léger de plus | ✅ |
+| P10 | Tous | Repères visibles dans « Ce que ton profil change » (« tes pectoraux : 8 séries par semaine, repère 10 ») — **information seulement**, pas de changement de séance | Transparence | Une ligne de plus dans le profil | ✅ |
 
 Si tu ne coches rien, la phase 3E fera seulement la partie séance et iPad (U1, U2, U3, U5).
+
+### Décisions (7 nov. 2026)
+
+Le propriétaire a **délégué ces choix** à Claude (« fais ce qui te semble le mieux pour les décisions, je te laisse faire »). Ils ont été pris avec prudence : on ajoute ou on répartit du travail là où il manque, on ne retire rien sans raison forte, et chaque choix s’appuie sur les repères ci-dessus. Le propriétaire peut revenir sur n’importe lequel avant ou pendant la phase 3E.
+
+| # | Décision | Pourquoi |
+|---|---|---|
+| P1 | ✅ Oui | Le changement le plus utile : passer chaque grand muscle de 1 à 2 séances par semaine, à volume à peu près égal (Schoenfeld 2016 ; ACSM 2026 : chaque grand groupe musculaire au moins 2 jours par semaine). Séances existantes, rien d’inventé. |
+| P2 | ✅ Oui | Deltoïdes latéraux et arrière sous 10 séries partout ; exercices légers, sans risque, environ 5 minutes. |
+| P3 | ❌ Non (pour l’instant) | Beaucoup de séries de jambes n’est pas nocif en soi (rendements décroissants, pas d’effet négatif démontré, Pelland 2026) ; on corrige le déséquilibre en **ajoutant** là où il manque (P2, P4, P5) plutôt qu’en retirant. À revoir avec l’outil d’analyse après 3E si les séances deviennent trop longues. |
+| P4 | ✅ Oui | Pectoraux à 6–10 séries et 2 fois plus de dos que de pectoraux en Haut/Bas : un simple échange d’exercice, durée inchangée. |
+| P5 | ✅ Oui | Mollets entre 0 et 9 séries ; exercice court sur machine. |
+| P6 | ❌ Non | Les séances courtes du débutant sont voulues (apprendre le geste, tenir dans la durée ; ACSM 2026 : la régularité compte plus que le détail de la prescription) ; le palier 2 ajoute déjà des séries. |
+| P7 | ✅ Oui | Pour la force, la fréquence d’un mouvement a un effet identifiable (Pelland 2026, Grgic 2018) ; goblet squat et développé haltères sont des versions plus légères et sûres. |
+| P8 | ✅ Oui | Tirage ÷ poussée = 0,4 en perte de poids : un échange d’exercice, durée inchangée. |
+| P9 | ✅ Oui | Arrière des cuisses une seule fois par semaine ; exercice léger. |
+| P10 | ✅ Oui | Information seulement, aucune séance ne change. |
+
+Garde-fous pour l’application en 3E : seules les combinaisons visées changent (preuve par comparaison de la photographie, comme en 3D) ; la durée estimée d’une séance ne doit pas augmenter de plus de 10 minutes (sinon le signaler et ne pas appliquer cette partie) ; les profils à 2 objectifs touchés indirectement (par exemple le programme « muscle » à 3 jours utilisé dans une combinaison muscle + autre objectif) sont listés et expliqués.
 
 ---
 

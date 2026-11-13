@@ -480,11 +480,13 @@ function profileSetOwner(id) {
    - références (rebuildRefs) recalculées pour les exercices touchés (avant et après la modification), palier compté pour une séance ajoutée,
      records (pr) recalculés pour la séance et les suivantes qui contiennent ces exercices ; volume recalculé (D10). */
 const HE_MAX = { r: 999, kg: 1000, d: 36000, ex: 40, sets: 30 };
-/* Journal saisi → journal propre : séries valides seulement (répétitions ≥ 1 ou durée ≥ 1 s), exercices sans série retirés */
+/* Journal saisi → journal propre : séries valides seulement (répétitions ≥ 1 ou durée ≥ 1 s), exercices sans série retirés.
+   Un exercice inconnu de cette version (ajouté par une version plus récente, sur un autre appareil) est gardé, sinon modifier
+   la séance ici l’effacerait aussi en ligne. */
 function histCleanLog(log) {
   const out = [];
   (Array.isArray(log) ? log : []).slice(0, HE_MAX.ex).forEach(l => {
-    if (!l || typeof l.id !== "string" || !EX_BY_ID[l.id]) return;
+    if (!l || typeof l.id !== "string" || !/^[a-z0-9-]{1,40}$/.test(l.id)) return;
     const sets = [];
     (Array.isArray(l.sets) ? l.sets : []).slice(0, HE_MAX.sets).forEach(s => {
       if (!s) return;

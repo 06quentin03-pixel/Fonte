@@ -303,12 +303,15 @@ function profileCtx(p) {
 }
 function adjRest(ctx, s) { return round15(s * ctx.restMult + ctx.restAdd); }
 
-function resolveEx(id, ctx, notes) {
+/* used (facultatif) : exercices déjà dans la séance ou encore à venir, pour qu’un remplaçant guidé n’y soit pas deux fois */
+function resolveEx(id, ctx, notes, used) {
   let ex = EX_BY_ID[id];
   if (!ex) return null;
+  if (ctx.lvl === 1 && DEB_GUIDE[ex.id]) { ex = debGuide(ex.id, used); if (!ex) return null; notes.add(DEB_GUIDE_NOTE); }
   if (ctx.lvl === 1 && ex.l === 3) {
     if (ex.deb && EX_BY_ID[ex.deb]) { notes.add("Exercices avancés remplacés par une version débutant"); ex = EX_BY_ID[ex.deb]; }
     else return null;
+    if (DEB_GUIDE[ex.id]) { ex = debGuide(ex.id, used); if (!ex) return null; notes.add(DEB_GUIDE_NOTE); }
   }
   if (ctx.low && ex.imp && ex.lo && EX_BY_ID[ex.lo]) { notes.add("Version sans saut"); ex = EX_BY_ID[ex.lo]; }
   if (ctx.heavy && BMI_SWAP[ex.id] && EX_BY_ID[BMI_SWAP[ex.id]]) { notes.add("Exercices au poids du corps adaptés à ta corpulence"); ex = EX_BY_ID[BMI_SWAP[ex.id]]; }
@@ -359,18 +362,16 @@ function prescribe(tpl, profile) {
     const work = c.work || [0, 30, 40, 45][L];
     const rest = c.rest || [0, 30, 20, 15][L];
     out.roundRest = c.roundRest || (L === 1 ? 90 : 60);
-    tpl.items.forEach(([id]) => {
-      const ex = resolveEx(id, ctx, notes); if (!ex) return;
+    tpl.items.forEach(([id], k) => {
+      const ex = resolveEx(id, ctx, notes, out.items.map(x => x.id).concat(tpl.items.slice(k + 1).map(x => x[0]))); if (!ex) return;
       const timed = c.timed || ex.t === "t";
       out.items.push({ id: ex.id, series: 1, reps: timed ? 0 : [0, 8, 12, 15][L], duree: timed ? work : 0, repos: rest, charge: 0 });
     });
   } else {
     let lastK = -1; const roles = [];
-    tpl.items.forEach(([id, role, o]) => {
+    tpl.items.forEach(([id, role, o], k) => {
       o = o || {};
-      let ex = resolveEx(id, ctx, notes); if (!ex) return;
-      const ez = EX_BY_ID[EASIER[ex.id]];
-      if (L === 1 && (+(profile && profile.phase) || 1) < 3 && ez && !tpl.items.some(x => x[0] === ez.id) && !out.items.some(x => x.id === ez.id)) { ex = ez; notes.add("Versions aux haltères pour apprendre les mouvements : la barre arrive au palier 3"); }
+      const ex = resolveEx(id, ctx, notes, out.items.map(x => x.id).concat(tpl.items.slice(k + 1).map(x => x[0]))); if (!ex) return;
       if (role === "K" && !o.min) lastK = out.items.length;
       let it = { id: ex.id, series: 3, reps: 0, duree: 0, repos: 60, charge: 0 };
       if (role === "C" || role === "I") {
@@ -629,7 +630,7 @@ function addZones(out, tpl, ctx, notes, roles, profile) {
     if (added >= max) return;
     const list = ZONES[z][1];
     for (let k = 0; k < list.length; k++) {
-      const ex = resolveEx(list[(h + zi * 3 + k) % list.length], ctx, new Set());
+      const ex = resolveEx(list[(h + zi * 3 + k) % list.length], ctx, new Set(), out.items.map(it => it.id));
       if (!ex || out.items.some(it => it.id === ex.id)) continue;
       const role = z === "abdos" ? "G" : "I", it = { id: ex.id, series: 3, reps: 0, duree: 0, repos: 60, charge: 0 };
       if (role === "I") { const [s0, r, rest] = ctx.obj.I; it.series = Math.max(2, s0 + (L === 1 ? -1 : 0)); if (ex.t === "t") it.duree = [0, 30, 45, 60][L]; else it.reps = r; it.repos = adjRest(ctx, rest); }
@@ -641,8 +642,28 @@ function addZones(out, tpl, ctx, notes, roles, profile) {
     }
   });
 }
-/* Débutant, paliers 1 et 2 : versions aux haltères des mouvements à la barre (la barre arrive au palier 3, voir HARDER) */
-const EASIER = { "squat-barre": "goblet-squat", "dc-barre": "dc-halteres", "dm-barre": "dm-halteres", "rowing-barre": "rowing-haltere", "di-barre": "di-halteres", "sdt-roumain": "sdt-roumain-halteres" };
+/* Débutant : machines guidées à la place des exercices libres techniques (barre libre, mouvements balistiques), à tous les paliers,
+   dans toutes les séances (programme, séances types, zones prioritaires). Décision du propriétaire du 9 nov. 2026 (docs/REGLES_SPORTIVES.md, choix prudent).
+   Pour chaque exercice : remplaçants dans l’ordre de préférence ; le premier qui n’est pas déjà dans la séance est retenu.
+   Pas de machine pour le soulevé de terre : version légère au kettlebell ou aux haltères (charge faible, qu’on peut lâcher sans danger). */
+const DEB_GUIDE = {
+  "squat-barre": ["squat-smith", "presse-cuisses", "goblet-squat"], "front-squat": ["squat-smith", "presse-cuisses", "goblet-squat"],
+  "dc-barre": ["dc-smith", "presse-pecs", "dc-halteres"], "di-barre": ["smith-incline", "presse-pecs", "di-halteres"], "dd-barre": ["presse-pecs", "dc-smith", "dc-halteres"],
+  "dc-serre": ["dips-assiste", "extension-corde", "extension-barre-poulie"], "barre-front": ["extension-barre-poulie", "extension-corde"],
+  "dm-barre": ["presse-epaules", "dm-smith", "dm-halteres"], "rowing-barre": ["rowing-machine", "tirage-horizontal", "rowing-haltere"],
+  "rowing-t": ["rowing-machine", "tirage-horizontal", "rowing-haltere"], "rowing-menton": ["elev-lat-poulie", "elevations-laterales"], "shrug-barre": ["shrug-halteres"],
+  "hip-thrust": ["hip-thrust-machine", "pont-fessier"], "souleve-terre": ["sdt-kettlebell", "sdt-roumain-halteres"], "sdt-sumo": ["squat-sumo", "sdt-kettlebell"],
+  "sdt-roumain": ["sdt-roumain-halteres", "leg-curl-assis"], "good-morning": ["sdt-roumain-halteres", "extension-lombaire"],
+  "kettlebell-swing": ["pont-fessier", "squat-pdc"], "thruster": ["goblet-squat", "squat-pdc"], "clean-press": ["goblet-squat", "squat-pdc"]
+};
+const DEB_GUIDE_NOTE = "Débutant : machines guidées à la place de la barre libre, pour apprendre les mouvements en sécurité";
+function debGuide(id, used) {
+  const list = DEB_GUIDE[id] || [];
+  for (let k = 0; k < list.length; k++) if (EX_BY_ID[list[k]] && !(used && used.indexOf(list[k]) >= 0)) return EX_BY_ID[list[k]];
+  return null; /* tous déjà dans la séance : l’exercice est retiré plutôt que de garder la barre */
+}
+/* Matériel guidé (machine, Smith, poulie) : pour un débutant, un exercice guidé ne devient jamais un exercice libre au palier 3 */
+const isGuided = e => !!(e && e.m.some(m => m === "machine" || m === "smith" || m === "poulie"));
 
 /* ===== Planning de la semaine =====
    p.planJours : jours d’entraînement choisis (0 = lundi … 6 = dimanche), autant que de séances par semaine.
@@ -901,12 +922,12 @@ function withRests(se, works) {
 /* ===== Remplacement d’exercice, muscles de la semaine, régularité, semaine allégée ===== */
 
 /* Exercices de remplacement : mêmes muscles principaux, même façon de compter (reps ou temps), autre matériel de préférence.
-   opts = { exclude: [ids déjà dans la séance], mat: [matériel de l’exercice remplacé], low: éviter les sauts, lvl: niveau max } */
+   opts = { exclude: [ids déjà dans la séance], mat: [matériel de l’exercice remplacé], low: éviter les sauts, lvl: niveau max, deb: débutant (pas d’exercice de DEB_GUIDE) } */
 function altsFor(id, opts) {
   const e = EX_BY_ID[id]; if (!e) return [];
   opts = opts || {};
   const ex = opts.exclude || [], mat = e.m;
-  return EX.filter(x => x.id !== id && ex.indexOf(x.id) < 0 && x.t === e.t && x.g !== "etirements" && x.g !== "mobilite" && (!opts.low || !x.imp) && (!opts.lvl || x.l <= opts.lvl))
+  return EX.filter(x => x.id !== id && ex.indexOf(x.id) < 0 && x.t === e.t && x.g !== "etirements" && x.g !== "mobilite" && (!opts.low || !x.imp) && (!opts.lvl || x.l <= opts.lvl) && (!opts.deb || !DEB_GUIDE[x.id]))
     .map(x => {
       const pp = x.p.filter(m => e.p.indexOf(m) >= 0).length; if (!pp) return null;
       const ss = x.s.filter(m => e.s.indexOf(m) >= 0 || e.p.indexOf(m) >= 0).length;
@@ -957,7 +978,8 @@ const HARDER = {
 /* Version plus dure d’un exercice, si elle convient au profil (niveau, sauts, corpulence) et n’est pas déjà dans la séance */
 function harderEx(id, ctx, used) {
   const e = EX_BY_ID[id]; if (!e) return null;
-  const ok = x => x && x.id !== id && x.t === e.t && x.l <= (ctx.lvl === 1 ? 2 : 3) && !(ctx.low && x.imp) && !(ctx.heavy && BMI_SWAP[x.id]) && used.indexOf(x.id) < 0;
+  const ok = x => x && x.id !== id && x.t === e.t && x.l <= (ctx.lvl === 1 ? 2 : 3) && !(ctx.low && x.imp) && !(ctx.heavy && BMI_SWAP[x.id]) && used.indexOf(x.id) < 0
+    && !(ctx.lvl === 1 && (DEB_GUIDE[x.id] || (isGuided(e) && !isGuided(x)))); /* débutant : jamais la barre libre, et le guidé reste guidé */
   const h = EX_BY_ID[HARDER[id]];
   return ok(h) ? h : (EX.find(x => x.deb === id && ok(x)) || null);
 }
@@ -1013,8 +1035,8 @@ function deloadSe(se) {
 }
 
 /* ================= Références par zone et palier recalculés depuis l’historique (S1-b format, D3 — phase 3B) ================= */
-/* Séance qui compte pour le palier (la mobilité seule ne compte pas) */
-const countable = h => !!h && h.kind !== "mob";
+/* Séance qui compte pour le palier (la mobilité seule ne compte pas, un exercice fait seul depuis sa fiche non plus : solo) */
+const countable = h => !!h && h.kind !== "mob" && !h.solo;
 /* Zone de répétitions (S1-b) : force ≤ 6, muscle 7 à 12, endurance ≥ 13 ; cible inconnue ou nulle : muscle */
 const REF_ZONES = ["force", "muscle", "endurance"];
 function zoneOf(reps) { return !(reps > 0) ? "muscle" : reps <= 6 ? "force" : reps <= 12 ? "muscle" : "endurance"; }

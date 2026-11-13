@@ -81,6 +81,37 @@ En acceptant : palier 1 du nouveau niveau, **charges réelles conservées** (la 
 
 Volume = somme des répétitions × charge **réellement soulevée** : 2 haltères comptés pour les exercices « par haltère », un seul pour ceux à un haltère (option `S`), la barre en charge totale ; l’**assistance** (contrepoids) n’est pas un poids soulevé et n’est pas comptée (comme les autres exercices au poids du corps). Les volumes des séances enregistrées avant 3D ne sont pas recalculés (sauf si la séance est modifiée).
 
+## 10. Débutants : machines guidées à la place de la barre libre (11 nov. 2026, décision du propriétaire)
+
+**Ce que fait Fonte** : tant que le profil est **débutant**, chaque exercice libre technique est remplacé par son équivalent guidé (`DEB_GUIDE`, `resolveEx` dans `js/engine-training.js`), dans le programme, les séances types du catalogue et les zones prioritaires, à **tous les paliers** et en semaine A comme en semaine B :
+
+| Exercice libre | Remplacé par (le premier qui n’est pas déjà dans la séance) |
+|---|---|
+| Squat barre, front squat | Squat à la Smith → presse à cuisses → goblet squat |
+| Développé couché barre / incliné / décliné | Développé couché à la Smith (nouveau) / incliné à la Smith / chest press |
+| Développé couché prise serrée, barre au front | Dips assistés, extensions à la poulie |
+| Développé militaire barre | Développé épaules machine → développé militaire assis à la Smith (nouveau) |
+| Rowing barre, rowing T | Rowing assis machine → tirage horizontal poulie |
+| Hip thrust barre | Hip thrust machine (nouveau) → pont fessier |
+| Rowing menton, shrug barre | Élévations latérales poulie ; shrug haltères |
+| Soulevé de terre, sumo | Pas de machine : soulevé de terre au kettlebell, squat sumo (charge légère, qu’on peut lâcher) |
+| Soulevé roumain, good morning | Soulevé roumain aux haltères légers |
+| Kettlebell swing, thruster, clean & press (circuits) | Pont fessier ; goblet squat |
+
+- Au **palier 3**, un exercice guidé (machine, Smith, poulie) **reste guidé** : la progression passe par la charge et les séries (`harderEx`). Les autres niveaux ne changent pas (empreinte vérifiée dans `tests/run.js`).
+- « Remplacer l’exercice » pendant la séance ne propose plus la barre libre à un débutant (les haltères restent proposés, si la machine manque).
+- Un débutant peut quand même ouvrir et faire un exercice à la barre : sa fiche conseille la version guidée, **sans blocage**.
+- Au passage en intermédiaire, la barre revient ; sa charge part d’une estimation prudente (pas de référence sur la barre).
+- Haltères légers et poids du corps restent permis.
+
+**Pourquoi — choix prudent, preuves limitées** :
+- Haugen et al. (2023), BMC Sports Sci Med Rehabil 15:103, méta-analyse de 13 études ⚠️ (résumé lu) : pas de différence de force ni d’hypertrophie entre poids libres et machines en comparaison directe ; gains propres au matériel utilisé ; risque de blessure comparé **incertain**.
+- Kerr, Collins, Comstock (2010), Am J Sports Med 38(4):765 ⚠️ (résumé et communiqué) : 90 % des blessures de musculation vues aux urgences avec des poids libres, 65 % par un poids tombé sur la personne ; pas de mesure du temps passé sur chaque matériel ; les 55 ans et plus se blessent davantage sur machine.
+- Keogh & Winwood (2017), Sports Med 47(3):479 ⚠️ : blessures rares en musculation (études surtout rétrospectives).
+- ACE, fiche grand public ⚠️ : machines conseillées les 10 à 12 premières semaines (conseil pratique, pas une preuve).
+- **Aucune étude ne démontre que les machines réduisent le taux de blessure d’un débutant.** Elles donnent des résultats comparables et suppriment le risque le mieux documenté (le poids qui tombe) : c’est un choix prudent, comme les autres règles de ce document.
+- Charges de départ des 3 nouvelles machines (`LOAD` : Smith couché 0,5, Smith militaire 0,3, hip thrust machine 0,8 × poids de corps) : choix prudents ❌ non tirés d’études ; les machines varient d’une marque à l’autre.
+
 ## 9. Règles déjà en place, inchangées en 3D
 
 Volume par muscle (comptage ½ pour un muscle secondaire), fréquence, semaine allégée (Bell 2023, Rogerson 2024 ✅), double progression des charges, allègement après 3 séances ratées : voir `docs/PLAN_PHASE2.md`, section 9.

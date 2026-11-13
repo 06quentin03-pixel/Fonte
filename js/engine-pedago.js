@@ -65,6 +65,9 @@ X("pull-over","Pull-over à l’haltère","pecs",["pecs","dorsaux"],["triceps","
 X("smith-incline","Développé incliné à la Smith machine","pecs",["pecs"],["epaules_ant","triceps"],["smith","banc"],1,"r",
 ["Place un banc incliné à 30° sous la barre guidée.","Décroche la barre en la tournant, mains un peu plus larges que les épaules.","Descends vers le haut de la poitrine.","Pousse jusqu’à bras tendus et raccroche en fin de série."],
 ["Le guidage sécurise le mouvement : bon choix sans partenaire.","Vérifie que la barre arrive bien sous les clavicules."]);
+X("dc-smith","Développé couché à la Smith machine","pecs",["pecs"],["epaules_ant","triceps"],["smith","banc"],1,"r",
+["Place un banc plat sous la barre guidée : la barre doit descendre au niveau du bas de ta poitrine.","Allongé, pieds à plat au sol, décroche la barre en la tournant, mains un peu plus larges que les épaules.","Descends lentement jusqu’à frôler la poitrine, coudes à environ 45° du buste.","Pousse jusqu’à bras tendus, puis raccroche la barre en la tournant en fin de série."],
+["La barre guidée ne peut pas tomber sur toi : règle les butées de sécurité juste sous ta poitrine.","Omoplates serrées contre le banc, fesses collées au banc."]);
 X("squeeze-press","Squeeze press aux haltères","pecs",["pecs"],["triceps"],["halteres","banc"],1,"r",
 ["Allongé, haltères collés l’un contre l’autre au-dessus de la poitrine.","Presse-les fort l’un contre l’autre pendant tout le mouvement.","Descends jusqu’à la poitrine puis remonte."],
 ["Exercice de finition très efficace pour l’intérieur des pectoraux.","Utilise des charges légères."]);
@@ -138,6 +141,9 @@ X("dm-halteres","Développé épaules aux haltères (assis)","epaules",["epaules
 X("arnold","Développé Arnold","epaules",["epaules_ant","epaules_lat"],["triceps"],["halteres","banc"],2,"r",
 ["Assis, haltères devant les épaules, paumes vers toi.","Pousse vers le haut en tournant les paumes vers l’avant.","Redescends en refaisant la rotation inverse."],
 ["La rotation fait travailler l’épaule sur une plus grande amplitude.","Mouvement fluide, sans à-coups."]);
+X("dm-smith","Développé militaire assis à la Smith machine","epaules",["epaules_ant"],["epaules_lat","triceps"],["smith","banc"],1,"r",
+["Place un banc à dossier droit sous la barre guidée, la barre juste devant ton visage.","Assis, dos contre le dossier, décroche la barre à hauteur du menton, mains un peu plus larges que les épaules.","Pousse vers le haut jusqu’à bras presque tendus.","Redescends lentement jusqu’au menton et raccroche en fin de série."],
+["Règle les butées de sécurité à hauteur des épaules.","Ventre gainé : ne cambre pas le bas du dos."]);
 X("presse-epaules","Développé épaules à la machine","epaules",["epaules_ant"],["epaules_lat","triceps"],["machine"],1,"r",
 ["Règle le siège pour que les poignées soient à hauteur d’épaules.","Dos contre le dossier, pousse vers le haut.","Redescends lentement sans laisser les charges se toucher."],
 ["Idéal pour débuter en sécurité.","Ne verrouille pas les coudes en haut."]);
@@ -398,6 +404,9 @@ X("leg-curl-swissball","Leg curl au swiss ball","ischios",["ischios"],["fessiers
 X("hip-thrust","Hip thrust à la barre","fessiers",["fessiers"],["ischios","quadriceps"],["barre","banc"],1,"r",
 ["Haut du dos appuyé contre un banc, barre (avec protection) sur les hanches.","Pieds largeur de hanches, genoux à 90° en haut du mouvement.","Pousse les hanches vers le plafond en serrant les fessiers.","Redescends lentement."],
 ["Menton rentré, regard vers l’avant en haut.","Tiens 1 seconde en haut, fessiers contractés."]);
+X("hip-thrust-machine","Hip thrust à la machine","fessiers",["fessiers"],["ischios","quadriceps"],["machine"],1,"r",
+["Assieds-toi sur la machine, haut du dos contre l’appui, et place la sangle ou le boudin sur les hanches.","Pieds largeur de hanches, genoux à 90° en haut du mouvement.","Pousse les hanches vers le haut en serrant les fessiers.","Redescends lentement sans laisser les charges se toucher."],
+["Version guidée du hip thrust : pas de barre à placer ni à équilibrer.","Menton rentré, tiens 1 seconde en haut, fessiers contractés."]);
 X("pont-fessier","Pont fessier","fessiers",["fessiers"],["ischios","lombaires"],["pdc"],1,"r",
 ["Allongé sur le dos, genoux fléchis, pieds au sol.","Monte les hanches en serrant les fessiers.","Tiens une seconde, redescends."],
 ["Pousse dans les talons.","Ajoute un poids sur les hanches pour progresser."]);
@@ -660,7 +669,7 @@ const LOAD = {
   "sdt-roumain": ["b", .7, "L"], "souleve-terre": ["b", 1, "L"], "sdt-sumo": ["b", .95, "L"], "good-morning": ["b", .38, "L"], "hip-thrust": ["b", .85, "L"],
   "rowing-barre": ["b", .5], "rowing-t": ["b", .5], "dm-barre": ["b", .36], "rowing-menton": ["b", .3], "shrug-barre": ["b", .8], "curl-barre": ["b", .25],
   "curl-ez": ["e", .23], "curl-inverse": ["e", .15], "curl-pupitre": ["e", .19], "barre-front": ["e", .2],
-  "smith-incline": ["s", .45], "squat-smith": ["s", .7, "L"],
+  "smith-incline": ["s", .45], "squat-smith": ["s", .7, "L"], "dc-smith": ["s", .5], "dm-smith": ["s", .3],
   "dc-halteres": ["d", .22], "di-halteres": ["d", .19], "ecarte-halteres": ["d", .1], "ecarte-incline": ["d", .09], "squeeze-press": ["d", .15],
   "pull-over": ["d", .22, "S"], "rowing-haltere": ["d", .26, "S"], "dm-halteres": ["d", .15], "arnold": ["d", .13], "elevations-laterales": ["d", .1],
   "elevations-frontales": ["d", .09], "oiseau": ["d", .07], "elevations-y": ["d", .04], "shrug-halteres": ["d", .3], "curl-halteres": ["d", .13],
@@ -671,7 +680,7 @@ const LOAD = {
   "renegade-row": ["d", .12], "farmer-walk": ["d", .3, "w"],
   "sdt-kettlebell": ["k", .4, "L"], "kettlebell-swing": ["k", .22, "L"], "turkish-getup": ["k", .1],
   "presse-pecs": ["m", .5], "pec-deck": ["m", .35], "presse-epaules": ["m", .32], "reverse-pec-deck": ["m", .22], "rowing-machine": ["m", .5],
-  "presse-cuisses": ["m", 1.5, "L"], "hack-squat": ["m", .8, "L"], "leg-extension": ["m", .45, "L"], "leg-curl-allonge": ["m", .32, "L"], "leg-curl-assis": ["m", .36, "L"],
+  "hip-thrust-machine": ["m", .8, "L"], "presse-cuisses": ["m", 1.5, "L"], "hack-squat": ["m", .8, "L"], "leg-extension": ["m", .45, "L"], "leg-curl-allonge": ["m", .32, "L"], "leg-curl-assis": ["m", .36, "L"],
   "abduction-machine": ["m", .5, "L"], "adduction-machine": ["m", .5, "L"], "mollets-debout": ["m", .9, "L"], "mollets-assis": ["m", .45, "L"], "mollets-presse": ["m", 1.1, "L"],
   "sled-push": ["m", .45, "Lw"],
   "vis-a-vis": ["c", .09], "tirage-vertical": ["c", .6], "tirage-serre": ["c", .55], "tirage-horizontal": ["c", .55], "pull-over-poulie": ["c", .22],
@@ -1177,6 +1186,7 @@ const pressIncl = (eq) => ({ k: [{ h: HI, t: TI, n: TI - 8, a: IR([2, -53], "x+"
 def("di-barre", pressIncl([plate()]));
 def("di-halteres", pressIncl(dbs()));
 def("smith-incline", pressIncl([post([-24, -10], [-24, -190], 3), plate()]));
+def("dc-smith", pressLie([post([-24, -10], [-24, -190], 3), plate()]));
 const HD = [22, -66], TD = 290;
 def("dd-barre", { k: [{ h: HD, t: TD, n: TD + 4, a: IR([2, -53], "x+", { w: 180 }), l: [140, 30] }, { h: HD, t: TD, n: TD + 4, a: IJ("ch", [2, -5], "x+", { w: 180 }), l: [140, 30] }], s: rep(1500, 1000, "Descends vers le bas des pecs", "Pousse"),
   p: [pad(add(add(HD, TD, -12), TD + 90, 12), add(add(HD, TD, 72), TD + 90, 12), 9), post([10, -55], [10, 0]), post([-50, -38], [-50, 0]), C([72, -70], 6, "pad"), post([72, -66], [40, -40], 3), plate()] });
@@ -1249,6 +1259,7 @@ const backrest = [RC([0, -100], 34, 70, 0, "pad", 0)];
 def("dm-halteres", { v: "front", k: [FSEAT({ a: [90, 180, 180] }), FSEAT({ a: [158, 174, 174] })], s: rep(1100, 1400, "Pousse au-dessus de la tête", "Redescends coudes à hauteur d’épaules"), p: backrest.concat(FSEATP, dbF()) });
 def("arnold", { v: "front", k: [FSEAT({ a: [-18, 178, 178] }), FSEAT({ a: [90, 180, 180] }), FSEAT({ a: [158, 174, 174] })], s: [[0, 0, 450], [1, 700, 0, "Ouvre les coudes en tournant"], [2, 800, 300, "Pousse"], [1, 900, 0, "Redescends"], [0, 700, 450, "Referme"]], p: backrest.concat(FSEATP, dbF()) });
 def("presse-epaules", { v: "front", k: [FSEAT({ a: [92, 180, 180] }), FSEAT({ a: [158, 174, 174] })], s: rep(1100, 1400, "Pousse vers le haut", "Redescends lentement"), p: backrest.concat(FSEATP, [post([42, -60], [42, -200]), post([-42, -60], [-42, -200]), hnd("gR"), hnd("gL")]) });
+def("dm-smith", Z["presse-epaules"]); /* même geste, assis, barre guidée */
 def("elevations-laterales", { v: "front", k: [FST({ a: [7, 9] }), FST({ a: [86, 94] })], s: rep(1000, 1500, "Monte les bras sur les côtés", "Redescends lentement"), p: [{ k: "dbs", p: "gR", z: 2 }, { k: "dbs", p: "gL", z: 2 }] });
 def("elev-lat-poulie", { v: "front", k: [FST({ a: IK([-6, -84], "x+"), aL: IK([-30, -96], "x-") }), FST({ a: [86, 94], aL: IK([-30, -96], "x-") })], s: rep(1000, 1500, "Monte le bras sur le côté", "Redescends lentement"), p: [post([-50, 0], [-50, -110]), cab([-46, -10], "gR"), hnd()] });
 def("elevations-frontales", { k: [ST({ a: [3, 5] }), ST({ a: [88, 92] })], s: rep(1000, 1400, "Monte devant toi", "Redescends lentement"), p: dbs() });
@@ -1361,6 +1372,7 @@ def("leg-curl-swissball", { k: [{ h: [0, -30], t: 290, n: 280, a: [92, 92, 90], 
 
 /* ================= FESSIERS ================= */
 def("hip-thrust", { k: [{ h: [8, -22], t: 235, n: 230, a: IJ("hp", [0, -3], "y-"), l: IK([44, -4], "y-", { f: 90 }) }, { h: [10, -50], t: 266, n: 258, a: IJ("hp", [0, -3], "y-"), l: IK([44, -4], "y-", { f: 90 }) }], s: rep(1000, 1300, "Pousse les hanches vers le plafond", "Redescends lentement", [500, 700, 500]), p: [pad([-92, -40], [-32, -40], 9), post([-80, -36], [-80, 0]), post([-44, -36], [-44, 0]), plate("hp", 17)] });
+def("hip-thrust-machine", Z["hip-thrust"]);
 def("pont-fessier", { k: [FLOOR({ a: [86, 90, 90], l: IK([40, -4], "y-", { f: 90 }) }), { h: [0, -40], t: 300, n: 275, a: [86, 90, 90], l: IK([40, -4], "y-", { f: 90 }) }], s: rep(900, 1200, "Monte les hanches, serre les fessiers", "Redescends", [500, 700, 500]) });
 def("pont-unilateral", { k: [FLOOR({ a: [86, 90, 90], l: [140, 140], l2: IK([40, -4], "y-", { f: 90 }) }), { h: [0, -40], t: 300, n: 275, a: [86, 90, 90], l: [118, 118], l2: IK([40, -4], "y-", { f: 90 }) }], s: rep(900, 1200, "Pousse dans le talon d’appui", "Redescends sans poser les fesses", [500, 700, 500]) });
 def("kickback-poulie", { k: [{ h: [0, -88], t: 155, n: 160, a: IK([44, -122], "y+"), l: [6, 6], l2: IK([-2, -4], "x+") }, { h: [0, -88], t: 155, n: 160, a: IK([44, -122], "y+"), l: [-52, -48], l2: IK([-2, -4], "x+") }], s: rep(900, 1300, "Pousse la jambe vers l’arrière", "Reviens lentement"), p: [post([52, 0], [52, -150]), J => cab([48, -10], J.aR), hnd()] });

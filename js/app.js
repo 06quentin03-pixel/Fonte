@@ -425,7 +425,7 @@ function tickProgress() {
 /* S4 (3D) : proposition de passage de niveau (jamais automatique) */
 function levelCard() {
   const s = levelSuggest(S.profile, S.historique, todayISO()); if (!s || !s.ok) return "";
-  return `<section><div class="card card-accent" id="lvl-card" style="display:flex;flex-direction:column;gap:10px"><div class="eyebrow" style="color:inherit;opacity:.85">Proposition</div><div class="h3">Tu pourrais passer au niveau ${esc(NIVEAUX[NIV_KEYS[s.to]].toLowerCase())}</div><ul class="bullets small">${s.checks.map(c => `<li>${esc(c.txt)}</li>`).join("")}</ul><p class="small">Ce qui change : des séances plus complètes (plus d’exercices, versions à la barre), et tu repars au palier 1. Tes charges restent les tiennes : Fonte part de ce que tu soulèves déjà.</p><div class="btn-row"><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="lvl-up" data-v="${s.to}">Passer au niveau ${esc(NIVEAUX[NIV_KEYS[s.to]].toLowerCase())}</button><button class="btn" style="background:transparent;color:inherit;border:1px solid currentColor" data-a="lvl-later">Plus tard</button></div></div></section>`;
+  return `<section><div class="card card-accent" id="lvl-card" style="display:flex;flex-direction:column;gap:10px"><div class="eyebrow" style="color:inherit;opacity:.85">Proposition</div><div class="h3">Tu pourrais passer au niveau ${esc(NIVEAUX[NIV_KEYS[s.to]].toLowerCase())}</div><ul class="bullets small">${s.checks.map(c => `<li>${esc(c.txt)}</li>`).join("")}</ul><p class="small">Ce qui change : des séances plus complètes (plus d’exercices, versions à la barre), et tu repars au palier 1. Tes charges restent les tiennes : Fonte part de ce que tu soulèves déjà${s.to === "intermediaire" ? " ; pour les exercices à la barre libre, nouveaux pour toi, il propose une charge prudente d’après ton profil, à ajuster dès la première séance" : ""}.</p><div class="btn-row"><button class="btn" style="background:var(--accent-ink);color:var(--accent)" data-a="lvl-up" data-v="${s.to}">Passer au niveau ${esc(NIVEAUX[NIV_KEYS[s.to]].toLowerCase())}</button><button class="btn" style="background:transparent;color:inherit;border:1px solid currentColor" data-a="lvl-later">Plus tard</button></div></div></section>`;
 }
 function progressCard(home) {
   const p = S.profile, per = phasePer(p), done = Math.min(per, p.phaseDone || 0), ph = p.phase || 1, L = NIV_KEYS[p.niveau] || 1, left = per - done;
@@ -761,7 +761,7 @@ function openMesures() { Sheet.open({ key: "mes", title: "Mesures", tall: true, 
 function openSwap() {
   const st = R.steps[R.idx]; if (!st || st.k !== "work" || st.cool) return;
   const it = R.se.items[st.i], e = EX_BY_ID[it.id];
-  const ids = altsFor(it.id, { exclude: R.se.items.map(x => x.id), low: lowImpact(S.profile), lvl: (NIV_KEYS[S.profile.niveau] || 1) === 1 ? 2 : 3, n: 6 });
+  const ids = altsFor(it.id, { exclude: R.se.items.map(x => x.id), low: lowImpact(S.profile), lvl: (NIV_KEYS[S.profile.niveau] || 1) === 1 ? 2 : 3, deb: (NIV_KEYS[S.profile.niveau] || 1) === 1, n: 6 });
   const body = `<p class="muted">Machine prise ou exercice qui ne te va pas : ces exercices travaillent les mêmes muscles. Celui que tu choisis remplace les séries restantes de ${esc(e.n)}.</p>${ids.length ? `<div class="list">${ids.map(id => { const x = EX_BY_ID[id]; return exRow(x, { act: "run-swap-to", right: `<span class="tag">${esc(x.m.slice(0, 1).map(m => MATERIEL[m]).join(""))}</span>` }); }).join("")}</div>` : `<div class="card empty"><p>Pas d’exercice équivalent dans l’appli. Tu peux le mettre de côté avec « Plus tard » ou le passer.</p></div>`}`;
   Sheet.open({ key: "swap", title: "Remplacer " + e.n, tall: true, body });
 }
@@ -888,7 +888,9 @@ let HE = null;
 const heTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
 function heFromHist(x) {
   return { id: x.id, date: x.date, heure: heTime(x.ts || fromISO(x.date).getTime()), duree: Math.round((x.duree || 3600) / 60), ressenti: x.ressenti || "", nom: x.nom, kind: x.kind || "muscu",
-    log: clone((x.log || []).filter(l => !l.warm && !l.cool && EX_BY_ID[l.id])) };
+    log: clone((x.log || []).filter(l => !l.warm && !l.cool && EX_BY_ID[l.id])),
+    /* exercices inconnus de cette version : non modifiables ici, mais remis tels quels à l’enregistrement */
+    keep: clone((x.log || []).filter(l => !l.warm && !l.cool && !EX_BY_ID[l.id])) };
 }
 /* Journal pré-rempli d’après une séance (séries prévues, charges conseillées) : il ne reste qu’à corriger ce qui a été fait */
 function heLogOf(se) {
@@ -944,7 +946,7 @@ function heSave() {
   if (!HE) return;
   const date = HE.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || date > todayISO()) { toast("Choisis une date passée (ou aujourd’hui)."); return; }
-  const r = histSave(S, { id: HE.id, date, heure: HE.heure, nom: HE.nom, kind: HE.kind, ref: HE.ref, duree: (num(HE.duree) || 60) * 60, ressenti: HE.ressenti, log: HE.log }, Date.now());
+  const r = histSave(S, { id: HE.id, date, heure: HE.heure, nom: HE.nom, kind: HE.kind, ref: HE.ref, duree: (num(HE.duree) || 60) * 60, ressenti: HE.ressenti, log: HE.log.concat(HE.keep || []) }, Date.now());
   if (!r.ok) { toast({ vide: "Note au moins une série (répétitions ou durée).", resume: "Séance résumée : impossible de la modifier.", introuvable: "Séance introuvable.", date: "Date invalide." }[r.error] || "Impossible d’enregistrer."); return; }
   HE = null; Sheet.closeAll();
   if (r.same) { toast("Rien n’a changé"); return; }
@@ -1752,8 +1754,11 @@ function openEx(id) {
   harder.forEach(x => alts.push([x.deb === id ? "Pour progresser" : "Version avec sauts", x]));
   const sim = EX.filter(x => x.id !== id && x.g === e.g && x.p.some(m => e.p.indexOf(m) >= 0) && !alts.some(a => a[1].id === x.id)).slice(0, 5);
   const pl = perfLine(id);
+  /* Débutant : la fiche d’un exercice à la barre libre conseille sa version guidée (sans l’interdire) */
+  const guide = (NIV_KEYS[S.profile.niveau] || 1) === 1 && DEB_GUIDE[id] ? debGuide(id) : null;
   const body = `
     <div class="tags"><span class="tag"><i class="plate-dot" style="--c:${GROUP_COLOR[e.g]};display:inline-block;vertical-align:-1px;margin-right:4px"></i>${GROUP_LABEL[e.g]}</span><span class="tag">${NIVEAUX[e.l]}</span><span class="tag">${e.t === "t" ? "Chronométré" + (e.dt ? " · " + fmtSec(e.dt) : "") : "En répétitions"}${e.pc ? " · par côté" : ""}</span>${e.imp ? `<span class="tag">Avec sauts</span>` : ""}${ECH.has(id) ? `<span class="tag tag-f">${icon("flame")}Échec sans risque</span>` : ""}</div>
+    ${guide ? `<div class="note" id="ex-guide">${icon("sparkle")}<span>Pour débuter, préfère la version guidée, plus sûre pour apprendre le mouvement : <button style="color:var(--accent);font-weight:600;text-align:left" data-a="ex-open" data-id="${guide.id}">${esc(guide.n)}</button></span></div>` : ""}
     ${animHTML(id)}
     ${loadNote(e)}
     <div class="card">${figHTML(e.p, e.s, "md")}<div class="legend" style="margin-top:12px"><span><i style="background:var(--hl)"></i>Principal</span><span><i style="background:var(--hl2)"></i>Secondaire</span></div></div>
@@ -1767,7 +1772,8 @@ function openEx(id) {
     <div class="field"><label for="ex-note">Ma note</label><textarea class="inp" id="ex-note" data-note="${id}" maxlength="300" placeholder="Réglage du siège, prise, sensations…">${esc(S.notes[id] || "")}</textarea><span class="small muted">Elle s’affiche pendant la séance.</span></div>
     ${alts.length ? `<div><div class="h3" style="margin-bottom:8px">Variantes</div><div class="list">${alts.map(([l, x]) => exRow(x, { right: `<span class="tag">${l}</span>` })).join("")}</div></div>` : ""}
     ${sim.length ? `<div><div class="h3" style="margin-bottom:8px">Exercices proches</div><div class="list">${sim.map(x => exRow(x)).join("")}</div></div>` : ""}`;
-  const sh = Sheet.open({ key: "ex", title: e.n, body, tall: true, foot: `<button class="btn btn-primary btn-lg" data-a="ex-add" data-id="${id}">${icon("plus")}${E ? "Ajouter à cette séance" : "Ajouter à une séance"}</button>`,
+  const sh = Sheet.open({ key: "ex", title: e.n, body, tall: true, foot: E ? `<button class="btn btn-primary btn-lg" data-a="ex-add" data-id="${id}">${icon("plus")}Ajouter à cette séance</button>`
+      : `<button class="btn btn-lg" data-a="ex-add" data-id="${id}">${icon("plus")}Ajouter</button>${R ? "" : `<button class="btn btn-primary btn-lg btn-wrap" data-a="ex-solo" data-id="${id}">${icon("play")}Faire cet exercice</button>`}`,
     onClose: () => { CH = null; if (R && !$("#runner").hidden) renderRunner(); } });
   ANIM.mount(sh.el, true);
 }
@@ -2018,7 +2024,7 @@ const VIEWS = { accueil: viewAccueil, exercices: viewExercices, seances: viewSea
 let E = null;
 function openEditor(mode, se, opts) {
   /* Mode simple : pas d’écran de préparation, la séance guidée démarre directement */
-  if (mode === "prep" && simple() && se && (se.items || []).length) { const o = opts || {}; startRun(se, { tplId: o.tplId || null, srcId: o.srcId || null, eventId: o.eventId || null, pj: o.pj != null ? o.pj : null, pk: o.pk || null }); return; }
+  if (mode === "prep" && simple() && se && (se.items || []).length) { const o = opts || {}; startRun(se, { tplId: o.tplId || null, srcId: o.srcId || null, eventId: o.eventId || null, pj: o.pj != null ? o.pj : null, pk: o.pk || null, solo: o.solo ? 1 : 0 }); return; }
   Sheet.closeAll();
   E = Object.assign({ mode, se: clone(se) }, opts || {});
   if (!Array.isArray(E.se.items)) E.se.items = [];
@@ -2301,7 +2307,7 @@ function saveRunHistory(at) {
   const log = runLog(), pr = findRecords(S.historique.filter(h => (h.ts || 0) < now), log).map(r => ({ id: r.id, k: r.k, v: r.v }));
   const ref = R.tplId ? { k: "t", id: R.tplId } : (R.srcId ? { k: "p", id: R.srcId } : null);
   const today = toISO(new Date(now));
-  const entry = { id: rid(), date: today, ts: now, upd: Date.now(), nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log, pr: pr.length ? pr : undefined, pj: R.pj != null ? R.pj : undefined, pk: R.pk || undefined, dl: se.dl ? 1 : undefined };
+  const entry = { id: rid(), date: today, ts: now, upd: Date.now(), nom: se.nom || "Séance", kind: se.kind, ref, duree: sum.duree, volume: Math.round(sum.volume), kcal: sum.kcal, sets: sum.sets, ressenti: R.feel || null, log, pr: pr.length ? pr : undefined, pj: R.pj != null ? R.pj : undefined, pk: R.pk || undefined, dl: se.dl ? 1 : undefined, solo: R.solo ? 1 : undefined };
   S.historique.unshift(entry);
   UI.progSkip = 0;
   if (at) S.historique.sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -2457,6 +2463,14 @@ const A = {
     const body = `<div class="list">${S.mesSeances.map(m => `<button class="row" data-a="ex-add-to" data-id="${esc(m.id)}" data-ex="${ex.id}"><div class="row-main"><div class="row-title">${esc(m.nom)}</div><div class="row-sub">${plural(m.items.length, "exercice")}</div></div>${icon("plus", "ic chev")}</button>`).join("")}<button class="row" data-a="ex-add-new" data-ex="${ex.id}"><div class="row-main"><div class="row-title" style="color:var(--accent)">Nouvelle séance</div><div class="row-sub">Commencer une séance avec cet exercice</div></div>${icon("plus", "ic chev")}</button></div>`;
     Sheet.open({ key: "addto", title: "Ajouter à…", body });
   },
+  /* Faire un exercice seul (pour l’essayer, ou ne faire que lui) : séance d’un exercice, enregistrée dans l’historique
+     (courbes, records, charges) mais qui ne compte pas pour le palier ni pour le passage de niveau (solo) */
+  "ex-solo": el => {
+    const ex = EX_BY_ID[el.dataset.id]; if (!ex) return;
+    if (runBusy()) { toast("Une séance est en cours : termine-la (ou supprime-la) avant de lancer un exercice seul."); return; }
+    const calme = ex.g === "mobilite" || ex.g === "etirements", cardio = ex.g === "cardio";
+    openEditor("prep", applySuggestions({ nom: ex.n, mode: "series", kind: calme ? "mob" : cardio ? "cardio" : "muscu", echauf: !calme && !cardio, etir: false, items: [defaultItem(ex)] }), { solo: 1 });
+  },
   "ex-add-to": el => { const m = S.mesSeances.find(x => x.id === el.dataset.id), ex = EX_BY_ID[el.dataset.ex]; if (!m || !ex) return; m.items.push(defaultItem(ex)); commit("p"); Sheet.closeAll(); toast(ex.n + " ajouté à " + m.nom); softRender(); },
   "ex-add-new": el => { const ex = EX_BY_ID[el.dataset.ex]; if (!ex) return; openEditor("edit", { nom: "", mode: "series", items: [defaultItem(ex)] }); },
   /* séances */
@@ -2503,7 +2517,7 @@ const A = {
     closeEditor(); UI.seg = "mes"; saveUI(); goTab("seances"); toast("Séance enregistrée");
   },
   "ed-delete": el => { if (!arm(el)) return; S.mesSeances = S.mesSeances.filter(x => x.id !== E.srcId); commit("p"); closeEditor(); render(); toast("Séance supprimée"); },
-  "ed-go": () => { if (!E.se.items.length) { toast("Ajoute au moins un exercice."); return; } E.se.nom = (E.se.nom || "").trim() || "Séance"; startRun(E.se, { tplId: E.tplId || null, srcId: E.srcId || null, eventId: E.eventId || null, pj: E.pj != null ? E.pj : null, pk: E.pk || null }); },
+  "ed-go": () => { if (!E.se.items.length) { toast("Ajoute au moins un exercice."); return; } E.se.nom = (E.se.nom || "").trim() || "Séance"; startRun(E.se, { tplId: E.tplId || null, srcId: E.srcId || null, eventId: E.eventId || null, pj: E.pj != null ? E.pj : null, pk: E.pk || null, solo: E.solo ? 1 : 0 }); },
   /* sélecteur */
   "pk-g": el => { PK.g = el.dataset.g; $("#pk-chips").innerHTML = pkChips(); $("#pk-list").innerHTML = pkList(); },
   "pk-t": el => { const id = el.dataset.id, k = PK.sel.indexOf(id); if (k >= 0) PK.sel.splice(k, 1); else PK.sel.push(id); const on = k < 0; el.setAttribute("aria-pressed", on); const r = el.querySelector(".radio"); if (r) r.setAttribute("aria-checked", on); pkFoot(); },
